@@ -22,7 +22,7 @@ export default function desk(app, { band }) {
       go.disabled = true; err.textContent = '';
       try {
         const r = await post('join', { code: code.value, name: name.value });
-        if (!r.ok) { err.textContent = r.data.error || 'Could not join.'; go.disabled = false; return; }
+        if (!r.ok || r.data.ok === false) { err.textContent = r.data.error || 'Could not join.'; go.disabled = false; return; }
         saved = { token: r.data.token, teamName: r.data.teamName, name: name.value.trim() };
         store(KEY, saved);
         start();
@@ -66,7 +66,7 @@ export default function desk(app, { band }) {
       for (let k = 0; k < 3; k++) {
         try {
           const r = await post(path, { ...body, token: saved.token }, { retries: 0 });
-          if (r.ok) { if (r.data.orders) live.orders = r.data.orders; adapter._emit && adapter._emit(); pollOnce(); return { ok: true }; }
+          if (r.ok && r.data.ok !== false) { if (r.data.orders) live.orders = r.data.orders; adapter._emit && adapter._emit(); pollOnce(); return { ok: true }; }
           if (r.data.stale) { await pollOnce(); return { ok: false, reason: r.data.error }; }
           return { ok: false, reason: r.data.error || 'Refused.' };
         } catch {

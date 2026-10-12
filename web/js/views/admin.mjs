@@ -16,8 +16,8 @@ export default function admin(app, { band }) {
     busy = true;
     try {
       const r = await post('admin', { password: pass, action, ...extra }, { retries: 1 });
-      if (r.status === 401) { pass = null; sstore('specula-admin', null); toast('Wrong Event Head password.', 'bad'); login(); return r; }
-      if (!r.ok && !quiet) toast(r.data.error || 'Refused', 'bad', 7000);
+      if (r.status === 401 || r.data.code === 401) { pass = null; sstore('specula-admin', null); toast('Wrong Event Head password.', 'bad'); login(); return r; }
+      if ((!r.ok || r.data.ok === false) && !quiet) toast(r.data.error || 'Refused', 'bad', 7000);
       await pollOnce();
       await refresh();
       return r;
@@ -27,7 +27,7 @@ export default function admin(app, { band }) {
     } finally { busy = false; }
   }
   async function refresh() {
-    try { const r = await post('admin', { password: pass, action: 'status' }, { retries: 0 }); if (r.ok) status = r.data; } catch { /* offline */ }
+    try { const r = await post('admin', { password: pass, action: 'status' }, { retries: 0 }); if (r.ok && r.data.ok !== false) status = r.data; } catch { /* offline */ }
     lastKey = ''; render();
   }
 
@@ -44,10 +44,10 @@ export default function admin(app, { band }) {
       if (has === false) {
         if (pw.value !== pw2.value) { err.textContent = 'The two passwords do not match.'; return; }
         const r = await post('admin', { action: 'setup', password: pw.value });
-        if (!r.ok) { err.textContent = r.data.error; return; }
+        if (!r.ok || r.data.ok === false) { err.textContent = r.data.error; return; }
       }
       const r = await post('admin', { action: 'login', password: pw.value });
-      if (!r.ok) { err.textContent = r.data.error || 'Wrong password.'; return; }
+      if (!r.ok || r.data.ok === false) { err.textContent = r.data.error || 'Wrong password.'; return; }
       pass = pw.value; sstore('specula-admin', pass); start();
     } }, pw, has === false ? pw2 : null, h('button', { class: 'btn lg block', type: 'submit', id: 'admin-go' }, has === false ? 'Set the password and enter' : 'Enter'), err);
     mount(app, band(''), h('main', { class: 'narrow', style: { padding: '40px 16px' } },
@@ -201,7 +201,7 @@ export default function admin(app, { band }) {
     return h('div', { class: 'grid g2' },
       h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Screens'), h('p', {}, h('a', { href: '#/display', target: '_blank' }, 'Open the Big Screen in a new tab'), ' (put it on the projector, press F11 for full screen).'), h('p', {}, h('a', { href: '#/desk', target: '_blank' }, 'Open a Team Desk'))),
       h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Backup'), h('p', { class: 'small' }, 'Download everything (prices, orders, results) as a file. Do this at the end, or any time.'),
-        h('button', { class: 'btn ghost', onclick: async () => { const r = await post('admin', { password: pass, action: 'export' }); if (r.ok) { const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(r.data, null, 1)], { type: 'application/json' })), download: `specula-backup-${new Date().toISOString().slice(0, 16)}.json` }); a.click(); } } }, 'Download backup')),
+        h('button', { class: 'btn ghost', onclick: async () => { const r = await post('admin', { password: pass, action: 'export' }); if (r.ok && r.data.ok !== false) { const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(r.data, null, 1)], { type: 'application/json' })), download: `specula-backup-${new Date().toISOString().slice(0, 16)}.json` }); a.click(); } } }, 'Download backup')),
       h('div', { class: 'card', style: { borderColor: 'var(--down)' } }, h('div', { class: 'eyebrow' }, 'Reset the game'),
         h('p', { class: 'small' }, 'Wipes every quarter, order and result. Use after a rehearsal. The password stays.'),
         h('label', { class: 'row small' }, keep, 'Keep the same funds and codes (teams sign in again)'), conf,

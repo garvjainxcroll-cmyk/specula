@@ -33,6 +33,9 @@ function json(body, status = 200, extra = {}) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra } });
 }
 const fail = (status, error, extra = {}) => json({ ok: false, error, ...extra }, status);
+// A refusal (late order, over the limit, wrong code…) is a normal answer, not a failed
+// request: it is sent with status 200 so browsers do not log it as an error.
+const refuse = (code, error, extra = {}) => json({ ok: false, refused: true, code, error, ...extra }, 200);
 
 const b64 = (buf) => Buffer.from(new Uint8Array(buf)).toString('base64url');
 async function sha(pass, salt) {
@@ -211,7 +214,7 @@ async function poll(store, url) {
   const token = url.searchParams.get('token');
   if (token) {
     const m = await memberFromToken(store, token);
-    if (!m) return fail(401, 'Your sign-in has expired. Join your fund again with its code.', { state: out.state, now: out.now });
+    if (!m) return refuse(401, 'Your sign-in has expired. Join your fund again with its code.', { state: out.state, now: out.now });
     out.me = m;
     if (state.q) out.orders = (await getJ(store, `orders/${state.q}/${m.teamId}`)) || { orders: [], rev: 0 };
   }
@@ -233,7 +236,7 @@ async function doc(store, url) {
 
 async function mine(store, url) {
   const m = await memberFromToken(store, url.searchParams.get('token'));
-  if (!m) return fail(401, 'Sign in with your fund code');
+  if (!m) return refuse(401, 'Sign in with your fund code');
   const t = await getJ(store, `team/${m.teamId}`);
   const q = Number(url.searchParams.get('q') || 0);
   const r = q ? await getJ(store, `team/${m.teamId}/r/${q}`) : null;
@@ -243,11 +246,11 @@ async function mine(store, url) {
 async function join(store, body) {
   const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const name = String(body.name || '').trim().slice(0, 24);
-  if (!code) return fail(400, 'Enter your fund code.');
-  if (!name) return fail(400, 'Enter your name.');
+  if (!code) return refuse(400, 'Enter your fund code.');
+  if (!name) return refuse(400, 'Enter your name.');
   const sec = await getJ(store, 'secrets');
   const teamId = sec && Object.entries(sec.codes || {}).find(([, c]) => c === code)?.[0];
-  if (!teamId) return fail(403, 'That fund code is not recognised. Check it with the Event Head.');
+  if (!teamId) return refuse(403, 'That fund code is not recognised. Check it with the Event Head.');
   const memberId = randomId(8);
   const state = await setState(store, (s) => {
     const t = s.teams.find((x) => x.id === teamId);
@@ -270,11 +273,11 @@ function windowCheck(state, body) {
 
 async function order(store, body) {
   const m = await memberFromToken(store, body.token);
-  if (!m) return fail(401, 'Sign in with your fund code');
+  if (!m) return refuse(401, 'Sign in with your fund code');
   const state = await getState(store);
   const late = windowCheck(state, body);
-  if (late) return fail(409, late, { late: true });
-  if (Number(body.epoch) !== state.epoch) return fail(409, 'Prices have just moved: a crisis has broken. Check the desk and place your order again.', { stale: true });
+  if (late) return refuse(409, late, { late: true });
+  if (Number(body.epoch) !== state.epoch) return refuse(409, 'Prices have just moved: a crisis has broken. Check the desk and place your order again.', { stale: true });
   if (!INST[body.inst]) return fail(400, 'Unknown instrument');
   if (!['buy', 'sell', 'close'].includes(body.side)) return fail(400, 'Unknown order type');
   const world = await loadWorld(store, state);
@@ -291,20 +294,20 @@ async function order(store, body) {
     outcome = { ok: true, order: o };
     return { ...d, orders: [...d.orders, o], rev: d.rev + 1 };
   });
-  if (!outcome.ok) return fail(422, outcome.reason);
+  if (!outcome.ok) return refuse(422, outcome.reason);
   const doc2 = await getJ(store, docKey);
   return json({ ok: true, order: outcome.order || null, duplicate: !!outcome.duplicate, orders: doc2 });
 }
 
 async function forecast(store, body) {
   const m = await memberFromToken(store, body.token);
-  if (!m) return fail(401, 'Sign in with your fund code');
+  if (!m) return refuse(401, 'Sign in with your fund code');
   const state = await getState(store);
   const late = windowCheck(state, body);
-  if (late) return fail(409, late, { late: true });
+  if (late) return refuse(409, late, { late: true });
   const raw = body.value;
   const value = raw === null || raw === '' ? null : Number(raw);
-  if (value !== null && (!Number.isFinite(value) || Math.abs(value) > 100)) return fail(400, 'Enter a percentage, for example 4.25');
+  if (value !== null && (!Number.isFinite(value) || Math.abs(value) > 100)) return refuse(400, 'Enter a percentage, for example 4.25');
   const d = await update(store, `orders/${state.q}/${m.teamId}`, (cur) => {
     const x = cur || { orders: [], rev: 0 };
     return { ...x, forecast: { value: value === null ? null : Math.round(value * 100) / 100, by: m.memberId, at: Date.now() }, rev: x.rev + 1 };
@@ -314,21 +317,21 @@ async function forecast(store, body) {
 
 async function bid(store, body) {
   const m = await memberFromToken(store, body.token);
-  if (!m) return fail(401, 'Sign in with your fund code');
+  if (!m) return refuse(401, 'Sign in with your fund code');
   const state = await getState(store);
   const late = windowCheck(state, body);
-  if (late) return fail(409, late, { late: true });
+  if (late) return refuse(409, late, { late: true });
   const world = await loadWorld(store, state);
-  if (!world.run?.auction) return fail(400, 'There is no auction this quarter.');
+  if (!world.run?.auction) return refuse(400, 'There is no auction this quarter.');
   const price = Number(body.price); const amountCr = Number(body.amountCr);
   if (body.cancel) {
     const d = await update(store, `orders/${state.q}/${m.teamId}`, (cur) => ({ ...(cur || { orders: [], rev: 0 }), bid: null, rev: (cur?.rev || 0) + 1 }));
     return json({ ok: true, orders: d });
   }
-  if (!(price > 0) || !(amountCr > 0)) return fail(400, 'Enter a price and an amount above zero.');
+  if (!(price > 0) || !(amountCr > 0)) return refuse(400, 'Enter a price and an amount above zero.');
   const navCr = world.teams[m.teamId].navHist.at(-1) / 1e9;
   const maxCr = Math.floor(navCr * world.run.auction.maxPctOfFund) / 100;
-  if (amountCr > maxCr + 1e-9) return fail(422, `The most you may bid for is ${world.run.auction.maxPctOfFund}% of your fund value: ₹${maxCr.toFixed(2)} Cr.`);
+  if (amountCr > maxCr + 1e-9) return refuse(422, `The most you may bid for is ${world.run.auction.maxPctOfFund}% of your fund value: ₹${maxCr.toFixed(2)} Cr.`);
   const d = await update(store, `orders/${state.q}/${m.teamId}`, (cur) => {
     const x = cur || { orders: [], rev: 0 };
     return { ...x, bid: { price: Math.round(price * 10000) / 10000, amountCr: Math.round(amountCr * 100) / 100, by: m.memberId, at: Date.now() }, rev: x.rev + 1 };
@@ -341,14 +344,14 @@ async function bid(store, body) {
 async function admin(store, body, env) {
   const action = body.action;
   if (action === 'setup') {
-    if (env?.ADMIN_PASSWORD) return fail(400, 'The Event Head password is set on Netlify. Sign in with it.');
+    if (env?.ADMIN_PASSWORD) return refuse(400, 'The Event Head password is set on Netlify. Sign in with it.');
     const pass = String(body.password || '');
-    if (pass.length < 6) return fail(400, 'Choose a password of at least 6 characters.');
+    if (pass.length < 6) return refuse(400, 'Choose a password of at least 6 characters.');
     const cfg = await getJ(store, 'config');
-    if (cfg?.adminHash) return fail(403, 'A password has already been set. Sign in with it.');
+    if (cfg?.adminHash) return refuse(403, 'A password has already been set. Sign in with it.');
     const salt = randomId(16);
     const res = await store.set('config', { adminHash: await sha(pass, salt), salt, at: Date.now() }, { onlyIfNew: true });
-    if (!res.modified) return fail(403, 'A password has already been set.');
+    if (!res.modified) return refuse(403, 'A password has already been set.');
     await store.set('secrets', { hmacKey: randomId(32), codes: {} });
     await setState(store, (s) => { if (s.phase === 'setup') s.phase = 'lobby'; return s; });
     return json({ ok: true });
@@ -357,7 +360,7 @@ async function admin(store, body, env) {
     const cfg = await getJ(store, 'config');
     return json({ ok: true, hasPassword: !!cfg?.adminHash || !!env?.ADMIN_PASSWORD });
   }
-  if (!(await adminOk(store, body, env))) return fail(401, 'Wrong Event Head password.');
+  if (!(await adminOk(store, body, env))) return refuse(401, 'Wrong Event Head password.');
   if (env?.ADMIN_PASSWORD) {
     const sec = await getJ(store, 'secrets');
     if (!sec) await store.set('secrets', { hmacKey: randomId(32), codes: {} });
@@ -404,10 +407,10 @@ async function adminStatus(store) {
 
 async function adminTeams(store, body) {
   const state = await getState(store);
-  if (state.phase !== 'lobby') return fail(409, 'Teams can only be changed before the game starts.');
+  if (state.phase !== 'lobby') return refuse(409, 'Teams can only be changed before the game starts.');
   const names = (body.names || []).map((n) => String(n).trim().slice(0, 28)).filter(Boolean);
-  if (names.length < 1 || names.length > 30) return fail(400, 'Enter between 1 and 30 fund names.');
-  if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) return fail(400, 'Each fund needs a different name.');
+  if (names.length < 1 || names.length > 30) return refuse(400, 'Enter between 1 and 30 fund names.');
+  if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) return refuse(400, 'Each fund needs a different name.');
   const sec = (await getJ(store, 'secrets')) || { hmacKey: randomId(32), codes: {} };
   const old = state.teams;
   const teams = names.map((name, i) => {
@@ -423,8 +426,8 @@ async function adminTeams(store, body) {
 
 async function adminStart(store) {
   const state = await getState(store);
-  if (state.phase !== 'lobby') return fail(409, 'The game has already started. Reset it first to start again.');
-  if (!state.teams.length) return fail(400, 'Add the funds first.');
+  if (state.phase !== 'lobby') return refuse(409, 'The game has already started. Reset it first to start again.');
+  if (!state.teams.length) return refuse(400, 'Add the funds first.');
   let world = newGame(state.teams.map((t) => ({ id: t.id, name: t.name })), SCRIPT);
   world = openQuarter(world, SCRIPT, 1);
   const s2 = await setState(store, async (s) => {
@@ -444,7 +447,7 @@ async function adminOpenWindow(store, body) {
     s.phase = 'open'; s.timer = { endsAt: Date.now() + seconds * 1000, pausedLeft: null, seconds }; s.openedAt = Date.now();
     return s;
   });
-  if (s2.phase !== 'open') return fail(409, 'The window can only be opened after the data drop.');
+  if (s2.phase !== 'open') return refuse(409, 'The window can only be opened after the data drop.');
   return json({ ok: true, state: publicState(s2) });
 }
 
@@ -465,11 +468,11 @@ async function adminTimer(store, kind, body) {
 
 async function adminFire(store, body) {
   const state = await getState(store);
-  if (state.phase !== 'open') return fail(409, 'A crisis can only be released while the window is open.');
+  if (state.phase !== 'open') return refuse(409, 'A crisis can only be released while the window is open.');
   const world = await loadWorld(store, state);
   if (world.run.fired.includes(body.stageId)) return json({ ok: true, already: true, state: publicState(state) });
   let res;
-  try { res = fireStage(world, SCRIPT, body.stageId); } catch (e) { return fail(400, e.message); }
+  try { res = fireStage(world, SCRIPT, body.stageId); } catch (e) { return refuse(400, e.message); }
   const s2 = await setState(store, async (s) => {
     if (s.epoch !== state.epoch || s.phase !== 'open') return undefined;
     await saveWorld(store, res.world, s);
@@ -481,20 +484,20 @@ async function adminFire(store, body) {
     if (s.timer.pausedLeft === null && (!s.timer.endsAt || s.timer.endsAt - Date.now() < REOPEN_AFTER_LATE_CRISIS_MS / 2)) s.timer.endsAt = Date.now() + REOPEN_AFTER_LATE_CRISIS_MS;
     return s;
   });
-  if (!s2 || s2.epoch !== res.world.run.epochs.length - 1) return fail(409, 'Someone else changed the game at the same moment. Refresh and try again.');
+  if (!s2 || s2.epoch !== res.world.run.epochs.length - 1) return refuse(409, 'Someone else changed the game at the same moment. Refresh and try again.');
   return json({ ok: true, state: publicState(s2) });
 }
 
 async function adminSettle(store, body) {
   const state = await getState(store);
   if (state.phase === 'results' && state.docs?.result === state.q) return json({ ok: true, already: true, state: publicState(state) });
-  if (state.phase !== 'open' && state.phase !== 'settling') return fail(409, 'There is no open window to settle.');
+  if (state.phase !== 'open' && state.phase !== 'settling') return refuse(409, 'There is no open window to settle.');
   if (state.phase === 'open' && state.timer.endsAt && Date.now() < state.timer.endsAt && !body.early) {
-    return fail(409, 'The clock is still running. Wait for the bell, or ring it now.', { early: true });
+    return refuse(409, 'The clock is still running. Wait for the bell, or ring it now.', { early: true });
   }
   const world = await loadWorld(store, state);
   const unfired = world.run ? stagesFor(SCRIPT, world.run.q).filter((s) => !world.run.fired.includes(s.id)) : [];
-  if (unfired.length) return fail(409, `Release the crisis first: ${unfired.map((s) => s.title).join(', ')}. The desk will reopen for 30 seconds.`);
+  if (unfired.length) return refuse(409, `Release the crisis first: ${unfired.map((s) => s.title).join(', ')}. The desk will reopen for 30 seconds.`);
   // lock the desk first, so no order can slip in while we settle
   await setState(store, (s) => { if (s.phase !== 'open' && s.phase !== 'settling') return undefined; s.phase = 'settling'; s.timer.endsAt = Math.min(s.timer.endsAt || Date.now(), Date.now()); s.timer.pausedLeft = null; return s; });
   let after = world;
@@ -525,8 +528,8 @@ async function adminSettle(store, body) {
 
 async function adminNext(store) {
   const state = await getState(store);
-  if (state.phase !== 'results') return fail(409, 'Settle the quarter first.');
-  if (state.q >= SCRIPT.quarters.length) return fail(409, 'That was the last quarter. Publish the final release.');
+  if (state.phase !== 'results') return refuse(409, 'Settle the quarter first.');
+  if (state.q >= SCRIPT.quarters.length) return refuse(409, 'That was the last quarter. Publish the final release.');
   const world = await loadWorld(store, state);
   const next = openQuarter(world, SCRIPT, state.q + 1);
   const s2 = await setState(store, async (s) => {
@@ -542,7 +545,7 @@ async function adminNext(store) {
 async function adminFinal(store) {
   const state = await getState(store);
   if (state.phase === 'final') return json({ ok: true, already: true, state: publicState(state) });
-  if (state.phase !== 'results' || state.q !== SCRIPT.quarters.length) return fail(409, 'The final release comes after the last quarter settles.');
+  if (state.phase !== 'results' || state.q !== SCRIPT.quarters.length) return refuse(409, 'The final release comes after the last quarter settles.');
   const world = await loadWorld(store, state);
   const fin = finalRelease(world, SCRIPT);
   const s2 = await setState(store, async (s) => {
@@ -563,7 +566,7 @@ async function adminExport(store) {
 }
 
 async function adminReset(store, body) {
-  if (body.confirm !== 'RESET') return fail(400, 'Type RESET to confirm.');
+  if (body.confirm !== 'RESET') return refuse(400, 'Type RESET to confirm.');
   const before = await getState(store);
   const keys = await store.list('');
   for (const k of keys) if (k !== 'config' && k !== 'secrets') await store.del(k);

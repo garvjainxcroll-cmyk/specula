@@ -13,7 +13,9 @@ function api(store, env = {}) {
   const call = async (method, path, body) => {
     const req = new Request(`http://x/api/${path}`, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     const res = await handle(req, store, env);
-    return { status: res.status, body: await res.json() };
+    const out = await res.json();
+    // refusals come back as 200 with ok:false and the refusal code
+    return { status: out.refused ? out.code : res.status, http: res.status, body: out };
   };
   return {
     get: (p) => call('GET', p),
@@ -125,6 +127,7 @@ test('orders are accepted only while the window is open; late orders are refused
   offset += 125000;
   const late = await A.post('order', { token: tok, q: 1, epoch: 0, inst: 'GOLD', side: 'buy', amountCr: 10 });
   assert.equal(late.status, 409); assert.equal(late.body.late, true); assert.match(late.body.error, /Late orders are refused/);
+  assert.equal(late.http, 200, 'a refusal is an ordinary answer, so browsers do not log it as an error');
   assert.equal((await A.post('forecast', { token: tok, q: 1, value: 5 })).status, 409);
   const s = await A.admin('settle');
   assert.equal(s.status, 200);

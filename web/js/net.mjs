@@ -81,7 +81,7 @@ export async function pollOnce() {
   polling = true;
   try {
     const r = await get(`poll${token ? `?token=${encodeURIComponent(token)}` : ''}`);
-    if (r.status === 401 && token) { live.error = 'signed-out'; live.state = r.data.state || live.state; emit(); return; }
+    if ((r.status === 401 || r.data.code === 401) && token) { live.error = 'signed-out'; live.state = r.data.state || live.state; emit(); return; }
     if (!r.ok) return;
     const prevV = live.state?.v; const prevOrdersRev = live.orders?.rev;
     live.state = r.data.state; live.me = r.data.me || null; live.error = null;
@@ -103,13 +103,13 @@ async function fetchDoc(k, key, v) {
 async function fetchMine(v) {
   const q = live.state.docs?.result || 0;
   const r = await get(`mine?token=${encodeURIComponent(token)}${q ? `&q=${q}` : ''}`);
-  if (r.ok) { live.team = r.data.team; live.teamQ = live.state.q; live.docV.teamFor = v; if (r.data.result) live.myResults = { ...(live.myResults || {}), [q]: r.data.result }; }
+  if (r.ok && r.data.ok !== false) { live.team = r.data.team; live.teamQ = live.state.q; live.docV.teamFor = v; if (r.data.result) live.myResults = { ...(live.myResults || {}), [q]: r.data.result }; }
 }
 
 export async function fetchMyResult(q) {
   if (live.myResults?.[q]) return live.myResults[q];
   const r = await get(`mine?token=${encodeURIComponent(token)}&q=${q}`);
-  if (r.ok && r.data.result) { live.myResults = { ...(live.myResults || {}), [q]: r.data.result }; return r.data.result; }
+  if (r.ok && r.data.ok !== false && r.data.result) { live.myResults = { ...(live.myResults || {}), [q]: r.data.result }; return r.data.result; }
   return null;
 }
 export async function fetchResult(q) {

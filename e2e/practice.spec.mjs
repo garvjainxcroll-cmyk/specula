@@ -10,7 +10,14 @@ test('guided practice: two quarters with tips, a practice crisis and a final sco
     p.on('pageerror', (e) => errors.push(e.message));
     await p.goto('/#/practice');
     await p.click('[data-practice="start"]');
-    const tipOk = async () => { for (let k = 0; k < 4; k++) { const t = p.locator('[data-tip-ok]'); if (await t.count()) await t.click(); else break; } };
+    // click through every tip that appears (each new tip can take a moment to show)
+    const tipOk = async () => {
+      for (let k = 0; k < 10; k++) {
+        const t = p.locator('[data-tip-ok]');
+        try { await t.waitFor({ state: 'visible', timeout: 1200 }); } catch { break; }
+        await t.click();
+      }
+    };
     await expect(p.locator('.tip')).toBeVisible();
     await tipOk();
     for (let q = 1; q <= 2; q++) {
