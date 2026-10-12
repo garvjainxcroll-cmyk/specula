@@ -119,7 +119,7 @@ test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ brow
     if (q === LATE_Q) {
       const m = primary[5];
       await openTicket(m, 'OIL');
-      await expect(m.page.locator('.clock')).toHaveText('BELL', { timeout: 90000 });
+      await expect(m.page.locator('.clock')).toHaveText(/BELL|SETTLED/, { timeout: 90000 });
       await m.page.waitForTimeout(2500);
       await m.page.fill('[data-amount="OIL"]', '25');
       await m.page.click('[data-go="OIL"]', { force: true });

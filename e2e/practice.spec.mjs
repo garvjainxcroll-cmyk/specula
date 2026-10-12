@@ -39,7 +39,7 @@ test('guided practice: two quarters with tips, a practice crisis and a final sco
     }
     if (vp.width < 600) await p.click('[data-tab="score"]');
     await expect(p.getByText('Final standings', { exact: true })).toBeVisible();
-    await expect(p.locator('text=Your Practice Fund')).toBeVisible();
+    await expect(p.locator('[data-tip="score"] .tbl').getByText('Your Practice Fund')).toBeVisible();
     expect(errors).toEqual([]);
     await ctx.close();
   }
