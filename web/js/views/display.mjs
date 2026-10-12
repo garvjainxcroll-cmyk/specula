@@ -29,7 +29,7 @@ export default function display(app) {
         h('div', {}, h('div', { class: 'title' }, 'SPECULA'), h('div', { class: 'sub' }, s.q ? `Round 0${s.round} · ${roundName(s.q)} · Quarter ${s.q} of 24` : 'Copia et Inopia · Round 3')),
         s.phase === 'open' || s.phase === 'settling' ? clockEl : h('div', { class: 'bigclock', style: { fontSize: '40px', minWidth: '0' } }, phaseWord(s.phase))),
       h('div', { class: 'body' }, body(s, q)),
-      Date.now() < takeoverUntil && takeoverStage ? takeover(takeoverStage) : null));
+      Date.now() < takeoverUntil && takeoverStage && s.phase === 'open' ? takeover(takeoverStage) : null));
     tick();
   }
   function phaseWord(p) { return { setup: 'SOON', lobby: 'JOIN', data: 'DATA', results: 'RESULTS', final: 'FINAL' }[p] || ''; }
