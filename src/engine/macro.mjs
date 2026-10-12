@@ -18,6 +18,7 @@ function build(name, terms, dp = 1, { floor = null } = {}) {
 }
 
 const T = (label, expr, value, keep = false) => ({ label, expr, value: r2(value), keep });
+const k = (x) => (x < 0 ? `−${Math.abs(x)}` : `${x}`); // a coefficient, with a real minus sign
 
 export function startRelease() {
   const econ = {};
@@ -99,15 +100,15 @@ export function computeRelease(world, q, shocks = {}) {
       T('trend growth', fmtNum(c.trend, 2), c.trend, true),
       T('momentum', `${G.rho} × (${fmtNum(P.g, 1)} − ${fmtNum(c.trend, 1)})`, G.rho * (P.g - c.trend)),
       T('cost of borrowing', `−${G.beta} × (${fmtNum(iNow)} − ${fmtNum(P.pi, 1)} − ${fmtNum(c.neutralReal)})`, -G.beta * (rr - c.neutralReal)),
-      T('world demand', `${G.spill} × ${fmtTerm(worldGap)}`, G.spill * worldGap),
-      G.oil ? T('oil price', `${G.oil} × ${fmtTerm(moves.oil)}`, G.oil * moves.oil) : null,
-      G.copper ? T('copper price', `${G.copper} × ${fmtTerm(moves.copper)}`, G.copper * moves.copper) : null,
-      G.wheat ? T('wheat price', `${G.wheat} × ${fmtTerm(moves.wheat)}`, G.wheat * moves.wheat) : null,
+      T('world demand', `${k(G.spill)} × ${fmtTerm(worldGap)}`, G.spill * worldGap),
+      G.oil ? T('oil price', `${k(G.oil)} × ${fmtTerm(moves.oil)}`, G.oil * moves.oil) : null,
+      G.copper ? T('copper price', `${k(G.copper)} × ${fmtTerm(moves.copper)}`, G.copper * moves.copper) : null,
+      G.wheat ? T('wheat price', `${k(G.wheat)} × ${fmtTerm(moves.wheat)}`, G.wheat * moves.wheat) : null,
     ];
-    if (e === 'CAL') gTerms.push(T('cheaper mark helps exports', `${G.markFx} × ${fmtTerm(moves.markPerCrownPct)}`, G.markFx * moves.markPerCrownPct));
+    if (e === 'CAL') gTerms.push(T('cheaper mark helps exports', `${k(G.markFx)} × ${fmtTerm(moves.markPerCrownPct)}`, G.markFx * moves.markPerCrownPct));
     if (e === 'KES') gTerms.push(T('crown debts grow as the dinar falls', `−${G.crownDebt} × ${fmtTerm(moves.dinarPerCrownPct)}`, -G.crownDebt * moves.dinarPerCrownPct));
-    if (e === 'NOR') { const d = r1(sp.oilOutput - P.special.oilOutput); gTerms.push(T('oil output change', `${G.oilOutput} × ${fmtTerm(d, 1)}`, G.oilOutput * d)); }
-    if (e === 'SAR') { const d = sp.harvest - P.special.harvest; gTerms.push(T('harvest change', `${G.harvest} × ${fmtTerm(d, 0)}`, G.harvest * d)); }
+    if (e === 'NOR') { const d = r1(sp.oilOutput - P.special.oilOutput); gTerms.push(T('oil output change', `${k(G.oilOutput)} × ${fmtTerm(d, 1)}`, G.oilOutput * d)); }
+    if (e === 'SAR') { const d = sp.harvest - P.special.harvest; gTerms.push(T('harvest change', `${k(G.harvest)} × ${fmtTerm(d, 0)}`, G.harvest * d)); }
     // the consensus knows everything except this quarter's surprises
     const gExp = build('growth', gTerms.filter((t) => t && !['oil output change', 'harvest change'].includes(t.label)), 1).value;
     if (sh.g) gTerms.push(T('news this quarter', fmtTerm(sh.g), sh.g));
@@ -118,12 +119,12 @@ export function computeRelease(world, q, shocks = {}) {
     const I = c.infl;
     const depr = r2(-(moves.fx[e] || 0));
     const piTerms = (gUse) => [
-      T('last quarter', `${I.lam} × ${fmtNum(P.pi, 1)}`, I.lam * P.pi, true),
+      T('last quarter', `${k(I.lam)} × ${fmtNum(P.pi, 1)}`, I.lam * P.pi, true),
       T('pull to target', `${r2(1 - I.lam)} × ${fmtNum(c.target, 1)}`, (1 - I.lam) * c.target),
-      T('demand pressure', `${I.alpha} × (${fmtNum(gUse, 1)} − ${fmtNum(c.trend, 1)})`, I.alpha * (gUse - c.trend)),
-      T('oil price', `${I.oil} × ${fmtTerm(moves.oil)}`, I.oil * moves.oil),
-      T('food prices', `${I.wheat} × ${fmtTerm(moves.wheat)}`, I.wheat * moves.wheat),
-      T('currency', `${I.fx} × ${fmtTerm(depr)} (fall in the ${c.currency})`, I.fx * depr),
+      T('demand pressure', `${k(I.alpha)} × (${fmtNum(gUse, 1)} − ${fmtNum(c.trend, 1)})`, I.alpha * (gUse - c.trend)),
+      T('oil price', `${k(I.oil)} × ${fmtTerm(moves.oil)}`, I.oil * moves.oil),
+      T('food prices', `${k(I.wheat)} × ${fmtTerm(moves.wheat)}`, I.wheat * moves.wheat),
+      T('currency', `${k(I.fx)} × ${fmtTerm(depr)} (fall in the ${c.currency})`, I.fx * depr),
     ];
     const piExp = build('inflation', piTerms(gExp), 1).value;
     const pT = piTerms(g.value);
@@ -149,8 +150,8 @@ export function computeRelease(world, q, shocks = {}) {
       T('last quarter', fmtNum(P.b, 1), P.b, true),
       T('drift to normal', `0.1 × (${fmtNum(c.start.b, 1)} − ${fmtNum(P.b, 1)})`, 0.1 * (c.start.b - P.b)),
       T('tax from growth', `0.05 × (${fmtNum(g.value, 1)} − ${fmtNum(c.trend, 1)})`, 0.05 * (g.value - c.trend)),
-      B.oil ? T('oil revenue', `${B.oil} × ${fmtTerm(moves.oil)}`, B.oil * moves.oil) : null,
-      B.copper ? T('copper revenue', `${B.copper} × ${fmtTerm(moves.copper)}`, B.copper * moves.copper) : null,
+      B.oil ? T('oil revenue', `${k(B.oil)} × ${fmtTerm(moves.oil)}`, B.oil * moves.oil) : null,
+      B.copper ? T('copper revenue', `${k(B.copper)} × ${fmtTerm(moves.copper)}`, B.copper * moves.copper) : null,
       sh.b ? T('news this quarter', fmtTerm(sh.b), sh.b) : null,
     ].filter(Boolean);
     const b = build('Budget balance', bT, 1);
@@ -161,11 +162,11 @@ export function computeRelease(world, q, shocks = {}) {
     const caT = [
       T('last quarter', fmtNum(P.ca, 1), P.ca, true),
       T('drift to normal', `0.1 × (${fmtNum(c.start.ca, 1)} − ${fmtNum(P.ca, 1)})`, 0.1 * (c.start.ca - P.ca)),
-      C.world ? T('world demand', `${C.world} × ${fmtTerm(worldGap)}`, C.world * worldGap) : null,
+      C.world ? T('world demand', `${k(C.world)} × ${fmtTerm(worldGap)}`, C.world * worldGap) : null,
       T('imports from growth', `−0.05 × (${fmtNum(g.value, 1)} − ${fmtNum(c.trend, 1)})`, -0.05 * (g.value - c.trend)),
-      C.oil ? T('oil price', `${C.oil} × ${fmtTerm(moves.oil)}`, C.oil * moves.oil) : null,
-      C.copper ? T('copper price', `${C.copper} × ${fmtTerm(moves.copper)}`, C.copper * moves.copper) : null,
-      C.wheat ? T('wheat price', `${C.wheat} × ${fmtTerm(moves.wheat)}`, C.wheat * moves.wheat) : null,
+      C.oil ? T('oil price', `${k(C.oil)} × ${fmtTerm(moves.oil)}`, C.oil * moves.oil) : null,
+      C.copper ? T('copper price', `${k(C.copper)} × ${fmtTerm(moves.copper)}`, C.copper * moves.copper) : null,
+      C.wheat ? T('wheat price', `${k(C.wheat)} × ${fmtTerm(moves.wheat)}`, C.wheat * moves.wheat) : null,
       sh.ca ? T('news this quarter', fmtTerm(sh.ca), sh.ca) : null,
     ].filter(Boolean);
     const ca = build('Current account', caT, 1);

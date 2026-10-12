@@ -8,6 +8,7 @@ import { RULES } from '../config/rules.mjs';
 import { r2, r4, r6, roundTo, sumRound, fmtNum, fmtTerm } from './num.mjs';
 
 const D = (key, label, value) => ({ key, label, value: r2(value) });
+const k = (x) => (x < 0 ? `−${Math.abs(x)}` : `${x}`);
 const nz = (arr) => arr.filter((d) => d && d.value !== 0);
 const total = (drivers) => sumRound(drivers.map((d) => d.value), 2);
 const val = (x) => (x && typeof x === 'object' ? x.v : x) || 0;
@@ -252,8 +253,8 @@ export function settleMarket(world, rel, decisions, news = {}, mods = {}) {
     const d = nz([D('drift', 'normal profit growth', mu), D('growth', `growth surprise 1.5 × ${fmtTerm(gs[e])}`, 1.5 * gs[e]),
       D('rates', `10-year yield −2.5 × ${fmtTerm(dy(e, 'y10'))}`, -2.5 * dy(e, 'y10')),
       D('fear', `fear −0.4 × ${c.equity.beta} × ${fmtTerm(dFear)}`, -0.4 * c.equity.beta * dFear),
-      c.equity.oil ? D('oil', `oil ${c.equity.oil} × ${fmtTerm(oil)}`, c.equity.oil * oil) : null,
-      c.equity.copper ? D('copper', `copper ${c.equity.copper} × ${fmtTerm(copper)}`, c.equity.copper * copper) : null,
+      c.equity.oil ? D('oil', `oil ${k(c.equity.oil)} × ${fmtTerm(oil)}`, c.equity.oil * oil) : null,
+      c.equity.copper ? D('copper', `copper ${k(c.equity.copper)} × ${fmtTerm(copper)}`, c.equity.copper * copper) : null,
       D('news', why(n('eq', e), 'company news'), val(n('eq', e)))]);
     eqD[e] = d; eq[e] = total(d);
   }
@@ -458,8 +459,8 @@ export function crisisMarket(world, stage, relBefore, relAfter, expBefore, expAf
     set(`${e}10Y`, nz([D('yield', C(`10-year yield ${fmtSigned(d10)}: −8.0 × ${fmtTerm(d10)}`), -8.0 * d10), hc(`${e}10Y`)]));
     const dEq = nz([D('shock', C('first reaction'), jx('eq', e)), D('rates', `10-year yield −2.5 × ${fmtTerm(d10)}`, -2.5 * d10),
       D('fear', `fear −0.4 × ${c.equity.beta} × ${fmtTerm(dFear)}`, -0.4 * c.equity.beta * dFear),
-      c.equity.oil ? D('oil', `oil ${c.equity.oil} × ${fmtTerm(oil)}`, c.equity.oil * oil) : null,
-      c.equity.copper ? D('copper', `copper ${c.equity.copper} × ${fmtTerm(copper)}`, c.equity.copper * copper) : null]);
+      c.equity.oil ? D('oil', `oil ${k(c.equity.oil)} × ${fmtTerm(oil)}`, c.equity.oil * oil) : null,
+      c.equity.copper ? D('copper', `copper ${k(c.equity.copper)} × ${fmtTerm(copper)}`, c.equity.copper * copper) : null]);
     set(`${e}EQ`, dEq); eqMove[e] = rets[`${e}EQ`].local.pct;
   }
   set('AURIL10', nz([D('realyield', C(`real yield −8.5 × ${fmtTerm(dRy)}`), -8.5 * dRy)]));

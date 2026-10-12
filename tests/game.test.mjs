@@ -9,7 +9,7 @@ import { INSTRUMENTS, INST } from '../src/config/instruments.mjs';
 import { RULES } from '../src/config/rules.mjs';
 import { SCRIPT } from '../server/script.mjs';
 import { r2, crToPaise, mulPct } from '../src/engine/num.mjs';
-import { rng } from '../scripts/lib/bots.mjs';
+import { rng } from '../src/bots/bots.mjs';
 
 const CR = 1e9;
 const quiet = { id: 'test', quarters: Array.from({ length: 24 }, (_, i) => ({ q: i + 1, forecast: { econ: 'AUR', v: 'pi' }, data: {}, news: {} })), final: { data: {} } };

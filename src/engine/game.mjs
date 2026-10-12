@@ -18,6 +18,14 @@ const view = (w) => ({ release: w.release, econ: w.mkt.econ, glob: w.mkt.glob, m
 export function newGame(teams, script) {
   const release = startRelease();
   release.econ = Object.fromEntries(Object.entries(release.econ).map(([e, r]) => [e, { ...r, delta: {} }]));
+  if (script.start) {
+    // a scenario may start the world from different figures (the practice game does)
+    for (const [e, f] of Object.entries(script.start)) {
+      Object.assign(release.econ[e], f);
+      release.econ[e].exp = { ...release.econ[e].exp, g: release.econ[e].g, pi: release.econ[e].pi, u: release.econ[e].u };
+    }
+    release.note = 'Starting position of every economy in this scenario.';
+  }
   const mkt = initialMarket(release);
   const sigma = Object.fromEntries(INSTRUMENTS.map((x) => [x.id, x.sigma0]));
   const start = crToPaise(RULES.startFundCr);
@@ -62,7 +70,7 @@ const specialDeltas = (prev, cur) => {
 /** The data drop. Opens quarter q (desk unlocks when the window starts). */
 export function openQuarter(world0, script, q) {
   if (q !== world0.q + 1) throw new Error(`Cannot open Q${q}: last settled quarter is Q${world0.q}`);
-  if (q > RULES.quarters) throw new Error('The game has 24 quarters');
+  if (q > script.quarters.length) throw new Error(`This game has ${script.quarters.length} quarters`);
   const world = clone(world0);
   const n = roundOf(q);
   const newRound = n !== world.round.n || q === 1;
@@ -318,8 +326,10 @@ export function settleQuarter(world0, script, inputs) {
   world.moves = quarterMoves(run, world);
   world.q = q;
   const standings = specula(teamIds.map((id) => fundRow(world.teams[id])), Math.max(1, q - 1));
-  const result = { q, round: run.round, decisions, market: sm.info, rets: sm.rets, crowd, auction, carry, teams: results, standings: standings.rows.map(slimRow), stages: run.fired };
+  const epochs = run.epochs.map((e) => ({ idx: e.idx, label: e.label, stageId: e.stageId, rets: e.rets || null, spreads: e.spreads, M: e.M }));
+  const result = { q, round: run.round, decisions, market: sm.info, rets: sm.rets, crowd, auction, carry, teams: results, standings: standings.rows.map(slimRow), stages: run.fired, epochs, pxOpen: run.open.px, pxBell: pxBell, pxSettled: settledPx, release: world.release };
   world.history.push(historyRow(world, result, sm, run));
+  world.prevPx = world.lastPx;
   world.lastPx = settledPx;
   world.lastRun = { ...run, epochs: run.epochs.map(({ px, rets, ...e }) => e) };
   world.run = null;
@@ -412,12 +422,14 @@ function runAuction(spec, bids, per, mkt, teamIds, world) {
 /** After Q24 settles: the final release, which marks the last forecast. */
 export function finalRelease(world0, script) {
   const world = clone(world0);
-  if (world.q !== RULES.quarters) throw new Error('The final release comes after Q24 settles');
-  const release = computeRelease(view(world), 25, script.final?.data || {});
-  const marked = markForecasts(world, script, 24, release);
+  const last = script.quarters.length;
+  if (world.q !== last) throw new Error(`The final release comes after Q${last} settles`);
+  if (world.final) return world;
+  const release = computeRelease(view(world), last + 1, script.final?.data || {});
+  const marked = markForecasts(world, script, last, release);
   world.final = { release, marked };
   const teamIds = Object.keys(world.teams).sort();
-  const standings = specula(teamIds.map((id) => fundRow(world.teams[id])), RULES.quarters);
+  const standings = specula(teamIds.map((id) => fundRow(world.teams[id])), last);
   world.final.standings = standings;
   return world;
 }
@@ -425,7 +437,7 @@ export function finalRelease(world0, script) {
 /** Live SPECULA standings at any point (provisional before the final release). */
 export function standingsNow(world) {
   const teamIds = Object.keys(world.teams).sort();
-  const scored = world.final ? RULES.quarters : Math.max(1, (world.run ? world.run.q - 1 : world.q - 1));
+  const scored = world.final ? world.q : Math.max(1, (world.run ? world.run.q - 1 : world.q - 1));
   return specula(teamIds.map((id) => fundRow(world.teams[id])), scored);
 }
 

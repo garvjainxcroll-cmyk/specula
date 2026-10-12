@@ -1,0 +1,20 @@
+# SPECULA on Netlify. Publish dir is dist/ (built by scripts/build.mjs);
+# the one function (netlify/functions/store.mjs) answers every /api/* request.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"

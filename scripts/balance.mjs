@@ -3,7 +3,7 @@
 import { newGame, openQuarter, settleQuarter, finalRelease, stagesFor, fireStage, deskNow, checkOrder } from '../src/engine/game.mjs';
 import { rupeePrice } from '../src/engine/market.mjs';
 import { SCRIPT } from '../server/script.mjs';
-import { BOTS, rng, ordersFor } from './lib/bots.mjs';
+import { BOTS, rng, ordersFor } from '../src/bots/bots.mjs';
 
 const LINEUP = ['economist', 'reader', 'cautious', 'momentum', 'gambler', 'gambler', 'random', 'buyhold', 'carry', 'idle'];
 
@@ -42,11 +42,19 @@ export function playGame(script, lineup, seed, { quiet = true } = {}) {
   return { world: w, standings: w.final.standings.rows, teams, log };
 }
 
+const LINEUPS = {
+  standard: LINEUP,
+  crowded: ['reader', 'reader', 'reader', 'reader', 'cautious', 'cautious', 'economist', 'gambler', 'idle', 'buyhold'],
+  gamblers: ['reader', 'gambler', 'gambler', 'gambler', 'gambler', 'gambler', 'random', 'random', 'idle', 'carry'],
+};
+
 function main() {
   const games = Number(process.argv[2] || 20);
+  const lineup = LINEUPS[process.argv[3] || 'standard'];
+  console.log(`Balance pass: ${games} games, lineup "${process.argv[3] || 'standard'}"`);
   const agg = {};
   for (let g = 1; g <= games; g++) {
-    const { standings, teams } = playGame(SCRIPT, LINEUP, g);
+    const { standings, teams } = playGame(SCRIPT, lineup, g);
     for (const row of standings) {
       const bot = teams.find((t) => t.id === row.id).bot;
       const a = (agg[bot] ||= { n: 0, score: 0, rank: 0, wins: 0, nav: 0, forced: 0, rar: 0, fc: 0, minNav: Infinity });

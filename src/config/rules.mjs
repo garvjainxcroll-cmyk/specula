@@ -25,7 +25,7 @@ export const RULES = {
   crowdImpactCapPct: 3.0,
   fearFeePct: 3.00,         // Fear Index fee per quarter
   swingFloorPct: 1.00,      // smallest swing used in the risk-adjusted return
-  fallPenaltyPerPct: 0.25,  // risk-adjusted return loses 0.25 for each 1% of deepest fall
+  fallPenaltyPerPct: 0.10,  // risk-adjusted return loses 0.10 for each 1% of deepest fall
   sigmaMemory: 0.80,        // how quickly "how sharply it has been moving" forgets old moves
 };
 

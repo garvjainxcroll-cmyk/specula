@@ -13,10 +13,12 @@
     "zip": "node scripts/build.mjs && node scripts/make-zip.mjs"
   },
   "dependencies": {
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "10.7.13"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1"
+    "@playwright/test": "^1.56.1"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -2,14 +2,14 @@
 // Each bot sees only what a team sees: the release, the published rules, prices,
 // headlines, the forecast question and crises once released. None of them reads the script.
 
-import { ECON_ORDER, ECONOMIES } from '../../src/config/economies.mjs';
-import { INSTRUMENTS, INST } from '../../src/config/instruments.mjs';
-import { RULES } from '../../src/config/rules.mjs';
-import { decideAll, figsFromRelease } from '../../src/engine/macro.mjs';
-import { settleMarket, rupeePrice, carryRates } from '../../src/engine/market.mjs';
-import { deskNow } from '../../src/engine/game.mjs';
-import { riskUsed } from '../../src/engine/risk.mjs';
-import { r2 } from '../../src/engine/num.mjs';
+import { ECON_ORDER, ECONOMIES } from '../config/economies.mjs';
+import { INSTRUMENTS, INST } from '../config/instruments.mjs';
+import { RULES } from '../config/rules.mjs';
+import { decideAll, figsFromRelease } from '../engine/macro.mjs';
+import { settleMarket, rupeePrice, carryRates } from '../engine/market.mjs';
+import { deskNow } from '../engine/game.mjs';
+import { riskUsed } from '../engine/risk.mjs';
+import { r2 } from '../engine/num.mjs';
 
 export function rng(seed) {
   let a = seed >>> 0;

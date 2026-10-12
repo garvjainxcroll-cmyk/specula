@@ -14,8 +14,9 @@ export function roundTo(x, dp) {
   if (!Number.isFinite(x)) throw new Error(`roundTo: not a finite number (${x})`);
   const f = 10 ** dp;
   const y = Math.abs(x) * f;
-  // EPS guards against binary artefacts such as 1.005 * 100 = 100.49999999999999
-  const r = Math.round(y + EPS * Math.max(1, y)) / f;
+  // a nudge the size of floating-point error guards against binary artefacts such as
+  // 1.005 * 100 = 100.49999999999999, without moving any genuine value
+  const r = Math.round(y + Math.max(y * 8 * Number.EPSILON, 1e-12)) / f;
   const out = x < 0 ? -r : r;
   return out === 0 ? 0 : out; // no negative zero
 }
