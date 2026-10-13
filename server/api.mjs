@@ -115,7 +115,7 @@ function quarterDoc(world) {
   const stages = run ? stagesFor(SCRIPT, run.q).filter((s) => run.fired.includes(s.id)) : [];
   const mods = world.round.mods;
   return {
-    q: run ? run.q : world.q, round: world.round.n, roundName: run?.roundName,
+    q: run ? run.q : world.q, roundName: run?.roundName,
     release: world.release,
     run: run ? {
       q: run.q, round: run.round, roundName: run.roundName, newRound: run.newRound, headlines: run.headlines, forecast: run.forecast,
