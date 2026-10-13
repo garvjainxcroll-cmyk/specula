@@ -1,7 +1,7 @@
 // Practice mode (one device, no server needed) and the public pages.
 import { test, expect } from '@playwright/test';
 
-test('guided practice: two quarters with tips, a practice crisis and a final score', async ({ browser }) => {
+test('guided practice: two rounds with tips, a practice crisis and a final score', async ({ browser }) => {
   for (const vp of [{ width: 390, height: 844 }, { width: 1366, height: 900 }]) {
     const ctx = await browser.newContext({ viewport: vp });
     const p = await ctx.newPage();
@@ -40,13 +40,14 @@ test('guided practice: two quarters with tips, a practice crisis and a final sco
       }
       await p.click('[data-practice="bell"]');
       await tipOk();
-      await expect(p.locator(`text=Results · Q${q}`)).toBeVisible();
+      await expect(p.locator(`text=Results · Round ${q}`)).toBeVisible();
       await p.click('[data-practice="next"]');
       await tipOk();
     }
     if (vp.width < 600) await p.click('[data-tab="score"]');
-    await expect(p.getByText('Final standings', { exact: true })).toBeVisible();
-    await expect(p.locator('[data-tip="score"] .tbl').getByText('Your Practice Fund')).toBeVisible();
+    await expect(p.locator('[data-my-final]')).toBeVisible();
+    await expect(p.locator('[data-my-rank]')).toBeVisible();
+    for (const other of ['Practice Fund Alpha', 'Practice Fund Beta', 'Practice Fund Gamma']) await expect(p.getByText(other)).toHaveCount(0);
     expect(errors).toEqual([]);
     await ctx.close();
   }
@@ -59,7 +60,7 @@ test('How to Play matches the guide and works on a phone', async ({ browser }) =
   p.on('pageerror', (e) => errors.push(e.message));
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await p.goto('/#/learn');
-  for (const t of ['Forty-four instruments in eight families', 'If Risk Used is above 100% when the quarter settles', 'You lose 1 point for every 0.1 percentage point you are off', 'Every fund starts with 15. Each forced liquidation costs 5', 'Fund codes are private']) {
+  for (const t of ['Forty-four instruments in eight families', 'If Risk Used is above 100% when the round settles', 'You lose 1 point for every 0.1 percentage point you are off', 'Every fund starts with 15. Each forced liquidation costs 5', 'Fund codes are private']) {
     await expect(p.locator(`text=${t}`).first()).toBeAttached();
   }
   // the brief's worked example: ₹100 Cr of a 10-year bond, yield up 0.5% → about ₹4 Cr

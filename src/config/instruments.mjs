@@ -5,7 +5,7 @@
 // funded      true: buying it uses cash. false (rate futures, default protection): a contract
 //             on a notional amount; profit and loss is paid in cash as the price moves.
 // dur         price sensitivity to its yield (years), for bonds and credit
-// sigma0      typical quarterly move in rupee terms (% of value, or % of notional), the
+// sigma0      typical per-round move in rupee terms (% of value, or % of notional), the
 //             starting point for "how sharply that instrument has been moving"
 // risk        family for Risk Used; positions in one family offset each other (sign = direction)
 // depth       market depth in ₹ Cr for crowd impact

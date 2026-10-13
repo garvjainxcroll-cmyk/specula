@@ -1,8 +1,8 @@
-// Guided practice: two made-up quarters on this device only, against three practice bots.
+// Guided practice: two made-up rounds on this device only, against three practice bots.
 import { h, mount, toast, sstore } from '../ui.mjs';
 import { createDesk } from './deskcore.mjs';
 import { PRACTICE } from '../../src/practice/scenario.mjs';
-import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor, checkOrder, deskNow, standingsNow } from '../../src/engine/game.mjs';
+import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor, checkOrder, deskNow } from '../../src/engine/game.mjs';
 import { carryRates, rupeePrice } from '../../src/engine/market.mjs';
 import { ruleText, smoothingText } from '../../src/engine/macro.mjs';
 import { ECON_ORDER } from '../../src/config/economies.mjs';
@@ -11,18 +11,18 @@ import { BOTS, rng, ordersFor } from '../../src/bots/bots.mjs';
 
 const ME = 'you';
 const BOT_TEAMS = [['p1', 'Practice Fund Alpha', 'reader'], ['p2', 'Practice Fund Beta', 'cautious'], ['p3', 'Practice Fund Gamma', 'random']];
-const WINDOW_MS = 120000;
+const WINDOW_MS = 120000; // practice windows are short; the real game's are ten minutes
 
 const TIPS = [
-  { phase: 'data', target: 'data', text: 'This is the data release. Every quarter starts here: growth, inflation, unemployment, the policy rate, the budget and the current account for all six economies. Small “exp” numbers show what forecasters expected — the gap is the surprise. Tap any figure to see exactly how it was worked out.' },
+  { phase: 'data', target: 'data', text: 'This is the data release. Every round starts here: growth, inflation, unemployment, the policy rate, the budget and the current account for all six economies. Small “exp” numbers show what forecasters expected — the gap is the surprise. Tap any figure to see exactly how it was worked out.' },
   { phase: 'data', target: 'rules', text: 'These are the central bank rules. At settlement each bank plugs this release into its rule. If you work it out first, you know what rates will do before the market does.' },
-  { phase: 'open', target: 'markets', text: 'The window is open: two minutes to trade. Tap any instrument to see its price, what holding it earns or costs, a worked example, and the trade ticket. Try buying something now.' },
-  { phase: 'open', target: 'forecast', text: 'Each quarter has one forecast. Up to 10 points; you lose 1 point for every 0.1 you are off. Hint: a policy-rate question is answered by the rule you just read.', tab: 'trade' },
+  { phase: 'open', target: 'markets', text: 'The window is open: two minutes to trade in practice (ten in the real game). Tap any instrument to see its price, what holding it earns or costs, a worked example, and the trade ticket. Try buying something now.' },
+  { phase: 'open', target: 'forecast', text: 'Each round has one forecast. Up to 10 points; you lose 1 point for every 0.1 you are off. Hint: a policy-rate question is answered by the rule you just read.', tab: 'trade' },
   { phase: 'open', target: 'fund', text: 'Your fund: value, spare cash, exposure (limit 3×) and Risk Used (limit 100%). Tap Risk Used to see the full working. Above 100% at the bell means forced liquidation.', tab: 'fund' },
   { phase: 'results', target: 'results', text: 'The bell rang and the market settled. Every line of your profit and loss opens into a sum you can check with a calculator: price change, currency effect, carry, trading cost and crowd impact.', tab: 'results' },
   { phase: 'results', target: 'why', text: '“Why did prices move?” links each big move to its cause — a rate decision, a growth surprise, oil, a crisis or the crowd. Tap a central bank decision above to see its rule worked step by step.', tab: 'results' },
   { phase: 'crisis', target: 'fund', text: 'A crisis! Prices moved at once and the crisis multiplier raised everyone’s Risk Used. Check yours before the bell — you can still trade.', tab: 'fund' },
-  { phase: 'final', target: 'score', text: 'Practice over. The SPECULA Score: 60 for risk-adjusted return, 25 for forecasts, 15 for risk discipline. Tap your score to see every step. You are ready for the real thing.', tab: 'score' },
+  { phase: 'final', target: 'score', text: 'Practice over. The SPECULA Score: 60 for risk-adjusted return, 25 for forecasts, 15 for risk discipline. In the real game there is no leaderboard: you see only your own fund, and the Event Head reveals the standings at the end. Tap “Show the full working” to see every step. You are ready for the real thing.', tab: 'score' },
 ];
 
 export default function practice(app, { band }) {
@@ -51,14 +51,13 @@ export default function practice(app, { band }) {
   const adapter = {
     view: () => {
       const w = g.world;
-      const st = standingsNow(w);
       const clock = g.phase === 'open' ? Math.max(0, g.endsAt - Date.now()) : null;
       return {
         phase: g.phase, q: w.run ? w.run.q : w.q, round: 1, v: g.v, ordersRev: g.orders[ME].length, docKey: String(g.v),
         clock, paused: false, qdoc: qdoc(), team: w.teams[ME], teamId: ME, teamName: 'Your Practice Fund', members: [],
         orders: g.phase === 'open' || g.phase === 'data' ? g.orders[ME] : [], forecastSaved: g.forecast, bidSaved: g.bid,
         result: g.lastResult, myResult: g.lastResult ? g.results[g.lastResult.q]?.teams[ME] : null,
-        standings: { rows: (w.final?.standings || st).rows, final: !!w.final }, history: w.history,
+        final: w.final ? { standings: w.final.standings } : null, history: w.history,
       };
     },
     subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
@@ -114,7 +113,7 @@ export default function practice(app, { band }) {
       p === 'data' ? h('button', { class: 'btn sm block', 'data-practice': 'open', onclick: act.open }, 'Open the window') : null,
       p === 'open' && g.crisisAt ? h('button', { class: 'btn sm block danger', style: { marginTop: '6px' }, 'data-practice': 'crisis', onclick: act.crisis }, 'Release the practice crisis') : null,
       p === 'open' ? h('button', { class: 'btn sm block ghost', style: { marginTop: '6px' }, 'data-practice': 'bell', onclick: act.bell }, 'Ring the bell now') : null,
-      p === 'results' ? h('button', { class: 'btn sm block', 'data-practice': 'next', onclick: act.next }, g.world.q >= PRACTICE.quarters.length ? 'See the final score' : 'Next quarter') : null,
+      p === 'results' ? h('button', { class: 'btn sm block', 'data-practice': 'next', onclick: act.next }, g.world.q >= PRACTICE.quarters.length ? 'See the final score' : 'Next round') : null,
       p === 'final' ? h('a', { class: 'btn sm block', href: '#/desk' }, 'Join the real game') : null,
       h('button', { class: 'linkish tiny', style: { marginTop: '8px' }, onclick: () => { sstore('specula-practice-tips', []); tipDone.clear(); newPractice(); g.v++; emit(); } }, 'Restart practice'));
     return box;
@@ -138,7 +137,7 @@ export default function practice(app, { band }) {
 
   function intro() {
     mount(app, band('practice'), h('main', { class: 'narrow', style: { padding: '40px 16px 80px' } },
-      h('div', { class: 'eyebrow' }, 'Guided practice'), h('h1', {}, 'Two practice quarters'),
+      h('div', { class: 'eyebrow' }, 'Guided practice'), h('h1', {}, 'Two practice rounds'),
       h('p', { class: 'lead' }, 'Learn the desk on a made-up scenario before the real game. It runs on this device only, against three practice funds, with tips explaining each part of the desk.'),
       h('ul', {}, h('li', {}, 'The numbers and news are invented for practice and are not the real game.'), h('li', {}, 'You control the clock: open the window, release the practice crisis, ring the bell.'), h('li', {}, 'Everything is calculated exactly as in the live game.')),
       h('button', { class: 'btn lg', 'data-practice': 'start', onclick: () => { newPractice(); run(); } }, 'Start practice')));

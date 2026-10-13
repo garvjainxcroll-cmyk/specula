@@ -32,9 +32,9 @@ export function startRelease() {
 }
 
 /**
- * The data drop for quarter q (q >= 2), built from the state after the last settlement.
+ * The data drop for round q (q >= 2), built from the state after the last settlement.
  * world.econ holds last release figures + current policy rates; world.moves the market moves
- * of the last quarter. shocks = the script's data shocks for this quarter.
+ * of the last round. shocks = the script's data shocks for this round.
  */
 export function computeRelease(world, q, shocks = {}) {
   const prev = world.release;
@@ -52,7 +52,7 @@ export function computeRelease(world, q, shocks = {}) {
     // ---- figures particular to each economy (drive some of the main figures) ----
     const sp = { ...P.special };
     if (e === 'AUR') {
-      const t = [T('last quarter', `${fmtNum(P.special.badLoans, 1)}`, P.special.badLoans, true),
+      const t = [T('last round', `${fmtNum(P.special.badLoans, 1)}`, P.special.badLoans, true),
         T('drift back to 2.0', `0.1 × (2.0 − ${fmtNum(P.special.badLoans, 1)})`, 0.1 * (2.0 - P.special.badLoans)),
         T('growth below trend raises bad loans', `−0.15 × (${fmtNum(P.g, 1)} − ${fmtNum(c.trend, 1)})`, -0.15 * (P.g - c.trend)),
         T('higher rates raise bad loans', `0.1 × ${fmtTerm(world.econ[e].di)}`, 0.1 * world.econ[e].di)];
@@ -71,7 +71,7 @@ export function computeRelease(world, q, shocks = {}) {
     if (e === 'KES') {
       const k = world.econ.KES;
       const caGuess = P.ca; // reserves respond to the last current account
-      const t = [T('last quarter', `${Math.round(P.special.reserves)}`, P.special.reserves, true),
+      const t = [T('last round', `${Math.round(P.special.reserves)}`, P.special.reserves, true),
         T('normal inflows', '5', 5),
         T('current account', `1.0 × ${fmtTerm(caGuess, 1)}`, 1.0 * caGuess),
         T('fear drives money out', `−1.5 × max(0, ${fmtNum(world.glob.fear, 2)} − 16)`, -1.5 * Math.max(0, world.glob.fear - 16)),
@@ -109,9 +109,9 @@ export function computeRelease(world, q, shocks = {}) {
     if (e === 'KES') gTerms.push(T('crown debts grow as the dinar falls', `−${G.crownDebt} × ${fmtTerm(moves.dinarPerCrownPct)}`, -G.crownDebt * moves.dinarPerCrownPct));
     if (e === 'NOR') { const d = r1(sp.oilOutput - P.special.oilOutput); gTerms.push(T('oil output change', `${k(G.oilOutput)} × ${fmtTerm(d, 1)}`, G.oilOutput * d)); }
     if (e === 'SAR') { const d = sp.harvest - P.special.harvest; gTerms.push(T('harvest change', `${k(G.harvest)} × ${fmtTerm(d, 0)}`, G.harvest * d)); }
-    // the consensus knows everything except this quarter's surprises
+    // the consensus knows everything except this round's surprises
     const gExp = build('growth', gTerms.filter((t) => t && !['oil output change', 'harvest change'].includes(t.label)), 1).value;
-    if (sh.g) gTerms.push(T('news this quarter', fmtTerm(sh.g), sh.g));
+    if (sh.g) gTerms.push(T('news this round', fmtTerm(sh.g), sh.g));
     const g = build('Growth', gTerms.filter(Boolean), 1);
     out.g = g.value; out.work.g = g; out.exp.g = gExp;
 
@@ -119,7 +119,7 @@ export function computeRelease(world, q, shocks = {}) {
     const I = c.infl;
     const depr = r2(-(moves.fx[e] || 0));
     const piTerms = (gUse) => [
-      T('last quarter', `${k(I.lam)} × ${fmtNum(P.pi, 1)}`, I.lam * P.pi, true),
+      T('last round', `${k(I.lam)} × ${fmtNum(P.pi, 1)}`, I.lam * P.pi, true),
       T('pull to target', `${r2(1 - I.lam)} × ${fmtNum(c.target, 1)}`, (1 - I.lam) * c.target),
       T('demand pressure', `${k(I.alpha)} × (${fmtNum(gUse, 1)} − ${fmtNum(c.trend, 1)})`, I.alpha * (gUse - c.trend)),
       T('oil price', `${k(I.oil)} × ${fmtTerm(moves.oil)}`, I.oil * moves.oil),
@@ -128,31 +128,31 @@ export function computeRelease(world, q, shocks = {}) {
     ];
     const piExp = build('inflation', piTerms(gExp), 1).value;
     const pT = piTerms(g.value);
-    if (sh.pi) pT.push(T('news this quarter', fmtTerm(sh.pi), sh.pi));
+    if (sh.pi) pT.push(T('news this round', fmtTerm(sh.pi), sh.pi));
     const pi = build('Inflation', pT, 1);
     out.pi = pi.value; out.work.pi = pi; out.exp.pi = piExp;
 
     // ---- unemployment ----
     const uTerms = (gUse) => [
-      T('last quarter', fmtNum(P.u, 1), P.u, true),
+      T('last round', fmtNum(P.u, 1), P.u, true),
       T('drift to normal', `0.1 × (${fmtNum(c.uStar, 1)} − ${fmtNum(P.u, 1)})`, 0.1 * (c.uStar - P.u)),
       T('growth versus trend', `−0.15 × (${fmtNum(gUse, 1)} − ${fmtNum(c.trend, 1)})`, -0.15 * (gUse - c.trend)),
     ];
     const uExp = build('u', uTerms(gExp), 1, { floor: 1 }).value;
     const uT = uTerms(g.value);
-    if (sh.u) uT.push(T('news this quarter', fmtTerm(sh.u), sh.u));
+    if (sh.u) uT.push(T('news this round', fmtTerm(sh.u), sh.u));
     const u = build('Unemployment', uT, 1, { floor: 1 });
     out.u = u.value; out.work.u = u; out.exp.u = uExp;
 
     // ---- budget balance ----
     const B = c.budget;
     const bT = [
-      T('last quarter', fmtNum(P.b, 1), P.b, true),
+      T('last round', fmtNum(P.b, 1), P.b, true),
       T('drift to normal', `0.1 × (${fmtNum(c.start.b, 1)} − ${fmtNum(P.b, 1)})`, 0.1 * (c.start.b - P.b)),
       T('tax from growth', `0.05 × (${fmtNum(g.value, 1)} − ${fmtNum(c.trend, 1)})`, 0.05 * (g.value - c.trend)),
       B.oil ? T('oil revenue', `${k(B.oil)} × ${fmtTerm(moves.oil)}`, B.oil * moves.oil) : null,
       B.copper ? T('copper revenue', `${k(B.copper)} × ${fmtTerm(moves.copper)}`, B.copper * moves.copper) : null,
-      sh.b ? T('news this quarter', fmtTerm(sh.b), sh.b) : null,
+      sh.b ? T('news this round', fmtTerm(sh.b), sh.b) : null,
     ].filter(Boolean);
     const b = build('Budget balance', bT, 1);
     out.b = b.value; out.work.b = b;
@@ -160,14 +160,14 @@ export function computeRelease(world, q, shocks = {}) {
     // ---- current account ----
     const C = c.ca;
     const caT = [
-      T('last quarter', fmtNum(P.ca, 1), P.ca, true),
+      T('last round', fmtNum(P.ca, 1), P.ca, true),
       T('drift to normal', `0.1 × (${fmtNum(c.start.ca, 1)} − ${fmtNum(P.ca, 1)})`, 0.1 * (c.start.ca - P.ca)),
       C.world ? T('world demand', `${k(C.world)} × ${fmtTerm(worldGap)}`, C.world * worldGap) : null,
       T('imports from growth', `−0.05 × (${fmtNum(g.value, 1)} − ${fmtNum(c.trend, 1)})`, -0.05 * (g.value - c.trend)),
       C.oil ? T('oil price', `${k(C.oil)} × ${fmtTerm(moves.oil)}`, C.oil * moves.oil) : null,
       C.copper ? T('copper price', `${k(C.copper)} × ${fmtTerm(moves.copper)}`, C.copper * moves.copper) : null,
       C.wheat ? T('wheat price', `${k(C.wheat)} × ${fmtTerm(moves.wheat)}`, C.wheat * moves.wheat) : null,
-      sh.ca ? T('news this quarter', fmtTerm(sh.ca), sh.ca) : null,
+      sh.ca ? T('news this round', fmtTerm(sh.ca), sh.ca) : null,
     ].filter(Boolean);
     const ca = build('Current account', caT, 1);
     out.ca = ca.value; out.work.ca = ca;
@@ -175,10 +175,10 @@ export function computeRelease(world, q, shocks = {}) {
     // ---- debt ----
     const y10 = world.econ[e].y10;
     const dT = [
-      T('last quarter', fmtNum(P.debt, 1), P.debt, true),
+      T('last round', fmtNum(P.debt, 1), P.debt, true),
       T('interest minus nominal growth', `${fmtNum(P.debt, 1)} × (${fmtNum(y10)} − ${fmtNum(g.value, 1)} − ${fmtNum(pi.value, 1)}) ÷ 400`, P.debt * (y10 - g.value - pi.value) / 400),
-      T('this quarter’s borrowing', `−${fmtTerm(b.value, 1)} ÷ 4`, -b.value / 4),
-      sh.debt ? T('news this quarter', fmtTerm(sh.debt), sh.debt) : null,
+      T('this round’s borrowing', `−${fmtTerm(b.value, 1)} ÷ 4`, -b.value / 4),
+      sh.debt ? T('news this round', fmtTerm(sh.debt), sh.debt) : null,
     ].filter(Boolean);
     const debt = build('Debt to GDP', dT, 1);
     out.debt = debt.value; out.work.debt = debt;
@@ -240,7 +240,7 @@ export function decide(e, iOld, fig, iAUR, mods = {}) {
   const exprTarget = terms.map((t) => (t.expr.startsWith('(') || /^[−-]/.test(t.expr) ? t.expr : t.expr)).join(' + ');
   const steps = [
     `Target = ${exprTarget} = ${fmtNum(target)}`,
-    `Smoothed with last quarter’s ${fmtNum(iOld)}: ${R.rho} × ${fmtNum(iOld)} + ${r2(1 - R.rho)} × ${fmtNum(target)} = ${raw.toFixed(3)}`,
+    `Smoothed with last round’s ${fmtNum(iOld)}: ${R.rho} × ${fmtNum(iOld)} + ${r2(1 - R.rho)} × ${fmtNum(target)} = ${raw.toFixed(3)}`,
     `Rounded to the nearest 0.25: ${fmtNum(iNew)}%${iNew === 0 && raw < 0.125 ? ' (rates cannot go below zero)' : ''}`,
   ];
   if (override) steps.push(override);

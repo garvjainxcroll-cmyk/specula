@@ -112,7 +112,7 @@ export function applyForced(st, led, closed) {
   return total;
 }
 
-/** Interest and premiums for the quarter on positions held at the bell. carry = carryRates(). */
+/** Interest and premiums for the round on positions held at the bell. carry = carryRates(). */
 export function applyCarry(st, led, carry) {
   for (const id of Object.keys(st.pos)) {
     const v = st.pos[id];
@@ -142,7 +142,7 @@ export function applyCashInterest(st, led) {
   return amount;
 }
 
-/** Crowd impact: everyone trading the same way this quarter pays for it. */
+/** Crowd impact: everyone trading the same way this round pays for it. */
 export function crowdImpacts(flowsByTeam) {
   const net = {};
   for (const flows of Object.values(flowsByTeam)) for (const [id, f] of Object.entries(flows)) net[id] = (net[id] || 0) + f;

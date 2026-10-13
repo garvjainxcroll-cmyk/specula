@@ -1,71 +1,124 @@
 // The Event Head's run sheet (server-only; shown only in the console) and the debrief's
-// "what happened and why" for each round. Written from a full run of the script; the
-// numbers quoted are what the economy does before teams trade (teams cannot change the
-// economy, only prices through the crowd).
+// "what happened and why" for each round. Six rounds, one ten-minute window each.
+// Every crisis is optional: the Event Head decides which to release, and when.
+// Times are given as the clock shows them (it counts down from 10:00).
+// The numbers quoted are what the economy does before teams trade (teams cannot change
+// the economy, only prices through the crowd), from a full run with every crisis released.
 
-const OPEN = 'When you are ready, open the window: two minutes on every screen.';
+const OPEN = 'When you are ready, open the window: ten minutes on every screen.';
 
 export const RUNSHEET = {
-  1: { say: ['Welcome to SPECULA — Quarter 1 of 24, Round 01: Markets in Normal Times. Every fund starts with ₹1,000 Cr in cash.', 'The data has dropped. Aurelian inflation is 4.2%, just above its 4% target. Every central bank rule is on your desk — work out what Aurelia will do.', 'Your forecast this quarter: Aurelia’s policy rate in the next release. ' + OPEN], fire: null },
-  2: { say: ['Quarter 2. Aurelian shoppers and wages are running hot — look at the surprise against what forecasters expected.', OPEN], fire: 'Two stages. Release stage 1 (“The Governor resigns?”) about 45 seconds in. Let the hall react for 25–30 seconds, then release stage 2 (“It was fake”) with at least 30 seconds left. Afterwards: “Check your sources — the panic sellers paid the spread twice, and spreads stay wider for the rest of the round.”' },
-  3: { say: ['Quarter 3. Unemployment in Aurelia keeps falling, Verana stalls, and Norvik’s oil partners are meeting.', OPEN], fire: null },
-  4: { say: ['Quarter 4, the last of Round 01. Aurelian inflation is still climbing.', OPEN], fire: 'Release “Shares plunge in minutes” about 60 seconds in. Say nothing about why. After the bell: “It was a broken trading program. Nothing in the economy changed — those who held their nerve, or bought, were paid.”' },
-  5: { say: ['Round 02: Inflation and Interest Rates. Energy bills are up everywhere and inflation is rising across the world.', 'Remember: rules use this release. Higher inflation means higher rates, and higher rates mean lower bond prices.', OPEN], fire: null },
-  6: { say: ['Quarter 6. Aurelian inflation is the highest in a decade.', OPEN], fire: 'Release “Strikes and a 9% pay rise” about 50 seconds in. It changes Aurelia’s rule (inflation weight doubles) for the rest of the round — tell the hall: “Read the rule change on your desk. Do the maths again.”' },
-  7: { say: ['Quarter 7. Calder’s exporters are losing orders and Kesh is raising rates to keep up with Aurelia.', 'Aurelia’s emergency rule is still in force until the end of this round.', OPEN], fire: null },
-  8: { say: ['Quarter 8, the last of Round 02. Verana’s inflation has reached 2%.', OPEN], fire: 'Two stages, a trap. Release stage 1 (“Verana’s bonds crack”) about 40 seconds in and let shorts pile in. With about 45 seconds left release stage 2 (“The Bank of Verana caps yields”). After the bell: “Never fight a central bank with a printing press — and notice the cap only lasts for the rest of this round.”' },
-  9: { say: ['Round 03: Commodities and Trade. The Bank of Verana’s yield cap ended with Round 02 — think about what that means for Verana’s bonds today.', 'Norvik’s oil output has dipped and Sarvan’s farmers fear a dry season.', OPEN], fire: null },
-  10: { say: ['Quarter 10. Tankers are queuing at Norvik’s ports.', OPEN], fire: 'Two stages. Release stage 1 (“Pipeline explosion”) about 30 seconds in — oil jumps 30%. Let funds chase it, then release stage 2 (“The Western Line”) with about 40 seconds left. After the bell: “Calder has no oil of its own — watch its growth next quarter.”' },
-  11: { say: ['Quarter 11. Aurelian politicians are attacking Calder’s trade surplus.', OPEN], fire: 'Release “30% tariffs on Calder” about 50 seconds in. It widens Calder’s currency band to ±6% for the rest of the round and revises Calder’s growth down — tell the hall to read the revision.' },
-  12: { say: ['Quarter 12, the last of Round 03. No rain in Sarvan’s grain belt for three months.', OPEN], fire: 'Two stages. Release stage 1 (“Harvest fails; export ban”) about 35 seconds in. Release stage 2 (“Bread riots; emergency hike”) with about 45 seconds left — it adds +3.00% to Sarvan’s rule. After the bell: “A big rate rise can hold up a currency even in a crisis.”' },
-  13: { say: ['Round 04: Emerging Markets and Currencies. Look hard at Kesh’s reserves — they have fallen for nine quarters in a row.', 'Kesh’s minister says the peg is not up for discussion.', OPEN], fire: null },
-  14: { say: ['Quarter 14. Kesh’s reserves are lower than at any time in ten years.', OPEN], fire: 'The biggest crisis so far, two stages. Release stage 1 (“Queues at the banks”) about 30 seconds in — the crisis multiplier rises to 1.6 and many funds will be near 100% Risk Used. Wait at least 30 seconds, then release stage 2 (“The peg breaks”) with 40+ seconds left. Say: “Check your Risk Used. Above 100% at the bell means forced liquidation.”' },
-  15: { say: ['Quarter 15. Kesh is in recession after the devaluation.', 'Kesh’s emergency addition to its rule is still in force until the end of the round.', OPEN], fire: 'Release “Flight from frontier markets” about 50 seconds in.' },
-  16: { say: ['Quarter 16, the last of Round 04. Kesh’s government is meeting the Concord Fund.', OPEN], fire: 'A twist: good news. Release “A ₵60 bn rescue” about 50 seconds in. After the bell: “Insurance bought at the top of the panic lost most of its value. Protection pays out only if the default actually happens.”' },
-  17: { say: ['Round 05: Banking and Credit. Aurelian office prices are down a fifth and Halvard Bank has issued a profit warning.', 'Watch the bad-loans figure in Aurelia’s data.', OPEN], fire: null },
-  18: { say: ['Quarter 18. Depositors are moving money out of smaller Aurelian banks.', OPEN], fire: 'Two stages; this one includes a DEFAULT. Release stage 1 (“Halvard halts withdrawals”) about 30 seconds in — crisis multiplier 1.75, trading costs triple. Release stage 2 (“Halvard defaults”) with about 45 seconds left: Aurelian Banks protection pays out in full and Aurelia’s rule gets an emergency −1.00%. Say: “Recompute Aurelia’s decision.”' },
-  19: { say: ['Quarter 19. Aurelia is in recession. Aurelia’s emergency cut is still in its rule this round.', OPEN], fire: 'Release “The high-yield market shuts” about 45 seconds in. After the bell: “The central bank stepped in at settlement — those who bought at the bottom gained.”' },
-  20: { say: ['Quarter 20, the last of Round 05. Verana’s banks are holding fewer of their own government’s bonds.', OPEN], fire: 'Release “Losses at Verana’s banks” about 50 seconds in.' },
-  21: { say: ['Round 06: Sovereign Debt and Recovery — the final round. This round adds a decision to the desk: the Verana Bond Auction. Read its rules on the Trade tab.', 'Bid a price and an amount; highest prices are filled first and you pay what you bid. Think about who has been selling Verana’s bonds lately.', OPEN], fire: null },
-  22: { say: ['Quarter 22. Ratings agencies have put Verana on watch for a downgrade.', OPEN], fire: 'Two stages, with a DEFAULT. Release stage 1 (“Downgraded to junk”) about 30 seconds in. Release stage 2 (“Verana restructures”) with about 45 seconds left: Verana’s bonds lose 30% and 20%, its protection pays out in full. Say: “Who bought big at the auction?”' },
-  23: { say: ['Quarter 23. Verana’s exchange offer closes; Aurelian unemployment starts to fall.', OPEN], fire: 'A twist: the recovery. Release “A global backstop” about 45 seconds in. Everything rallies, the Fear Index collapses.' },
-  24: { say: ['Quarter 24 — the final quarter. After this bell the final release marks the last forecast and the SPECULA Scores are calculated.', OPEN], fire: 'A last twist: release “Oil output cut” about 60 seconds in.' },
+  1: {
+    say: [
+      'Welcome to SPECULA — Round 01 of 06: Markets in Normal Times. Every fund starts with ₹1,000 Cr in cash. There is no leaderboard: you will see only your own fund until the very end.',
+      'The data has dropped. Aurelian inflation is 4.2%, just above its 4% target. Every central bank rule is on your desk — work out what Aurelia will do at the bell.',
+      'Your forecast this round: Aurelia’s policy rate in the next release. ' + OPEN,
+    ],
+    plan: 'A gentle start. Let the first three or four minutes be quiet so teams learn the desk. Suggested: the Governor hoax at about 6:30, its denial at about 5:00, the crash at about 3:00 — or skip the crash if the room is struggling.',
+    crises: {
+      hoax: 'Stage 1 (“The Governor resigns?”) — let the hall react for 60–90 seconds, then release stage 2 (“It was fake”). If you never release stage 2, the panic stands until the bell: kinder to the hasty, harsher on those who held. Afterwards: “Check your sources — the panic sellers paid the spread twice.”',
+      crash: 'Release it with at least two minutes left and say nothing about why. After the bell: “It was a broken trading program. Nothing in the economy changed — those who held their nerve, or bought, were paid.”',
+    },
+  },
+  2: {
+    say: [
+      'Round 02: Inflation and Interest Rates. Energy bills are up everywhere and Aurelian inflation is the highest in a decade: 5.7% in this release.',
+      'Remember: the rules use this release. Higher inflation means higher rates, and higher rates mean lower bond prices.',
+      OPEN,
+    ],
+    plan: 'The rate-shock round. Suggested: the Wage Spiral at about 7:00 (it doubles Aurelia’s inflation weight, so Aurelia jumps from 4.25% to 6.25% at the bell instead of 4.50%), then Verana’s bonds crack at about 4:30 and the yield cap at about 2:30.',
+    crises: {
+      spiral: 'Release with plenty of time left: teams must redo the Aurelia sum. Tell the hall: “Read the rule change on your desk. Do the maths again.”',
+      cap: 'A trap, two stages. Release stage 1 (“Verana’s bonds crack”) and let shorts pile in for two minutes or more; then stage 2 (“The Bank of Verana caps yields”). Say afterwards: “The cap holds Verana’s 10-year yield at 3% — but printing money costs the currency: the florin falls about 6%. In rupees you feel both.” The cap lasts only for this round.',
+    },
+  },
+  3: {
+    say: [
+      'Round 03: Commodities and Trade. Norvik’s oil output has dipped, Aurelian politicians are attacking Calder’s surplus, and Sarvan has had no rain for three months.',
+      'Calder has no oil of its own. Sarvan’s inflation is 8.3%. ' + OPEN,
+    ],
+    plan: 'Three crises are available — the busiest round. Suggested: the pipeline explosion at about 8:00 and the reroute at about 6:30; the tariffs at about 5:00; the failed harvest at about 3:30 and the bread riots at about 2:00. For a calmer room, choose two of the three.',
+    crises: {
+      pipeline: 'Stage 1 (“Pipeline explosion”) — oil jumps. Let funds chase it, then release stage 2 (“The Western Line”) a minute or two later. After the bell: “Calder has no oil of its own — watch its growth next round.”',
+      tariff: 'It widens Calder’s currency band to ±6% for the rest of the round and revises Calder’s growth down — tell the hall to read the revision.',
+      fields: 'Stage 2 (“Bread riots”) adds +3.00% to Sarvan’s rule: Sarvan’s rate goes from 11% to 13% at the bell. After the bell: “A big rate rise can hold up a currency even in a crisis.”',
+    },
+  },
+  4: {
+    say: [
+      'Round 04: Emerging Markets and Currencies. Look hard at Kesh’s reserves: 140 at the start of the game, 61 in this release.',
+      'Kesh’s finance minister says the peg is not up for discussion. Your forecast: Kesh’s inflation. ' + OPEN,
+    ],
+    plan: 'The biggest crisis of the game. Suggested: the bank queues at about 8:00, the peg breaks at about 6:30 (the dinar falls from 50 to about 73 to the crown), contagion at about 4:30, and the Concord rescue at about 2:30 as a twist. The rescue can only follow the run on the dinar.',
+    crises: {
+      dinar: 'Stage 1 (“Queues at the banks”) raises the crisis multiplier to 1.6, so many funds will be near 100% Risk Used. Wait at least a minute, then release stage 2 (“The peg breaks”). Say: “Check your Risk Used. Above 100% at the bell means forced liquidation.”',
+      contagion: 'Release after the peg breaks for the full story; on its own it is a frontier-market scare.',
+      concord: 'Good news, and a trap for anyone who bought protection at the top. After the bell: “Insurance bought at the top of the panic lost most of its value. Protection pays out only if a default actually happens.”',
+    },
+  },
+  5: {
+    say: [
+      'Round 05: Banking and Credit. Aurelian office prices are down a fifth, Halvard Bank has issued a profit warning, and Aurelia’s growth is negative: −0.9%.',
+      'Watch the bad-loans figure in Aurelia’s data. ' + OPEN,
+    ],
+    plan: 'Contains a DEFAULT. Suggested: Halvard halts withdrawals at about 8:00 and defaults at about 6:00; the high-yield market shuts at about 4:30; Verana’s banks crack at about 2:30. With every crisis released Aurelia cuts from 6.75% to 4.75% at the bell.',
+    crises: {
+      halvard: 'Stage 1 (“Halvard halts withdrawals”): crisis multiplier 1.75, trading costs up sharply. Stage 2 (“Halvard defaults”): Aurelian Banks protection pays out in full and Aurelia’s rule gets an emergency −1.00%. Say: “Recompute Aurelia’s decision.”',
+      freeze: 'After the bell: “The central bank stepped in at settlement — those who bought at the bottom gained.”',
+      verbanks: 'Sets up Round 06: Verana’s banks start selling their own government’s bonds.',
+    },
+  },
+  6: {
+    say: [
+      'Round 06: Sovereign Debt and Recovery — the final round. It adds a decision to the desk: the Verana Bond Auction. Read its rules on the Trade tab.',
+      'Bid a price and an amount; the highest prices are filled first and you pay what you bid. Think about who has been selling Verana’s bonds lately.',
+      OPEN,
+    ],
+    plan: 'Contains a DEFAULT. Bids settle at the bell, after any crisis. Suggested: the downgrade at about 7:30, the restructuring at about 5:30, the global backstop at about 3:30 (it can only follow the downgrade), and the oil cut at about 2:00 as a last twist.',
+    crises: {
+      reckoning: 'Stage 2 (“Verana restructures”): Verana’s bonds lose 30% and 20% and its protection pays out in full. Say: “Who is bidding big at the auction now?”',
+      bargain: 'The recovery: everything rallies and the Fear Index collapses.',
+      lastbell: 'A last twist for oil.',
+    },
+  },
 };
 
 export const ROUND_SUMMARIES = [
   { n: 1, text: [
-    'The world started close to balance, but Aurelia was running slightly hot: inflation at 4.2% against a 4% target, then rising past 4.8% as wages and shopping surged. Aurelia’s rule answered every quarter, taking its rate from 4.00% to 5.50%, and the funds that worked the rule out sold Aurelian rate futures and 2-year bonds before each hike.',
-    'In Quarter 2 a fake post claimed the Aurelian governor had resigned. The crown and shares dropped, then snapped back when the central bank denied it. Nothing in the economy had changed — funds that panicked paid the spread twice, at wider spreads.',
-    'In Quarter 4 Aurelian shares fell 8% in four minutes for no reason at all. The economy was unchanged, so the price recovered at settlement: holding your nerve, or buying, was the right call.',
+    'The world started close to balance, but Aurelia was running slightly hot: inflation at 4.2% against a 4% target. Aurelia’s rule answered at the bell, taking its rate from 4.00% to 4.25%, and the funds that worked the rule out sold Aurelian rate futures before the hike.',
+    'If you released the Governor hoax: the crown and shares dropped on a fake post, then snapped back when the central bank denied it. Nothing in the economy had changed — funds that panicked paid the spread twice.',
+    'If you released the crash: Aurelian shares fell in minutes for no reason at all. The economy was unchanged, so the price recovered at settlement.',
   ] },
   { n: 2, text: [
-    'Energy and wages pushed inflation up across the world, and Aurelia’s inflation reached 5.6%. In Quarter 6 a 9% pay deal led Aurelia’s central bank to double the inflation weight in its rule, and its rate jumped from 5.75% to 7.00%, then 7.25%. Aurelian 10-year bonds lost money every quarter until the peak.',
-    'Because the other central banks watch Aurelia — Calder, Verana and Norvik all have Aurelia’s rate in their rules, and Kesh’s rule is built on it — rates rose almost everywhere. Kesh had to follow Aurelia up even as its own growth slowed: the price of a peg.',
-    'In Quarter 8 Verana’s bonds crashed — and then the Bank of Verana capped the 10-year yield at 3.00%. Funds that had shorted Verana’s bonds were crushed; the florin fell 7% because the bank was printing money. The cap lasted only for the rest of the round: when it ended, Verana’s 10-year yield rose to about 4% in Quarter 9 and the bonds fell 7%, exactly as a careful reader of the rule would have expected.',
+    'Energy prices pushed inflation up everywhere: Aurelia’s reached 5.7%. Aurelia’s rule alone called for 4.50%. Aurelian bonds fell — the 10-year lost about 8% over the round.',
+    'If you released the Wage Spiral, Aurelia’s inflation weight doubled and the rate jumped to 6.25% at the bell. Aurelian rate futures fell as the expected rate rose; those who redid the sum on the new rule sold in time.',
+    'If you released the Florin Cap: Verana’s 10-year bonds fell about 9% as yields leapt, then the Bank of Verana capped the yield at 3% with unlimited buying. The bonds recovered in florins, but the printing sank the florin about 6% — in rupees, a bond holder felt both. A currency is part of every foreign trade.',
   ] },
   { n: 3, text: [
-    'Commodities took over. In Quarter 10 a pipeline explosion cut Norvik’s oil output almost in half and oil jumped 30% in minutes; when the Western Line reopened, half of that was given back. Funds that chased the spike lost; Calder, which has no oil of its own, saw its shares fall.',
-    'In Quarter 11 Aurelia put 30% tariffs on Calder. Calder’s growth was revised down by 1.2 points, its shares fell about 15% and copper fell 10%, because Calder buys half the world’s copper. Calder widened its currency band to let the mark weaken.',
-    'In Quarter 12 Sarvan’s harvest failed and it banned wheat exports: wheat rose more than 30%, Sarvan’s inflation shot up, and Sarvan’s emergency +3.00% rate rise actually lifted the ora at settlement. A large enough rate rise can hold up a currency even in a crisis.',
+    'Commodities ruled the round. Oil, wheat and Calder’s trade all moved on news rather than on the rules.',
+    'The pipeline explosion lifted oil and Norvik’s krone and hurt Calder, which has no oil of its own; the reroute took back much of the move. The tariffs hit Calder’s growth and widened its currency band. The failed harvest lifted wheat; the bread riots forced Sarvan to add 3.00% to its rule, taking its rate from 11% to 13% — enough to steady the ora.',
   ] },
   { n: 4, text: [
-    'Kesh’s reserves had been falling since Round 01: from ₵145 bn to ₵48 bn by Quarter 14, as Aurelian rates rose and money left. Its default protection kept rising as a warning. In Quarter 14 there was a run on the dinar: reserves were revised down by ₵30 bn, Kesh added an emergency 3% and then 5% to its rule — and then abandoned the peg. The dinar fell by about 30%, Kesh’s bonds and shares lost about half their rupee value, and the crisis multiplier pushed many funds into forced liquidation.',
-    'Kesh borrows in crowns, so the devaluation made its debts much bigger: growth collapsed to −2.3% and inflation jumped to 9.2% as import prices rose. Sarvan, which trades with Kesh, was hit in Quarter 15 as investors fled frontier markets.',
-    'In Quarter 16 the Concord Fund lent Kesh ₵60 bn. Kesh never defaulted, so its default protection paid nothing and lost a third of its value; Kesh’s bonds and shares rallied more than 40%. Insurance bought at the top of the panic is expensive insurance.',
+    'Kesh’s reserves fell from 140 at the start to 61 by this release, while Kesh held its peg at 50 dinars to the crown. A peg needs reserves to defend it.',
+    'If you released the run on the dinar: Kesh raised rates in an emergency, then abandoned the peg. The dinar sank to about 73 to the crown, a fall of about a third, and Kesh’s inflation jumped. Funds without Kesh exposure, or with protection, were safe; leveraged holders of Kesh assets were forced to sell at the bell.',
+    'The Concord rescue then cut Kesh’s emergency addition to +1.00%. Protection bought at the top of the panic lost much of its value: insurance only pays if the default actually happens.',
   ] },
   { n: 5, text: [
-    'Aurelian bad loans climbed from 2.8% to 6% as office prices fell and growth slowed — the warning was in the data from Quarter 13 onwards. In Quarter 18 Halvard Bank stopped withdrawals and then defaulted on its bonds. Aurelian bank shares lost about 44%, the Fear Index jumped by about 60%, and Aurelian Banks default protection paid out in full.',
-    'Aurelia’s central bank added an emergency −1.00% to its rule and its rate fell from 3.50% to 2.25% and then 1.50%; Aurelian government bonds rallied as money ran for safety. In Quarter 19 the high-yield market froze, until the central bank opened an emergency lending window at settlement.',
-    'Aurelia’s losses spread to Verana, whose banks held Aurelian loans. In Quarter 20 Verana’s banks began selling their own government’s bonds: the one thing that had kept Verana’s huge debt safe was ending. Verana’s 10-year bonds fell 14% and its default protection more than doubled.',
+    'Aurelia slid into recession: growth −0.9% and bad loans rising. Its rule called for a cut.',
+    'If you released Halvard: the bank halted withdrawals and then defaulted. Aurelian Banks protection paid out in full, and Aurelia’s emergency −1.00% took its rate from 6.75% to 4.75%. Aurelian Banks shares lost about half their value over the round.',
+    'The credit freeze and Verana’s bank losses set up the last round: Verana’s banks began selling their own government’s bonds.',
   ] },
   { n: 6, text: [
-    'In Quarter 21 Verana had to sell ₹3,000 Cr of new 10-year bonds at auction, with its own banks still selling. Funds that bid high won the bonds — and kept them into the next quarter.',
-    'In Quarter 22 Verana’s next bond sale failed, it was downgraded to junk, and then it restructured its debt: holders of its 10-year bonds lost 30% and its 2-year bonds 20%, and Verana default protection paid out in full. Including the rise in yields, Verana’s 10-year bond lost more than 40% of its value in one quarter.',
-    'In Quarter 23 Aurelia, Calder and the Concord Fund agreed a global backstop. Everything rallied at once — shares 10–20%, Verana’s bonds 19% — and the Fear Index collapsed by 43%. In the final quarter Norvik cut oil output and oil rose 16%.',
-    'The funds that ranked highest read the data before the window closed, worked out the central bank rules, kept Risk Used inside the limit through every crisis, and did not chase the first headline.',
+    'Verana had to borrow ₹3,000 Cr at auction while its own banks were selling its bonds. Bidders who paid above the settlement price lost money the moment the bonds were delivered.',
+    'If you released the Reckoning: Verana was downgraded and then restructured its debt — 30% off its 10-year bonds and 20% off its 2-year bonds — and Verana protection paid out in full. The Grand Bargain then guaranteed Verana’s new bonds and markets rallied.',
+    'The SPECULA Score rewarded the funds that read the rules, kept their swings small and were never forced to sell — not the ones that made the biggest single bet.',
   ] },
 ];
 
+/** Every piece of text that must never appear in the public website. */
 export function runsheetStrings() {
-  return [...Object.values(RUNSHEET).flatMap((r) => [...r.say, r.fire || '']), ...ROUND_SUMMARIES.flatMap((r) => r.text)].filter((s) => s.length > 40);
+  return [
+    ...Object.values(RUNSHEET).flatMap((r) => [...r.say, r.plan || '', ...Object.values(r.crises || {})]),
+    ...ROUND_SUMMARIES.flatMap((r) => r.text),
+  ].filter((s) => s.length > 40);
 }

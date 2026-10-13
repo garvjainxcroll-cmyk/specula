@@ -4,8 +4,11 @@
 //
 // Permission rules (all tested in tests/api.test.mjs):
 //  - Anyone may read the public state and public documents. They never contain the script
-//    beyond what has already been revealed (the current quarter's headlines and question,
+//    beyond what has already been revealed (the current round's headlines and question,
 //    and crisis stages already released).
+//  - Results are hidden: no public document holds another fund's value, profit, forecast
+//    marks, auction bid or standing. A fund sees only its own (with its token). The final
+//    standings become public only when the Event Head presses "Reveal the results".
 //  - A team member (token from joining with the fund code) may place orders, forecasts and
 //    an auction bid for their own fund only, only while the window is open, only at the
 //    current prices (epoch). Late orders are refused.
@@ -120,7 +123,7 @@ function quarterDoc(world) {
     run: run ? {
       q: run.q, round: run.round, roundName: run.roundName, newRound: run.newRound, headlines: run.headlines, forecast: run.forecast,
       auction: run.auction, exp: run.exp, spreads: run.spreads, M: run.M, open: run.open,
-      epochs: run.epochs, fired: run.fired, marked: run.marked,
+      epochs: run.epochs, fired: run.fired, marked: publicMarks(run.marked),
       stages: stages.map((s) => pickStagePublic(s, world.release)),
     } : null,
     mkt: { econ: world.mkt.econ, glob: world.mkt.glob, px: world.mkt.px },
@@ -129,17 +132,57 @@ function quarterDoc(world) {
     carry: carryRates(world.mkt),
     lastPx: world.run ? world.lastPx : (world.prevPx || world.lastPx),
     prices: Object.fromEntries(INST_IDS.map((id) => [id, rupeePrice(world.mkt, id)])),
-    final: world.final ? { release: world.final.release, marked: world.final.marked } : null,
+    final: world.final ? { release: world.final.release, marked: publicMarks(world.final.marked) } : null,
   };
 }
 
-function resultDoc(result, world) {
-  const names = Object.fromEntries(Object.values(world.teams).map((t) => [t.id, t.name]));
+// Which forecast was marked and the actual figure: public. Each fund's points: private.
+function publicMarks(m) { return m ? { q: m.q, spec: m.spec, actual: m.actual } : null; }
+
+// Public history: the economies and prices round by round, never the funds.
+function publicHistory(history) {
+  return history.map(({ q, econ, prices, fear, stages, decisions }) => ({ q, econ, prices, fear, stages, decisions }));
+}
+
+// The auction outcome as a central bank would publish it: no bidder, no individual bid.
+function publicAuction(a) {
+  if (!a) return null;
+  const filled = a.bids.filter((b) => b.allotted > 0);
+  const bidPaise = a.bids.reduce((x, b) => x + b.amount, 0);
+  return {
+    spec: a.spec, fair: a.fair, soldPaise: a.soldPaise, bidPaise, bidders: a.bids.length,
+    cutoff: filled.length ? Math.min(...filled.map((b) => b.price)) : null,
+    cover: a.spec.sizeCr ? Math.round((bidPaise / (a.spec.sizeCr * 1e9)) * 100) / 100 : null,
+  };
+}
+
+function resultDoc(result) {
   return {
     q: result.q, round: result.round, decisions: result.decisions, market: result.market, rets: result.rets, crowd: result.crowd,
-    carry: result.carry, stages: result.stages, standings: result.standings, epochs: result.epochs, pxOpen: result.pxOpen, pxBell: result.pxBell, pxSettled: result.pxSettled, release: result.release,
-    auction: result.auction ? { ...result.auction, bids: result.auction.bids.map((b) => ({ ...b, name: names[b.id] })) } : null,
-    funds: Object.fromEntries(Object.entries(result.teams).map(([id, r]) => [id, { name: names[id], navOpen: r.navOpen, navEnd: r.navEnd, pnl: r.pnl, forced: !!r.forced }])),
+    carry: result.carry, stages: result.stages, epochs: result.epochs, pxOpen: result.pxOpen, pxBell: result.pxBell, pxSettled: result.pxSettled, release: result.release,
+    auction: publicAuction(result.auction),
+  };
+}
+
+// Everything about every fund: for the Event Head only (never under pub/).
+function privateDoc(world, state) {
+  const st = standingsNow(world);
+  const names = Object.fromEntries(Object.values(world.teams).map((t) => [t.id, t.name]));
+  return {
+    standings: { rows: st.rows, best: st.best, forecastsScored: st.forecastsScored, final: !!world.final },
+    history: world.history,
+    final: world.final ? { standings: world.final.standings } : null,
+    revealed: !!state.revealed,
+    names,
+  };
+}
+
+function finalDoc(world) {
+  const rows = world.final.standings.rows.map(({ id, name, rank, nav, total, rar, forecast, discipline, stats, steps }) => ({ id, name, rank, nav, total, rar, forecast, discipline, stats, steps }));
+  return {
+    standings: { rows, best: world.final.standings.best, forecastsScored: world.final.standings.forecastsScored, maxF: world.final.standings.maxF },
+    release: world.final.release, marked: publicMarks(world.final.marked),
+    navPaths: Object.fromEntries(Object.values(world.teams).map((t) => [t.id, t.navHist])),
   };
 }
 
@@ -147,18 +190,19 @@ async function writeDocs(store, world, state, { result = null } = {}) {
   state.docs = state.docs || {};
   await store.set('pub/quarter', quarterDoc(world));
   state.docs.quarter = (state.docs.quarter || 0) + 1;
-  const st = standingsNow(world);
-  await store.set('pub/standings', { rows: st.rows, best: st.best, forecastsScored: st.forecastsScored, final: !!world.final });
-  state.docs.standings = (state.docs.standings || 0) + 1;
-  await store.set('pub/history', world.history);
+  await store.set('admin/private', privateDoc(world, state));
+  state.docs.priv = (state.docs.priv || 0) + 1;
+  await store.set('pub/history', publicHistory(world.history));
   state.docs.history = (state.docs.history || 0) + 1;
   if (result) {
-    await store.set(`pub/result/${result.q}`, resultDoc(result, world));
+    await store.set(`pub/result/${result.q}`, resultDoc(result));
     state.docs.result = result.q;
     for (const [id, r] of Object.entries(result.teams)) await store.set(`team/${id}/r/${result.q}`, r);
   }
   for (const t of Object.values(world.teams)) await store.set(`team/${t.id}`, { team: t, q: world.q });
-  if (world.final) { await store.set('pub/final', { standings: world.final.standings, release: world.final.release, marked: world.final.marked }); state.docs.final = 1; }
+  // each fund's own refresh signal (its team document changed)
+  state.docs.mine = (state.docs.mine || 0) + 1;
+  if (world.final && state.revealed) { await store.set('pub/final', finalDoc(world)); state.docs.final = (state.docs.final || 0) + 1; }
 }
 
 // ---------------- auth ----------------
@@ -228,7 +272,7 @@ function publicState(s) {
 
 async function doc(store, url) {
   const key = url.searchParams.get('key') || '';
-  if (!/^(quarter|standings|history|final|result\/\d{1,2})$/.test(key)) return fail(400, 'Unknown document');
+  if (!/^(quarter|history|final|result\/\d{1,2})$/.test(key)) return fail(400, 'Unknown document');
   const d = await getJ(store, `pub/${key}`);
   if (!d) return fail(404, 'Not published yet');
   return json({ ok: true, doc: d });
@@ -265,7 +309,7 @@ async function join(store, body) {
 
 function windowCheck(state, body) {
   if (state.phase !== 'open') return state.phase === 'data' ? 'The window is not open yet.' : 'The window is closed. Late orders are refused.';
-  if (Number(body.q) !== state.q) return 'That order was for a different quarter. Late orders are refused.';
+  if (Number(body.q) !== state.q) return 'That order was for a different round. Late orders are refused.';
   if (state.timer.pausedLeft !== null && state.timer.pausedLeft !== undefined) return 'The Event Head has paused the market.';
   if (!state.timer.endsAt || Date.now() > state.timer.endsAt + GRACE_MS) return 'The bell has rung. Late orders are refused.';
   return null;
@@ -322,7 +366,7 @@ async function bid(store, body) {
   const late = windowCheck(state, body);
   if (late) return refuse(409, late, { late: true });
   const world = await loadWorld(store, state);
-  if (!world.run?.auction) return refuse(400, 'There is no auction this quarter.');
+  if (!world.run?.auction) return refuse(400, 'There is no auction this round.');
   const price = Number(body.price); const amountCr = Number(body.amountCr);
   if (body.cancel) {
     const d = await update(store, `orders/${state.q}/${m.teamId}`, (cur) => ({ ...(cur || { orders: [], rev: 0 }), bid: null, rev: (cur?.rev || 0) + 1 }));
@@ -380,6 +424,8 @@ async function admin(store, body, env) {
     case 'settle': return adminSettle(store, body);
     case 'next': return adminNext(store);
     case 'final': return adminFinal(store);
+    case 'reveal': return adminReveal(store);
+    case 'private': return json({ ok: true, private: await getJ(store, 'admin/private') });
     case 'export': return adminExport(store);
     case 'reset': return adminReset(store, body);
     default: return fail(400, 'Unknown action');
@@ -393,7 +439,7 @@ async function adminStatus(store) {
   if (state.q) {
     const world = await loadWorld(store, state);
     const stages = world.run ? stagesFor(SCRIPT, world.run.q) : [];
-    out.stages = stages.map((s) => ({ ...pickStagePublic(s, null), fired: world.run.fired.includes(s.id), jumps: s.jumps || null, data: s.data || null }));
+    out.stages = stages.map((s) => ({ ...pickStagePublic(s, null), fired: world.run.fired.includes(s.id), jumps: s.jumps || null, data: s.data || null, needs: s.needs || null, needsTitle: s.needs ? stages.find((x) => x.id === s.needs)?.title || null : null, advice: SCRIPT === LIVE_SCRIPT && s.stageNo === 1 ? RUNSHEET[world.run.q]?.crises?.[s.crisisId] || null : null }));
     out.subs = {};
     for (const t of state.teams) {
       const d = await getJ(store, `orders/${state.q}/${t.id}`);
@@ -401,6 +447,12 @@ async function adminStatus(store) {
     }
     out.runsheet = SCRIPT === LIVE_SCRIPT ? RUNSHEET[state.q] || null : null;
     out.nextQuarter = state.q < SCRIPT.quarters.length ? { q: state.q + 1, headlines: SCRIPT.quarters[state.q].headlines, forecast: SCRIPT.quarters[state.q].forecast, crises: (SCRIPT.quarters[state.q].crises || []).map((c) => c.title) } : null;
+    // the auction in full (who bid what): only for the Event Head
+    const aq = SCRIPT.quarters.findIndex((x) => x.auction) + 1;
+    if (aq && state.q >= aq) {
+      const full = await getJ(store, `resultfull/${aq}`);
+      if (full?.auction) out.auction = { q: aq, ...full.auction, bids: full.auction.bids.map((b) => ({ ...b, name: state.teams.find((t) => t.id === b.id)?.name || b.id })) };
+    }
   }
   return json(out);
 }
@@ -496,8 +548,7 @@ async function adminSettle(store, body) {
     return refuse(409, 'The clock is still running. Wait for the bell, or ring it now.', { early: true });
   }
   const world = await loadWorld(store, state);
-  const unfired = world.run ? stagesFor(SCRIPT, world.run.q).filter((s) => !world.run.fired.includes(s.id)) : [];
-  if (unfired.length) return refuse(409, `Release the crisis first: ${unfired.map((s) => s.title).join(', ')}. The desk will reopen for 30 seconds.`);
+  // crises are the Event Head's choice: a round may settle with any, all or none released
   // lock the desk first, so no order can slip in while we settle
   await setState(store, (s) => { if (s.phase !== 'open' && s.phase !== 'settling') return undefined; s.phase = 'settling'; s.timer.endsAt = Math.min(s.timer.endsAt || Date.now(), Date.now()); s.timer.pausedLeft = null; return s; });
   let after = world;
@@ -528,8 +579,8 @@ async function adminSettle(store, body) {
 
 async function adminNext(store) {
   const state = await getState(store);
-  if (state.phase !== 'results') return refuse(409, 'Settle the quarter first.');
-  if (state.q >= SCRIPT.quarters.length) return refuse(409, 'That was the last quarter. Publish the final release.');
+  if (state.phase !== 'results') return refuse(409, 'Settle the round first.');
+  if (state.q >= SCRIPT.quarters.length) return refuse(409, 'That was the last round. Publish the final release.');
   const world = await loadWorld(store, state);
   const next = openQuarter(world, SCRIPT, state.q + 1);
   const s2 = await setState(store, async (s) => {
@@ -545,7 +596,7 @@ async function adminNext(store) {
 async function adminFinal(store) {
   const state = await getState(store);
   if (state.phase === 'final') return json({ ok: true, already: true, state: publicState(state) });
-  if (state.phase !== 'results' || state.q !== SCRIPT.quarters.length) return refuse(409, 'The final release comes after the last quarter settles.');
+  if (state.phase !== 'results' || state.q !== SCRIPT.quarters.length) return refuse(409, 'The final release comes after the last round settles.');
   const world = await loadWorld(store, state);
   const fin = finalRelease(world, SCRIPT);
   const s2 = await setState(store, async (s) => {
@@ -553,6 +604,21 @@ async function adminFinal(store) {
     await saveWorld(store, fin, s);
     await writeDocs(store, fin, s);
     s.phase = 'final'; s.finishedAt = Date.now();
+    return s;
+  });
+  return json({ ok: true, state: publicState(s2 || (await getState(store))) });
+}
+
+// The scores stay sealed until the Event Head reveals them (on the Big Screen and every desk).
+async function adminReveal(store) {
+  const state = await getState(store);
+  if (state.phase !== 'final') return refuse(409, 'Publish the final release first; then reveal the results.');
+  if (state.revealed) return json({ ok: true, already: true, state: publicState(state) });
+  const world = await loadWorld(store, state);
+  const s2 = await setState(store, async (s) => {
+    if (s.phase !== 'final' || s.revealed) return undefined;
+    s.revealed = true; s.revealedAt = Date.now();
+    await writeDocs(store, world, s);
     return s;
   });
   return json({ ok: true, state: publicState(s2 || (await getState(store))) });

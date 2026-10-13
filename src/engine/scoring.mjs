@@ -48,7 +48,7 @@ export function fundStats(navHist) {
 
 /**
  * SPECULA Score for every fund. funds: [{ id, name, navHist, forecastPoints (sum), forced (count) }].
- * forecastsScored: how many forecasts have been marked so far (24 at the end).
+ * forecastsScored: how many forecasts have been marked so far (6 at the end).
  */
 export function specula(funds, forecastsScored) {
   const stats = funds.map((f) => ({ f, s: fundStats(f.navHist) }));
@@ -65,8 +65,8 @@ export function specula(funds, forecastsScored) {
     const steps = {
       rar: [
         `Total return: ${fmtCr(s.end)} ÷ ${fmtCr(s.start)} − 1 = ${fmtNum(s.totalReturn)}%`,
-        `Cash alone would have grown ${fmtNum(s.cashGrowth)}% (${fmtNum(RULES.cashRatePct)}% a year for ${s.n} quarters), so the return your decisions earned is ${fmtNum(s.totalReturn)} − ${fmtNum(s.cashGrowth)} = ${fmtNum(s.excess)}%`,
-        `Swing (how much the fund value moved from quarter to quarter) = ${fmtNum(s.swing)}%${s.swing < RULES.swingFloorPct ? `, counted as at least ${fmtNum(RULES.swingFloorPct)}%` : ''}`,
+        `Cash alone would have grown ${fmtNum(s.cashGrowth)}% (${fmtNum(RULES.cashRatePct)}% a year; each round counts as three months, so ${fmtNum(RULES.cashRatePct / 4)}% a round for ${s.n} rounds), so the return your decisions earned is ${fmtNum(s.totalReturn)} − ${fmtNum(s.cashGrowth)} = ${fmtNum(s.excess)}%`,
+        `Swing (how much the fund value moved from round to round) = ${fmtNum(s.swing)}%${s.swing < RULES.swingFloorPct ? `, counted as at least ${fmtNum(RULES.swingFloorPct)}%` : ''}`,
         `Deepest fall from a peak = ${fmtNum(s.deepest)}%`,
         `Risk-adjusted return = ${fmtNum(s.excess)} ÷ ${fmtNum(s.swingUsed)} − ${RULES.fallPenaltyPerPct} × ${fmtNum(s.deepest)} = ${fmtNum(s.riskAdj)}`,
         below ? `The fund is below ₹1,000 Cr, so it scores zero here.`

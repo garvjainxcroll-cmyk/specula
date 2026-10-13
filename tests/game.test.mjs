@@ -12,7 +12,7 @@ import { r2, crToPaise, mulPct } from '../src/engine/num.mjs';
 import { rng } from '../src/bots/bots.mjs';
 
 const CR = 1e9;
-const quiet = { id: 'test', quarters: Array.from({ length: 24 }, (_, i) => ({ q: i + 1, forecast: { econ: 'AUR', v: 'pi' }, data: {}, news: {} })), final: { data: {} } };
+const quiet = { id: 'test', quarters: Array.from({ length: 6 }, (_, i) => ({ q: i + 1, forecast: { econ: 'AUR', v: 'pi' }, data: {}, news: {} })), final: { data: {} } };
 
 function order(w, team, list, o) {
   const c = checkOrder(w, team, list, o);
@@ -63,14 +63,14 @@ test('rate futures settle at 100 minus the rate the central bank sets', () => {
   const l = result.teams.a.ledger.byInst.AURFUT;
   assert.equal(l.price[0].amount, mulPct(-1000 * CR, r2(S - F)));
   assert.ok(l.price[0].amount > 0, 'selling the future before a surprise hike makes money');
-  assert.equal(world.teams.a.pos.AURFUT, -1000 * CR); // the position rolls into next quarter's contract
+  assert.equal(world.teams.a.pos.AURFUT, -1000 * CR); // the position rolls into next round's contract
 });
 
-test('ledger lines add up exactly to the change in fund value, quarter after quarter, through every crisis', () => {
+test('ledger lines add up exactly to the change in fund value, round after round, through every crisis', () => {
   const teams = ['a', 'b', 'c'].map((id) => ({ id, name: id }));
   let w = newGame(teams, SCRIPT);
   const R = rng(42);
-  for (let q = 1; q <= 24; q++) {
+  for (let q = 1; q <= 6; q++) {
     w = openQuarter(w, SCRIPT, q);
     const orders = { a: [], b: [], c: [] };
     const stages = stagesFor(SCRIPT, q);
@@ -85,11 +85,11 @@ test('ledger lines add up exactly to the change in fund value, quarter after qua
         }
       }
     }
-    const bids = q === 21 ? { a: { price: rupeePrice(w.mkt, 'VER10Y') * 0.99, amountCr: 100 }, b: { price: rupeePrice(w.mkt, 'VER10Y') * 1.02, amountCr: 250 } } : {};
+    const bids = q === 6 ? { a: { price: rupeePrice(w.mkt, 'VER10Y') * 0.99, amountCr: 100 }, b: { price: rupeePrice(w.mkt, 'VER10Y') * 1.02, amountCr: 250 } } : {};
     const res = settleQuarter(w, SCRIPT, { orders, forecasts: { a: 4, b: null }, bids });
     for (const t of ['a', 'b', 'c']) {
       const r = res.result.teams[t];
-      assert.equal(ledgerTotal(r.ledger), r.navEnd - r.navOpen, `Q${q} ${t}`);
+      assert.equal(ledgerTotal(r.ledger), r.navEnd - r.navOpen, `Round ${q} ${t}`);
       for (const v of Object.values(res.world.teams[t].pos)) assert.ok(Number.isInteger(v));
       assert.ok(Number.isInteger(res.world.teams[t].cash));
     }
@@ -102,7 +102,7 @@ test('ledger lines add up exactly to the change in fund value, quarter after qua
 test('the whole game is deterministic: an engine-only replay gives identical results', () => {
   const run = () => {
     let w = newGame([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], SCRIPT);
-    for (let q = 1; q <= 24; q++) {
+    for (let q = 1; q <= 6; q++) {
       w = openQuarter(w, SCRIPT, q);
       const orders = { a: [], b: [] };
       const c = checkOrder(w, 'a', [], { inst: q % 2 ? 'AUREQ' : 'GOLD', side: 'buy', amountCr: 50 });
@@ -117,12 +117,12 @@ test('the whole game is deterministic: an engine-only replay gives identical res
 
 test('a crisis moves prices at once and positions are revalued immediately', () => {
   let w = newGame([{ id: 'a', name: 'A' }], SCRIPT);
-  for (let q = 1; q < 14; q++) {
+  for (let q = 1; q < 4; q++) {
     w = openQuarter(w, SCRIPT, q);
     for (const s of stagesFor(SCRIPT, q)) w = fireStage(w, SCRIPT, s.id).world;
     w = settleQuarter(w, SCRIPT, { orders: {} }).world;
   }
-  w = openQuarter(w, SCRIPT, 14);
+  w = openQuarter(w, SCRIPT, 4);
   const list = [];
   order(w, 'a', list, { inst: 'DINAR', side: 'buy', amountCr: 100 });
   const before = deskNow(w, 'a', list).st.pos.DINAR;
@@ -139,12 +139,12 @@ test('a crisis moves prices at once and positions are revalued immediately', () 
 
 test('default protection pays out in full when a default happens', () => {
   let w = newGame([{ id: 'a', name: 'A' }], SCRIPT);
-  for (let q = 1; q < 18; q++) {
+  for (let q = 1; q < 5; q++) {
     w = openQuarter(w, SCRIPT, q);
     for (const s of stagesFor(SCRIPT, q)) w = fireStage(w, SCRIPT, s.id).world;
     w = settleQuarter(w, SCRIPT, { orders: {} }).world;
   }
-  w = openQuarter(w, SCRIPT, 18);
+  w = openQuarter(w, SCRIPT, 5);
   const p0 = w.mkt.px.cds.BANKCDS;
   const list = [];
   order(w, 'a', list, { inst: 'BANKCDS', side: 'buy', amountCr: 100 });
@@ -266,7 +266,7 @@ test('ties on the SPECULA Score go to the higher final fund value', () => {
   assert.equal(rows[0].id, 'y');
 });
 
-test('fund statistics: swing is the standard deviation of quarterly returns; deepest fall from a peak', () => {
+test('fund statistics: swing is the standard deviation of per-round returns; deepest fall from a peak', () => {
   const s = 1000;
   const st = fundStats([s, 1100, 990, 1089]);
   assert.deepEqual(st.qret, [10, -10, 10]);
@@ -288,13 +288,46 @@ test('default protection price rises with default risk', () => {
   assert.equal(cdsPrice(0), 0);
 });
 
-test('the script: 24 quarters, one forecast each, crises only in their quarters, one auction in Round 06', () => {
-  assert.equal(SCRIPT.quarters.length, 24);
+test('the script: 6 rounds, one forecast each, crises only in their rounds, one auction in Round 06', () => {
+  assert.equal(SCRIPT.quarters.length, 6);
   const ids = new Set();
   for (const q of SCRIPT.quarters) {
     assert.ok(['g', 'pi', 'u', 'i'].includes(q.forecast.v), `Q${q.q}`);
     for (const c of q.crises || []) for (const s of c.stages) { assert.ok(!ids.has(s.id), s.id); ids.add(s.id); }
   }
-  assert.deepEqual(SCRIPT.quarters.filter((q) => q.auction).map((q) => q.q), [21]);
+  assert.deepEqual(SCRIPT.quarters.filter((q) => q.auction).map((q) => q.q), [6]);
+  // a crisis that follows another names a stage of the same round
+  for (const q of SCRIPT.quarters) for (const c of q.crises || []) if (c.needs) assert.ok(q.crises.some((d) => d.id !== c.id && d.stages.some((s) => s.id === c.needs)), c.id);
   assert.ok(ids.size >= 20, `${ids.size} crisis stages`);
+});
+
+test('crises are optional: a round settles with none, some or all released, and order rules hold', () => {
+  const play = (pick) => {
+    let w = newGame([{ id: 'a', name: 'A' }], SCRIPT);
+    for (let q = 1; q <= 6; q++) {
+      w = openQuarter(w, SCRIPT, q);
+      for (const s of stagesFor(SCRIPT, q).filter(pick)) w = fireStage(w, SCRIPT, s.id).world;
+      w = settleQuarter(w, SCRIPT, { orders: {} }).world;
+    }
+    return finalRelease(w, SCRIPT);
+  };
+  const none = play(() => false);
+  const some = play((s) => s.stageNo === 1 && !s.needs);
+  const all = play(() => true);
+  assert.equal(none.q, 6); assert.equal(some.q, 6); assert.equal(all.q, 6);
+  // a released crisis changes the path; none released leaves the rules alone
+  assert.notEqual(none.history[1].decisions.AUR, all.history[1].decisions.AUR); // the Wage Spiral
+  assert.equal(none.mkt.econ.KES.pegBroken, false);
+  assert.equal(none.mkt.econ.KES.dinarPerCrown, 50); // with no crisis the peg holds all game
+  assert.equal(all.mkt.econ.KES.pegBroken, true);
+  // stage 2 cannot come before stage 1, and a dependent crisis waits for its trigger
+  let w = newGame([{ id: 'a', name: 'A' }], SCRIPT);
+  for (let q = 1; q < 4; q++) w = settleQuarter(openQuarter(w, SCRIPT, q), SCRIPT, { orders: {} }).world;
+  w = openQuarter(w, SCRIPT, 4);
+  assert.throws(() => fireStage(w, SCRIPT, 'dinar-2'), /earlier stage/);
+  assert.throws(() => fireStage(w, SCRIPT, 'concord-1'), /follows/);
+  w = fireStage(w, SCRIPT, 'contagion-1').world; // any order otherwise
+  w = fireStage(w, SCRIPT, 'dinar-1').world;
+  w = fireStage(w, SCRIPT, 'concord-1').world;
+  assert.deepEqual(w.run.fired, ['contagion-1', 'dinar-1', 'concord-1']);
 });

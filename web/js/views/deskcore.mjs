@@ -12,11 +12,11 @@ import { explainInstrument } from '../../src/config/explain.mjs';
 import { r2 } from '../../src/engine/num.mjs';
 import {
   releaseTable, figureSheet, ruleCard, decisionsRow, decisionSheet, whyPanel, quarterMoves, moveExplain, pnlTable, pnlSheet, riskSheet,
-  scoreSheet, standingsTable, forecastQuestion, forecastBlock, lineTot, modText,
+  scoreSheet, myRecord, forecastQuestion, forecastBlock, lineTot, modText,
 } from '../explain.mjs';
 
 const CR = 1e9;
-const TABS = [['market', 'Market'], ['trade', 'Trade'], ['fund', 'Fund'], ['results', 'Results'], ['score', 'Score']];
+const TABS = [['market', 'Market'], ['trade', 'Trade'], ['fund', 'Fund'], ['results', 'Results'], ['score', 'My score']];
 
 export function createDesk(root, adapter, { band, practice = false, onRender = null } = {}) {
   let tab = sstore('specula-tab') || 'market';
@@ -48,13 +48,14 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
 
   function render() {
     const v = adapter.view();
-    const key = JSON.stringify([v.phase, v.q, v.v, v.ordersRev, v.docKey, tab, v.forecastSaved, v.bidSaved, v.team?.navHist?.length, v.teamName]);
+    const key = JSON.stringify([v.phase, v.q, v.v, v.ordersRev, v.docKey, tab, v.forecastSaved, v.bidSaved, v.team?.navHist?.length, v.teamName, !!v.final]);
     if (key === lastKey) return;
     lastKey = key;
     const keep = keepInputs(root);
     const n = now(v);
     const isOpen = v.phase === 'open' && (v.clock ?? 1) > 0 && !v.paused;
     // results arrive: jump to them once
+    if (v.final && !sstore('specula-seen-final')) { sstore('specula-seen-final', 1); tab = 'score'; sstore('specula-tab', tab); }
     if (v.phase === 'results' && v.result?.q && v.result.q > seenResultQ) { seenResultQ = v.result.q; sstore('specula-seen-result', seenResultQ); tab = 'results'; sstore('specula-tab', tab); }
     mount(root,
       band ? band('desk', { minimal: practice }) : null,
@@ -94,7 +95,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     updateClock(v);
     return h('div', { class: 'desk-top' }, h('div', { class: 'inner' },
       h('div', { style: { minWidth: '0', flex: '1 1 160px' } },
-        h('div', { class: 'eyebrow' }, v.q ? `Round 0${v.round} · Q${v.q} of ${practice ? 2 : 24}` : 'SPECULA'),
+        h('div', { class: 'eyebrow' }, v.q ? (practice ? `Practice round ${v.q} of 2` : `Round 0${v.round} of 06 · ${v.qdoc?.run?.roundName || v.qdoc?.roundName || ''}`) : 'SPECULA'),
         h('div', { style: { fontWeight: 600, fontSize: '18px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, v.teamName || 'Your fund')),
       clockEl,
       n ? h('button', { class: 'kpi click', style: { padding: '4px 10px', minWidth: '120px' }, onclick: () => { tab = 'fund'; lastKey = ''; render(); } },
@@ -126,9 +127,9 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     const map = {
       setup: ['Waiting', 'The Event Head has not set up the game yet.'],
       lobby: ['Waiting for the start', `You are in. ${v.members?.length ? `On this fund: ${v.members.map((m) => m.name).join(', ')}.` : ''} Read How to Play while you wait — the first data drop appears here.`],
-      data: ['The data has dropped', 'Read the figures and the central bank rules. The desk unlocks when the Event Head starts the two-minute clock.'],
+      data: ['The data has dropped', 'Read the figures and the central bank rules. The desk unlocks when the Event Head starts the clock.'],
       settling: ['The bell has rung', 'The desk is locked. Central banks are acting and prices are resetting…'],
-      final: ['The game is over', 'Final standings and your full SPECULA Score are on the Score tab.'],
+      final: ['The game is over', v.final ? 'The results have been revealed: your SPECULA Score and place are on the My score tab.' : 'Your fund’s final record is on the My score tab. The Event Head will reveal the standings.'],
     };
     if (v.phase === 'open' && v.paused) return h('div', { class: 'crisis-banner' }, h('div', { class: 'eyebrow' }, 'Paused'), 'The Event Head has paused the market. Orders are not accepted until the clock restarts.');
     if (v.phase === 'open' && (v.clock ?? 1) <= 0) return h('div', { class: 'panel', style: { marginBottom: '12px' } }, h('div', { class: 'eyebrow' }, 'The bell has rung'), 'The desk is locked. Late orders are refused.');
@@ -179,7 +180,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     const lastMoves = v.result ? quarterMoves(v.result) : null;
     return h('div', { class: 'stack' },
       h('div', { class: 'card', 'data-tip': 'data' },
-        h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'eyebrow' }, `Data release · Q${q.q}`), h('h3', { style: { margin: 0 } }, q.run?.roundName || '')), h('span', { class: 'badge' }, 'tap a figure for its working')),
+        h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'eyebrow' }, `Data release · Round ${q.q}`), h('h3', { style: { margin: 0 } }, q.run?.roundName || '')), h('span', { class: 'badge' }, 'tap a figure for its working')),
         h('div', { style: { marginTop: '10px' } }, releaseTable(rel, { onFigure: (e, k) => figureSheet(e, k, rel) })),
         (q.run?.headlines || []).length ? h('div', { class: 'panel', style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Headlines'), h('ul', { style: { margin: '6px 0 0', paddingLeft: '20px' } }, q.run.headlines.map((t) => h('li', {}, t)))) : null),
       h('div', { class: 'card', 'data-tip': 'rules' },
@@ -226,7 +227,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
       held ? h('div', { class: 'panel' }, h('div', { class: 'eyebrow' }, 'Your position'), h('div', { class: 'row between' }, h('span', {}, `${held > 0 ? 'Long' : 'Short'} ${fmtCr(Math.abs(held))}`), h('span', {}, 'open profit or loss ', money(openPnl)))) : null,
       isOpen && n ? ticket(id, n, v, close) : h('p', { class: 'muted small' }, v.phase === 'data' ? 'Trading opens when the clock starts.' : 'Trading is closed right now.'),
       h('div', { class: 'explain-box' }, h('div', { class: 'eyebrow' }, 'What it is'), h('p', { class: 'small' }, ex.line), ex.examples.map((t) => h('p', { class: 'small' }, t))),
-      lastMove && lastMove.segs.length ? h('div', {}, h('h4', {}, `Why it moved last quarter (${lastMove.points ? `${fmtSigned(lastMove.total)} points` : `${fmtSigned(lastMove.total)}%`})`), moveExplain(lastMove)) : null,
+      lastMove && lastMove.segs.length ? h('div', {}, h('h4', {}, `Why it moved last round (${lastMove.points ? `${fmtSigned(lastMove.total)} points` : `${fmtSigned(lastMove.total)}%`})`), moveExplain(lastMove)) : null,
       v.history?.length > 1 ? h('div', { class: 'row' }, h('span', { class: 'small muted' }, 'Price history'), sparkline(v.history.map((r) => r.prices[id]), { w: 220, h: 40 })) : null),
     { eyebrow: familyLabel(x.family) });
   }
@@ -286,7 +287,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
           h('div', { class: 'px' }, money(n.st.open[id] || 0)))))
           : h('p', { class: 'muted small' }, 'No positions yet. Tap any instrument on the Market tab to trade it.'),
         h('p', { class: 'tiny muted' }, 'The amount on the right is each position’s open profit or loss.')),
-      h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'This quarter’s orders'),
+      h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'This round’s orders'),
         (v.orders || []).length ? h('table', { class: 'tbl' }, h('tbody', {}, v.orders.slice().reverse().map((o) => h('tr', {},
           h('td', {}, INST[o.inst].short), h('td', {}, o.side === 'close' ? 'close' : o.side), h('td', { class: 'r num' }, fmtCr(Math.abs(o.delta))),
           h('td', { class: 'r tiny muted' }, o.epoch ? `after crisis ${o.epoch}` : '', v.memberName && o.by ? '' : ''))))) : h('p', { class: 'muted small' }, 'None yet.')));
@@ -304,7 +305,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
       if (r.ok) toast('Forecast saved.', 'good'); else toast(r.reason, 'bad', 6000);
     } }, 'Save forecast');
     return h('div', { class: 'card', 'data-tip': 'forecast' },
-      h('div', { class: 'eyebrow' }, `Forecast · Q${v.q}`),
+      h('div', { class: 'eyebrow' }, `Forecast · Round ${v.q}`),
       h('h3', { style: { marginTop: '4px' } }, forecastQuestion(spec)),
       h('p', { class: 'small muted' }, `It is ${fmtNum(cur, spec.v === 'i' ? 2 : 1)}% in this release. Up to 10 points; you lose 1 point for every 0.1 off. A blank scores zero.`),
       h('div', { class: 'row', style: { flexWrap: 'nowrap' } }, input, save),
@@ -342,8 +343,8 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
         h('button', { class: 'kpi click', onclick: () => riskSheet(n.risk) }, h('div', { class: 'k' }, 'Risk Used'), h('div', { class: `v num ${n.risk.pct > 100 ? 'down' : n.risk.pct > 85 ? 'warn' : ''}` }, `${fmtNum(n.risk.pct)}%`), h('div', { class: 's' }, `limit 100% · multiplier ×${fmtNum(n.risk.M)} · show working`)),
         h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Exposure'), h('div', { class: 'v num' }, `${fmtNum(n.exposure ?? 0)}×`), h('div', { class: 's' }, `${fmtCr(n.gross)} of ${fmtCr(n.nav * 3)} allowed`))),
       n.risk.pct > 100 ? h('div', { class: 'crisis-banner', style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Above the risk limit'), 'If Risk Used is still above 100% at the bell, the system will close your largest positions until it falls to 80%, at a price 2% worse than the market, and record a forced liquidation (−5 points).') : null,
-      n.pnlSoFar ? h('div', { class: 'panel', style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Moves so far this quarter'), h('p', { class: 'small' }, 'Crises and trading costs since the window opened: ', money(n.pnlSoFar)), pnlTable(n.led)) : null,
-      v.team.navHist.length > 1 ? h('div', { style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Fund value by quarter'), sparkline(v.team.navHist.map((x) => x / CR), { w: 320, h: 60 })) : null);
+      n.pnlSoFar ? h('div', { class: 'panel', style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Moves so far this round'), h('p', { class: 'small' }, 'Crises and trading costs since the window opened: ', money(n.pnlSoFar)), pnlTable(n.led)) : null,
+      v.team.navHist.length > 1 ? h('div', { style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Fund value by round'), sparkline(v.team.navHist.map((x) => x / CR), { w: 320, h: 60 })) : null);
   }
 
   // ---------------- results pane ----------------
@@ -353,7 +354,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     const fq = v.team?.forecasts?.[r.q - 1];
     return h('div', { class: 'stack' },
       h('div', { class: 'card', 'data-tip': 'results' },
-        h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'eyebrow' }, `Results · Q${r.q}`), h('h3', { style: { margin: 0 } }, 'Profit and loss')), mine ? h('div', { class: 'right' }, h('div', { class: 'small muted' }, `${fmtCr(mine.navOpen)} → ${fmtCr(mine.navEnd)}`), h('b', {}, money(mine.pnl))) : null),
+        h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'eyebrow' }, `Results · Round ${r.q}`), h('h3', { style: { margin: 0 } }, 'Profit and loss')), mine ? h('div', { class: 'right' }, h('div', { class: 'small muted' }, `${fmtCr(mine.navOpen)} → ${fmtCr(mine.navEnd)}`), h('b', {}, money(mine.pnl))) : null),
         mine ? h('div', { style: { marginTop: '10px' } },
           mine.forced ? h('div', { class: 'crisis-banner' }, h('div', { class: 'eyebrow' }, 'Forced liquidation'),
             h('p', { class: 'small' }, `Risk Used was ${fmtNum(mine.forced.before)}% at the bell, so the system closed ${mine.forced.closed.map((c) => `${fmtCr(Math.abs(c.amount))} of ${INST[c.id].short}`).join(', ')} at 2% worse than the market, bringing it to ${fmtNum(mine.forced.after)}%. Penalty ${fmtRupees(mine.forced.penalty)}; Risk Discipline −5.`),
@@ -361,27 +362,34 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
           pnlTable(mine.ledger, { onLine: (id, l) => pnlSheet(id, l) }),
           h('p', { class: 'tiny muted' }, 'Tap any line for the full sum. Price + currency + carry − costs + crowd − forced-sale penalty, exact to the paisa.'))
           : h('p', { class: 'muted' }, 'Loading your results…')),
-      h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Central bank decisions'), h('p', { class: 'small muted' }, 'Tap one to see its rule with this quarter’s numbers filled in, step by step.'), decisionsRow(r.decisions)),
+      h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Central bank decisions'), h('p', { class: 'small muted' }, 'Tap one to see its rule with this round’s numbers filled in, step by step.'), decisionsRow(r.decisions)),
       h('div', { class: 'card', 'data-tip': 'why' }, h('div', { class: 'eyebrow' }, 'Why did prices move?'), whyPanel(r)),
-      fq?.points !== undefined ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Forecast marked · Q${r.q - 1}`), forecastBlock(fq)) : null,
-      h('p', { class: 'small muted' }, `Your Q${r.q} forecast is marked when the next data drops.`));
+      fq?.points !== undefined ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Forecast marked · Round ${r.q - 1}`), forecastBlock(fq)) : null,
+      h('p', { class: 'small muted' }, `Your Round ${r.q} forecast is marked ${r.q >= (practice ? 2 : RULES.rounds) ? 'by the final release' : 'when the next data drops'}.`));
   }
 
-  // ---------------- score pane ----------------
+  // ---------------- score pane: your own fund only ----------------
+  // There is no leaderboard on the desk. Other funds' values and scores are never sent
+  // to a team; the final standings appear only after the Event Head reveals them.
   function scorePane(v) {
-    const rows = v.standings?.rows || [];
-    const me = rows.find((r) => r.id === v.teamId);
+    const t = v.team;
+    const mine = v.final?.standings?.rows?.find((r) => r.id === v.teamId) || null;
+    const n = v.final?.standings?.rows?.length || 0;
     return h('div', { class: 'stack' },
+      mine ? h('div', { class: 'card', style: { borderColor: 'var(--gold-bright)' }, 'data-my-final': '1' },
+        h('div', { class: 'eyebrow' }, 'Results revealed'),
+        h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'num', style: { fontSize: '44px', fontFamily: 'var(--font-display)', fontWeight: 600 } }, fmtNum(mine.total, 1)), h('div', { class: 'small muted' }, 'SPECULA Score out of 100')),
+          h('div', { style: { textAlign: 'right' } }, h('div', { class: 'num', style: { fontSize: '44px', fontFamily: 'var(--font-display)', fontWeight: 600, textAlign: 'right' }, 'data-my-rank': String(mine.rank) }, ordinal(mine.rank)), h('div', { class: 'small muted' }, `of ${n} funds`))),
+        h('button', { class: 'btn sm', style: { marginTop: '8px' }, onclick: () => scoreSheet(mine) }, 'Show the full working')) : null,
       h('div', { class: 'card', 'data-tip': 'score' },
-        h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, v.standings?.final ? 'Final standings' : 'Standings so far'), me ? h('button', { class: 'btn sm', onclick: () => scoreSheet(me) }, `Your score ${fmtNum(me.total, 1)} · working`) : null),
-        h('p', { class: 'small muted' }, v.standings?.final ? 'Calculated after the last quarter of Round 06.' : 'The SPECULA Score is calculated after the last quarter; this is what it would be today.'),
-        rows.length ? standingsTable(rows, { me: v.teamId, onRow: (r) => scoreSheet(r) }) : h('p', { class: 'muted' }, 'Standings appear after the first quarter settles.')),
+        h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, 'Your fund’s record'), h('span', { class: 'badge' }, 'only your fund')),
+        t && t.navHist?.length > 1 ? myRecord(t, { final: mine }) : h('p', { class: 'muted' }, 'Your record appears after the first round settles. You will only ever see your own fund here: results are sealed until the end.')),
       newsCard(v));
   }
   function newsCard(v) {
     const st = v.qdoc?.run?.stages || [];
     if (!st.length && !(v.qdoc?.run?.headlines || []).length) return null;
-    return h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'News this quarter'),
+    return h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'News this round'),
       st.slice().reverse().map((s) => h('div', { style: { margin: '10px 0' } }, h('b', {}, s.headline), (s.posts || []).map((p) => postEl(p)))),
       (v.qdoc?.run?.headlines || []).map((t) => h('p', { class: 'small' }, t)));
   }
@@ -390,6 +398,8 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
   render();
   return () => { unsub && unsub(); clearInterval(clockTimer); document.querySelector('.takeover')?.remove(); };
 }
+
+function ordinal(n) { const s = ['th', 'st', 'nd', 'rd']; const v = n % 100; return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`; }
 
 function pxOf(x, px) {
   if (x.kind === 'fx') return px.fx[x.econ];

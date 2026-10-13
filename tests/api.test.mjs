@@ -150,10 +150,11 @@ test('the desk refuses orders beyond 3× and orders at stale prices after a cris
   const stale = await A.post('order', { token: tok, q: 2, epoch: 0, inst: 'GOLD', side: 'buy', amountCr: 10 });
   assert.equal(stale.status, 409); assert.equal(stale.body.stale, true);
   assert.equal((await A.post('order', { token: tok, q: 2, epoch: 1, inst: 'GOLD', side: 'buy', amountCr: 10 })).status, 200);
-  // the quarter cannot settle while a stage of a crisis is unreleased
+  // crises are optional: the round settles with a stage still unreleased
   offset += 130000;
-  const blocked = await A.admin('settle');
-  assert.equal(blocked.status, 409); assert.match(blocked.body.error, /Release the crisis first/);
+  const settled = await A.admin('settle');
+  assert.equal(settled.status, 200, JSON.stringify(settled.body));
+  assert.equal(settled.body.state.phase, 'results');
 });
 
 test('an order retried after a dropped connection is not placed twice', async () => {
@@ -171,7 +172,7 @@ test('only the Event Head sees unreleased crises; nothing secret ever reaches th
   const { store, A } = await setupGame(['One', 'Two']);
   await A.admin('start');
   const fired = [];
-  for (let q = 1; q <= 24; q++) {
+  for (let q = 1; q <= 6; q++) {
     await assertNoLeak(store, A, q, fired);
     await A.admin('openWindow', { seconds: 120 });
     const st = await A.admin('status');
@@ -183,9 +184,11 @@ test('only the Event Head sees unreleased crises; nothing secret ever reaches th
     offset += 200000;
     assert.equal((await A.admin('settle')).status, 200);
     await assertNoLeak(store, A, q, fired);
-    if (q < 24) assert.equal((await A.admin('next')).status, 200);
+    if (q < 6) assert.equal((await A.admin('next')).status, 200);
   }
   assert.equal((await A.admin('final')).status, 200);
+  assert.equal((await A.get('doc?key=final')).status, 404); // sealed until the reveal
+  assert.equal((await A.admin('reveal')).status, 200);
   const fin = await A.get('doc?key=final');
   assert.equal(fin.body.doc.standings.rows.length, 2);
 });
@@ -212,7 +215,7 @@ test('an interrupted settlement is recovered by pressing settle again, with the 
   assert.equal(again.status, 200, JSON.stringify(again.body));
   assert.equal(again.body.state.phase, 'results');
   // compare with an engine-only replay
-  const st = (await A.get('doc?key=standings')).body.doc.rows;
+  const st = (await A.admin('private')).body.private.standings.rows;
   let w = newGame(teams.map((t) => ({ id: t.id, name: t.name })), SCRIPT);
   w = openQuarter(w, SCRIPT, 1);
   const orders = {};
@@ -234,22 +237,75 @@ test('reset needs the word RESET and keeps the password', async () => {
   assert.equal(p.body.state.teams.length, 0);
 });
 
-test('the auction: bids above 30% of fund value are refused; bids are only possible in Q21', async () => {
+test('the auction: bids above 30% of fund value are refused; bids are only possible in Round 06', async () => {
   const { A, teams, tokens } = await setupGame(['One']);
   const tok = tokens[teams[0].id];
   await A.admin('start');
   await A.admin('openWindow', { seconds: 120 });
   assert.equal((await A.post('bid', { token: tok, q: 1, price: 60, amountCr: 100 })).status, 400);
-  for (let q = 1; q < 21; q++) {
+  for (let q = 1; q < 6; q++) {
     const st = await A.admin('status');
     for (const s of st.body.stages) await A.admin('fire', { stageId: s.id });
     offset += 200000; await A.admin('settle'); await A.admin('next'); await A.admin('openWindow', { seconds: 120 });
   }
-  const tooBig = await A.post('bid', { token: tok, q: 21, price: 50, amountCr: 900 });
+  const tooBig = await A.post('bid', { token: tok, q: 6, price: 50, amountCr: 900 });
   assert.equal(tooBig.status, 422);
-  const okBid = await A.post('bid', { token: tok, q: 21, price: 50, amountCr: 100 });
+  const okBid = await A.post('bid', { token: tok, q: 6, price: 50, amountCr: 100 });
   assert.equal(okBid.status, 200);
   offset += 200000; await A.admin('settle');
-  const r = await A.get('doc?key=result/21');
-  assert.equal(r.body.doc.auction.bids.length, 1);
+  // the public sees the outcome, never the bids
+  const r = await A.get('doc?key=result/6');
+  assert.equal(r.body.doc.auction.bidders, 1);
+  assert.equal(r.body.doc.auction.bids, undefined);
+  // the Event Head sees every bid, with its fund
+  const st = await A.admin('status');
+  assert.equal(st.body.auction.bids.length, 1);
+  assert.equal(st.body.auction.bids[0].name, 'One');
+});
+
+test('results are hidden: no public document holds another fund’s value, profit, marks or standing', async () => {
+  const { store, A, teams, tokens } = await setupGame(['Alpha', 'Beta']);
+  const [ta, tb] = teams;
+  await A.admin('start');
+  for (let q = 1; q <= 6; q++) {
+    await A.admin('openWindow', { seconds: 120 });
+    // Beta makes a big, distinctive trade and forecast
+    await A.post('order', { token: tokens[tb.id], q, epoch: 0, inst: 'GOLD', side: 'buy', amountCr: 123.45 });
+    await A.post('forecast', { token: tokens[tb.id], q, value: 31.97 });
+    if (q === 6) await A.post('bid', { token: tokens[tb.id], q, price: 50.5, amountCr: 111 });
+    offset += 200000;
+    assert.equal((await A.admin('settle')).status, 200);
+    // everything a participant can read without a token, and with Alpha's token
+    const blobs = [];
+    for (const k of await store.list('pub/')) blobs.push(JSON.stringify(await store.get(k)));
+    blobs.push(JSON.stringify((await A.get('poll')).body));
+    blobs.push(JSON.stringify((await A.get(`poll?token=${encodeURIComponent(tokens[ta.id])}`)).body));
+    blobs.push(JSON.stringify((await A.get(`mine?token=${encodeURIComponent(tokens[ta.id])}&q=${q}`)).body));
+    const pub = blobs.join('\n');
+    const betaNav = String((await store.get(`team/${tb.id}`)).team.navHist.at(-1));
+    assert.ok(!pub.includes(betaNav), `Round ${q}: Beta's fund value is visible`);
+    assert.ok(!pub.includes('31.97'), `Round ${q}: Beta's forecast is visible`);
+    assert.ok(!pub.includes('"standings"'), `Round ${q}: standings are public`);
+    assert.ok(!pub.includes('"rank"'), `Round ${q}: a rank is public`);
+    assert.equal((await A.get('doc?key=standings')).status, 400); // there is no such public document
+    // Beta can read its own record; Alpha's token never returns Beta's
+    const mineB = (await A.get(`mine?token=${encodeURIComponent(tokens[tb.id])}&q=${q}`)).body;
+    assert.equal(mineB.team.id, tb.id);
+    assert.equal(String(mineB.team.navHist.at(-1)), betaNav);
+    if (q < 6) await A.admin('next');
+  }
+  // only the Event Head sees the standings before the reveal
+  const priv = await A.admin('private');
+  assert.equal(priv.body.private.standings.rows.length, 2);
+  assert.equal((await A.post('admin', { password: 'nope', action: 'private' })).status, 401);
+  assert.equal((await A.admin('reveal')).status, 409); // nothing to reveal before the final release
+  await A.admin('final');
+  assert.equal((await A.get('doc?key=final')).status, 404);
+  assert.equal((await A.get('poll')).body.state.revealed, undefined);
+  assert.equal((await A.admin('reveal')).status, 200);
+  const p = (await A.get('poll')).body.state;
+  assert.equal(p.revealed, true);
+  const fin = (await A.get('doc?key=final')).body.doc;
+  assert.deepEqual(fin.standings.rows.map((r) => r.rank).sort(), [1, 2]);
+  assert.equal((await A.admin('reveal')).body.already, true);
 });

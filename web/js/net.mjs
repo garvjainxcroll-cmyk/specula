@@ -70,7 +70,9 @@ export const live = {
   state: null, me: null, orders: null, docs: {}, docV: {}, team: null, teamQ: null, results: {}, error: null,
 };
 
-const docOf = { quarter: 'quarter', standings: 'standings', history: 'history', final: 'final' };
+// Public documents only. Standings are never public: a fund sees its own record, and the
+// final standings appear once the Event Head reveals them.
+const docOf = { quarter: 'quarter', history: 'history', final: 'final' };
 let timer = null; let polling = false; let token = null; let fast = false;
 
 export function setToken(t) { token = t; live.me = null; live.orders = null; live.team = null; }
@@ -90,7 +92,7 @@ export async function pollOnce() {
     const jobs = [];
     for (const [k, key] of Object.entries(docOf)) if (docs[k] && docs[k] !== live.docV[k]) jobs.push(fetchDoc(k, key, docs[k]));
     if (docs.result && docs.result !== live.docV.result) jobs.push(fetchDoc('result', `result/${docs.result}`, docs.result));
-    if (token && live.me && (live.teamQ !== live.state.q || docs.standings !== live.docV.teamFor)) jobs.push(fetchMine(docs.standings));
+    if (token && live.me && (live.teamQ !== live.state.q || docs.mine !== live.docV.teamFor)) jobs.push(fetchMine(docs.mine));
     await Promise.all(jobs);
     if (prevV !== live.state.v || prevOrdersRev !== live.orders?.rev || jobs.length) emit();
   } catch { /* offline: shown by the banner */ emit(); } finally { polling = false; }

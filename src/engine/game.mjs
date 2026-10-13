@@ -1,4 +1,4 @@
-// The game, quarter by quarter. Pure functions: (world, inputs) -> new world + result.
+// The game, round by round. Pure functions: (world, inputs) -> new world + result.
 // The same functions run on the server (live game), in the browser (practice), and in
 // the tests (engine-only replay), so all three always agree.
 
@@ -67,10 +67,10 @@ const specialDeltas = (prev, cur) => {
   return d;
 };
 
-/** The data drop. Opens quarter q (desk unlocks when the window starts). */
+/** The data drop. Opens round q (desk unlocks when the window starts). */
 export function openQuarter(world0, script, q) {
-  if (q !== world0.q + 1) throw new Error(`Cannot open Q${q}: last settled quarter is Q${world0.q}`);
-  if (q > script.quarters.length) throw new Error(`This game has ${script.quarters.length} quarters`);
+  if (q !== world0.q + 1) throw new Error(`Cannot open Round ${q}: last settled round is Round ${world0.q}`);
+  if (q > script.quarters.length) throw new Error(`This game has ${script.quarters.length} rounds`);
   const world = clone(world0);
   const n = roundOf(q);
   const newRound = n !== world.round.n || q === 1;
@@ -89,7 +89,7 @@ export function openQuarter(world0, script, q) {
     for (const e of ECON_ORDER) release.econ[e].delta = specialDeltas(world.release.econ[e].orig || world.release.econ[e], release.econ[e]);
   }
   world.mkt.econ.CAL.reserves = release.econ.CAL.special.reserves;
-  // mark the forecasts made last quarter against this release
+  // mark the forecasts made last round against this release
   const marked = q > 1 ? markForecasts(world, script, q - 1, release) : null;
   world.release = release;
   const exp = decideAll(world.mkt, marketFigs(release), world.round.mods);
@@ -120,11 +120,11 @@ function markForecasts(world, script, fq, release) {
   return out;
 }
 
-/** All the crisis stages scripted for the current quarter, in order. */
+/** All the crisis stages the Event Head may release this round, in script order. */
 export function stagesFor(script, q) {
   const sq = script.quarters[q - 1];
   const list = [];
-  for (const c of sq.crises || []) c.stages.forEach((s, k) => list.push({ ...s, crisisId: c.id, crisisTitle: c.title, stageNo: k + 1, of: c.stages.length }));
+  for (const c of sq.crises || []) c.stages.forEach((s, k) => list.push({ ...s, crisisId: c.id, crisisTitle: c.title, stageNo: k + 1, of: c.stages.length, needs: k === 0 ? c.needs || null : null }));
   return list;
 }
 
@@ -132,14 +132,15 @@ export function stagesFor(script, q) {
 export function fireStage(world0, script, stageId) {
   const world = clone(world0);
   const run = world.run;
-  if (!run) throw new Error('No quarter is open');
+  if (!run) throw new Error('No round is open');
   const stages = stagesFor(script, run.q);
   const idx = stages.findIndex((s) => s.id === stageId);
-  if (idx < 0) throw new Error(`No stage ${stageId} in Q${run.q}`);
+  if (idx < 0) throw new Error(`No stage ${stageId} in Round ${run.q}`);
   if (run.fired.includes(stageId)) throw new Error('That stage has already been released');
   const st = stages[idx];
   const prevSame = stages.filter((s) => s.crisisId === st.crisisId && s.stageNo < st.stageNo);
   if (prevSame.some((s) => !run.fired.includes(s.id))) throw new Error('Release the earlier stage of this crisis first');
+  if (st.needs && !run.fired.includes(st.needs)) throw new Error(`This crisis follows “${stages.find((s) => s.id === st.needs)?.title || st.needs}”: release that first`);
 
   const relBefore = world.release;
   const relAfter = reviseRelease(relBefore, st.data, st.title);
@@ -187,7 +188,7 @@ function rupee(x, px) {
 // ---------------- the desk during the window ----------------
 
 /**
- * Replay a team's quarter so far: positions, cash and ledger at the current epoch.
+ * Replay a team's round so far: positions, cash and ledger at the current epoch.
  * orders: [{ epoch, inst, delta }] (resolved, in time order).
  */
 export function replayWindow(world, teamId, orders) {
@@ -259,11 +260,9 @@ export function checkOrder(world, teamId, orders, order) {
 export function settleQuarter(world0, script, inputs) {
   const world = clone(world0);
   const run = world.run;
-  if (!run) throw new Error('No quarter is open');
+  if (!run) throw new Error('No round is open');
   const q = run.q;
-  const stages = stagesFor(script, q);
-  const unfired = stages.filter((s) => !run.fired.includes(s.id));
-  if (unfired.length) throw new Error(`Release the crisis first: ${unfired.map((s) => s.title).join(', ')}`);
+  const stages = stagesFor(script, q); // optional: the Event Head may release any, all or none
   const sq = script.quarters[q - 1];
   const teamIds = Object.keys(world.teams).sort();
   const per = {};
@@ -318,7 +317,7 @@ export function settleQuarter(world0, script, inputs) {
     };
     if (results[id].check !== results[id].pnl) throw new Error(`Ledger does not add up for ${id}: ${results[id].check} vs ${results[id].pnl}`);
   }
-  // 9. how sharply each instrument has been moving, over the whole quarter
+  // 9. how sharply each instrument has been moving, over the whole round
   for (const x of INSTRUMENTS) {
     const r = jumpReturn(x, run.open.px, settledPx, null);
     world.sigma[x.id] = updateSigma(world.sigma[x.id], r ?? 0, x.sigma0 * 0.75);
@@ -423,7 +422,7 @@ function runAuction(spec, bids, per, mkt, teamIds, world) {
 export function finalRelease(world0, script) {
   const world = clone(world0);
   const last = script.quarters.length;
-  if (world.q !== last) throw new Error(`The final release comes after Q${last} settles`);
+  if (world.q !== last) throw new Error(`The final release comes after Round ${last} settles`);
   if (world.final) return world;
   const release = computeRelease(view(world), last + 1, script.final?.data || {});
   const marked = markForecasts(world, script, last, release);

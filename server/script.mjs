@@ -2,14 +2,15 @@
 //  SPECULA — THE SECRET SCRIPT
 //  This file is server-only. It is never copied into the website (scripts/build.mjs
 //  refuses to build if any of its secret text appears in the published files).
-//  Players see each quarter's headlines and forecast question when the quarter
-//  opens, and each crisis only when the Event Head releases it.
+//  The game has six rounds; each round is one ten-minute window. Players see a
+//  round's headlines and forecast question when it opens, and a crisis only when
+//  the Event Head chooses to release it (every crisis is optional).
 // ============================================================================
 
 const P = (handle, name, text, verified = false) => ({ handle, name, text, verified });
 
-export const SCRIPT = {
-  id: 'specula-live-v1',
+// The story was written as 24 steps; ROUNDS below folds it into the six rounds.
+const SOURCE = {
   quarters: [
     // ======================= ROUND 01 · MARKETS IN NORMAL TIMES =======================
     {
@@ -134,7 +135,7 @@ export const SCRIPT = {
           headline: 'Aurelia’s unions win a 9% pay rise; strikes spread to ports and railways. The central bank will now respond twice as hard to inflation.',
           posts: [
             P('@CentralBankAUR', 'Central Bank of Aurelia', 'Until inflation is under control our rule will give inflation twice its usual weight (1.0 instead of 0.5).', true),
-            P('@AureliaWire', 'Aurelia Wire', 'Official: this quarter’s inflation figure revised up by 0.4 points after the pay deal.'),
+            P('@AureliaWire', 'Aurelia Wire', 'Official: this round’s inflation figure revised up by 0.4 points after the pay deal.'),
             P('@trader_riya', 'Riya | Rates', 'Do the maths on the new rule. That is a big hike coming.'),
           ],
           data: { AUR: { pi: 0.4 } },
@@ -269,7 +270,7 @@ export const SCRIPT = {
           posts: [
             P('@AureliaTrade', 'Aurelia Trade Office', 'From today, a 30% tariff applies to all goods from Calder.', true),
             P('@CalderCentralBank', 'Central Bank of Calder', 'The mark may now move 6% either side of its central rate instead of 2%, for the rest of Round 03.', true),
-            P('@CalderStats', 'Calder Statistics', 'Growth for this quarter revised down by 1.2 points.', true),
+            P('@CalderStats', 'Calder Statistics', 'Growth for this round revised down by 1.2 points.', true),
             P('@MarketPulse', 'Market Pulse', 'Copper sliding — Calder buys half the world’s copper.'),
           ],
           data: { CAL: { g: -1.2 }, AUR: { pi: 0.3 } },
@@ -300,7 +301,7 @@ export const SCRIPT = {
             headline: 'Sarvan’s harvest fails. The government bans all wheat exports.',
             posts: [
               P('@SarvanAgri', 'Sarvan Ministry of Agriculture', 'Harvest index revised down by 30 points. Wheat exports are banned until further notice.', true),
-              P('@SarvanStats', 'Sarvan Statistics', 'Inflation for this quarter revised up by 1.5 points on food prices.', true),
+              P('@SarvanStats', 'Sarvan Statistics', 'Inflation for this round revised up by 1.5 points on food prices.', true),
               P('@grain_trader', 'Grain Trader', 'Wheat limit up. Sarvan feeds half the region.'),
             ],
             data: { SAR: { harvest: -30, pi: 1.5 } },
@@ -369,7 +370,7 @@ export const SCRIPT = {
             headline: 'Kesh abandons the peg. The dinar floats — and sinks.',
             posts: [
               P('@KeshCentralBank', 'Central Bank of Kesh', 'The dinar will float from today. The emergency addition to our rule rises to +5.00%.', true),
-              P('@KeshStats', 'Kesh Statistics', 'Inflation for this quarter revised up 2.5 points; growth revised down 1.5 points.', true),
+              P('@KeshStats', 'Kesh Statistics', 'Inflation for this round revised up 2.5 points; growth revised down 1.5 points.', true),
               P('@em_hawk', 'EM Hawk', 'Every company in Kesh with crown debts just saw them jump by a third.'),
             ],
             pegBreak: true,
@@ -420,7 +421,7 @@ export const SCRIPT = {
       data: { AUR: { badLoans: 0.3, g: -0.3 } },
       news: {},
       crises: [{
-        id: 'concord', title: 'The Concord Rescue',
+        id: 'concord', title: 'The Concord Rescue', needs: 'dinar-1',
         stages: [{
           id: 'concord-1', title: 'A ₵60 bn rescue',
           headline: 'The Concord Fund lends Kesh ₵60 bn. Kesh cuts its emergency rate addition to +1.00%.',
@@ -588,7 +589,7 @@ export const SCRIPT = {
             headline: 'Verana’s next bond sale fails and it is downgraded to junk.',
             posts: [
               P('@VeranaFinance', 'Verana Finance Daily', 'Only half of today’s bonds found buyers. Yields at levels not seen since the old crisis.'),
-              P('@bond_vigilante', 'Bond Vigilante', 'Anyone who bought big at last quarter’s auction is now very nervous.'),
+              P('@bond_vigilante', 'Bond Vigilante', 'Anyone who bought big at last round’s auction is now very nervous.'),
             ],
             state: { cp: { VER: 2.5 }, fear: 10 },
             jumps: { fx: { VER: -6, AUR: 1 }, eq: { VER: -8 }, gold: 4 },
@@ -599,7 +600,7 @@ export const SCRIPT = {
             headline: 'Verana restructures its debt: bondholders lose 30% on 10-year bonds and 20% on 2-year bonds.',
             posts: [
               P('@VeranaTreasury', 'Verana Treasury', 'Verana will exchange its bonds for new bonds worth less. This is a default.', true),
-              P('@VeranaStats', 'Verana Statistics', 'Growth for this quarter revised down 1.5 points.', true),
+              P('@VeranaStats', 'Verana Statistics', 'Growth for this round revised down 1.5 points.', true),
               P('@credit_owl', 'Credit Owl', 'Verana default protection pays out IN FULL.'),
             ],
             defaultEntity: 'VER', newSpread: 5.0,
@@ -622,7 +623,7 @@ export const SCRIPT = {
       data: { AUR: { g: 0.4 }, KES: { g: 0.6 }, CAL: { g: 0.3 } },
       news: {},
       crises: [{
-        id: 'bargain', title: 'The Grand Bargain',
+        id: 'bargain', title: 'The Grand Bargain', needs: 'reckoning-1',
         stages: [{
           id: 'bargain-1', title: 'A global backstop',
           headline: 'Aurelia, Calder and the Concord Fund agree a ₵500 bn global backstop. Verana’s new bonds are guaranteed.',
@@ -665,13 +666,119 @@ export const SCRIPT = {
     },
   ],
   final: { data: { AUR: { g: 0.2 }, KES: { g: 0.3 } } },
-  rounds: [],
+};
+
+// ---------------- six rounds ----------------
+
+function addNum(a, b) { return Math.round(((a || 0) + (b || 0)) * 100) / 100; }
+function mergeData(list) {
+  const out = {};
+  for (const d of list) for (const [e, ch] of Object.entries(d || {})) {
+    out[e] ||= {};
+    for (const [k, v] of Object.entries(ch)) out[e][k] = addNum(out[e][k], v);
+  }
+  return out;
+}
+function mergeNewsVal(a, b) {
+  const va = (a && typeof a === 'object' ? a.v : a) || 0; const vb = (b && typeof b === 'object' ? b.v : b) || 0;
+  const why = [a?.why, b?.why].filter(Boolean).filter((w, i, arr) => arr.indexOf(w) === i).join('; ');
+  return { v: addNum(va, vb), why: why || undefined };
+}
+function mergeNews(list) {
+  const out = {};
+  for (const n of list) for (const [k, v] of Object.entries(n || {})) {
+    if (v && typeof v === 'object' && !('v' in v)) { out[k] ||= {}; for (const [e, x] of Object.entries(v)) out[k][e] = mergeNewsVal(out[k][e], x); }
+    else out[k] = mergeNewsVal(out[k], v);
+  }
+  return out;
+}
+
+const ROUND_PLAN = [
+  {
+    from: [1, 2, 3, 4],
+    headlines: [
+      'Aurelian inflation sits just above its 4% target at 4.2%.',
+      'Aurelian shoppers are splashing out and wage deals are coming in high.',
+      'Calder’s factories are running flat out; exports are at a record.',
+      'Kesh’s finance minister: “the peg at 50 is the bedrock of our success.”',
+      'Norvik and its oil partners meet to discuss output.',
+    ],
+    forecast: { econ: 'AUR', v: 'i' },
+  },
+  {
+    from: [5, 6, 7, 8],
+    headlines: [
+      'Energy bills jump across the world; inflation is rising everywhere.',
+      'Aurelian inflation is the highest in a decade. Its central bank: “inflation is our only concern.”',
+      'Calder’s exporters complain that Aurelian buyers are cutting orders.',
+      'Kesh raises rates to keep up with Aurelia; its reserves are falling.',
+    ],
+    forecast: { econ: 'AUR', v: 'pi' },
+  },
+  {
+    from: [9, 10, 11, 12],
+    headlines: [
+      'Norvik’s oil output dips during pipeline maintenance; tankers are queuing at its ports.',
+      'Aurelian politicians attack Calder’s “unfair” trade surplus.',
+      'Sarvan’s farmers warn of a dry season; no rain in the grain belt for three months.',
+      'The Bank of Verana’s yield cap ended with Round 02.',
+    ],
+    forecast: { econ: 'CAL', v: 'g' },
+  },
+  {
+    from: [13, 14, 15, 16],
+    headlines: [
+      'Kesh’s reserves have fallen round after round and are now lower than at any time in ten years.',
+      'Kesh’s finance minister: “the peg is not up for discussion.”',
+      'Kesh’s trade deficit widens; companies rush to repay crown loans.',
+      'Aurelian banks report more unpaid loans.',
+    ],
+    forecast: { econ: 'KES', v: 'pi' },
+  },
+  {
+    from: [17, 18, 19, 20],
+    headlines: [
+      'Aurelian office prices are down a fifth from their peak; bad loans are the highest in years.',
+      'Halvard Bank’s shares slide after a profit warning; its chief says it is “well capitalised”.',
+      'Depositors are moving money out of smaller Aurelian banks.',
+      'Verana’s banks hold large Aurelian loans, say analysts.',
+    ],
+    forecast: { econ: 'AUR', v: 'i' },
+  },
+  {
+    from: [21, 22, 23, 24],
+    headlines: [
+      'Verana must borrow ₹3,000 Cr this round. Bids open now.',
+      'Verana’s banks keep selling government bonds; ratings agencies put Verana on watch.',
+      'Aurelia’s economy is growing again.',
+      'This is the final round.',
+    ],
+    forecast: { econ: 'VER', v: 'g' },
+  },
+];
+
+export const SCRIPT = {
+  id: 'specula-live-v2-rounds',
+  quarters: ROUND_PLAN.map((r, i) => {
+    const src = r.from.map((q) => SOURCE.quarters[q - 1]);
+    const auction = src.find((x) => x.auction)?.auction;
+    return {
+      q: i + 1,
+      headlines: r.headlines,
+      forecast: r.forecast,
+      data: mergeData(src.map((x) => x.data)),
+      news: mergeNews(src.map((x) => x.news)),
+      crises: src.flatMap((x) => x.crises || []),
+      ...(auction ? { auction: { ...auction, rules: auction.rules.map((t) => t.replace('this quarter', 'this round')) } } : {}),
+    };
+  }),
+  final: SOURCE.final,
 };
 
 /** Every piece of text that must never appear in the public website. */
 export function secretStrings() {
   const out = [];
-  for (const q of SCRIPT.quarters) {
+  for (const q of [...SCRIPT.quarters, ...SOURCE.quarters]) {
     for (const c of q.crises || []) {
       out.push(c.title);
       for (const s of c.stages) { out.push(s.title, s.headline); for (const p of s.posts || []) out.push(p.text); }

@@ -5,6 +5,7 @@ import { INST, INSTRUMENTS, FAMILIES, RISK_FAMILIES } from '../src/config/instru
 import { RULES, FORECAST_VARS } from '../src/config/rules.mjs';
 import { explainInstrument } from '../src/config/explain.mjs';
 import { r2, r4 } from '../src/engine/num.mjs';
+import { fundStats } from '../src/engine/scoring.mjs';
 
 export const FIG = {
   g: { label: 'Growth', unit: '%', dp: 1 }, pi: { label: 'Inflation', unit: '%', dp: 1 }, u: { label: 'Unemployment', unit: '%', dp: 1 },
@@ -54,9 +55,9 @@ export function figureSheet(e, k, release) {
     h('p', {}, `How ${ECONOMIES[e].name}’s ${f.label.toLowerCase()} for this release was worked out. Every term is rounded to two decimals, added up, and the total rounded to ${f.dp} decimal${f.dp === 1 ? '' : 's'}.`),
     w ? termTable(w.terms, { result: w.raw, resultLabel: 'Total before rounding', unit: '', dp: 2 }) : h('p', { class: 'muted' }, 'This is a starting figure from the guide.'),
     w ? h('p', {}, h('b', {}, `Published: ${fmtNum(w.value, f.dp)}${f.unit === '%' ? '%' : ''}`)) : null,
-    r.exp?.[k] !== undefined ? h('p', { class: 'muted' }, `Forecasters expected ${fmtNum(r.exp[k], f.dp)} — everything above except this quarter’s news. The difference is the surprise.`) : null,
+    r.exp?.[k] !== undefined ? h('p', { class: 'muted' }, `Forecasters expected ${fmtNum(r.exp[k], f.dp)} — everything above except this round’s news. The difference is the surprise.`) : null,
     revisionsFor(release, e, k));
-  sheet(`${ECONOMIES[e].name}: ${f.label}`, body, { eyebrow: `Data release · Q${release.q}` });
+  sheet(`${ECONOMIES[e].name}: ${f.label}`, body, { eyebrow: `Data release · Round ${release.q}` });
 }
 function revisionsFor(release, e, k) {
   const rv = (release.revisions || []).filter((x) => x.econ === e && x.key === k);
@@ -66,7 +67,7 @@ function revisionsFor(release, e, k) {
 
 // ---------------- central bank rules ----------------
 
-/** The rule with this quarter's figures filled in, but not worked out (that is the team's job). */
+/** The rule with this round's figures filled in, but not worked out (that is the team's job). */
 export function ruleCard(e, qdoc) {
   const c = ECONOMIES[e];
   const rel = qdoc.release.econ[e];
@@ -145,22 +146,22 @@ function yieldParts(yc) {
     h('ul', {}, yc.parts.map((p) => h('li', {}, `${p.label}: ${fmtSigned(p.change)}`))));
 }
 
-/** The "Why did prices move?" panel for one settled quarter. */
+/** The "Why did prices move?" panel for one settled round. */
 export function whyPanel(result, { limit = 12, onInst = null } = {}) {
   const moves = Object.values(quarterMoves(result)).filter((m) => m.total !== 0);
   moves.sort((a, b) => Math.abs(b.points ? b.total * 10 : b.total) - Math.abs(a.points ? a.total * 10 : a.total));
   const top = moves.slice(0, limit);
   const crowd = Object.entries(result.crowd || {}).sort((a, b) => Math.abs(b[1].pct) - Math.abs(a[1].pct)).slice(0, 6);
   return h('div', { class: 'stack' },
-    h('p', { class: 'small muted' }, 'The biggest moves of the quarter and what caused each one. This explains what has already happened; it says nothing about what comes next.'),
+    h('p', { class: 'small muted' }, 'The biggest moves of the round and what caused each one. This explains what has already happened; it says nothing about what comes next.'),
     top.map((m) => {
       const x = INST[m.id];
       const lead = biggestCause(m);
-      return h('div', { class: 'inst', onclick: () => (onInst ? onInst(m.id) : sheet(`Why ${x.name} moved`, moveExplain(m), { eyebrow: `Q${result.q}` })) },
+      return h('div', { class: 'inst', onclick: () => (onInst ? onInst(m.id) : sheet(`Why ${x.name} moved`, moveExplain(m), { eyebrow: `Round ${result.q}` })) },
         h('div', {}, h('div', { class: 'nm' }, x.name), h('div', { class: 'meta' }, lead)),
         h('div', { class: 'px' }, m.points ? h('span', { class: `num ${m.total > 0 ? 'up' : 'down'}` }, `${fmtSigned(m.total)} pts`) : pct(m.total)));
     }),
-    crowd.length ? h('div', { class: 'panel' }, h('div', { class: 'eyebrow' }, 'Crowd impact this quarter'),
+    crowd.length ? h('div', { class: 'panel' }, h('div', { class: 'eyebrow' }, 'Crowd impact this round'),
       crowd.map(([id, c]) => h('p', { class: 'small' }, `${INST[id].name}: funds together ${c.net > 0 ? 'bought' : 'sold'} ${fmtCr(Math.abs(c.net), 0)} against a market depth of ₹${c.depth.toLocaleString('en-IN')} Cr, so everyone ${c.net > 0 ? 'buying' : 'selling'} paid ${fmtNum(Math.abs(c.pct))}% extra and anyone trading the other way gained ${fmtNum(Math.abs(c.pct))}%.`))) : null);
 }
 function biggestCause(m) {
@@ -242,11 +243,11 @@ export function riskSheet(risk, { title = 'Risk Used', note = null } = {}) {
   const famRows = risk.families.map((f) => h('tr', {}, h('td', {}, f.name), h('td', { class: 'r num' }, fmtCr(Math.abs(f.net))), h('td', { class: 'r num' }, fmtCr(f.spread)), h('td', { class: 'r num' }, fmtCr(f.risk))));
   sheet(title, h('div', { class: 'stack' },
     note ? h('p', { class: 'warn' }, note) : null,
-    h('p', {}, 'An estimate of what your fund could lose in a bad quarter, as a share of the limit. It grows with the size of each position and with how sharply that instrument has been moving; positions that offset one another count for less.'),
+    h('p', {}, 'An estimate of what your fund could lose in a bad round, as a share of the limit. It grows with the size of each position and with how sharply that instrument has been moving; positions that offset one another count for less.'),
     h('h4', {}, '1 · Each position'),
-    h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Position'), h('th', { class: 'r' }, 'Size'), h('th', { class: 'r' }, 'Typical move'), h('th', { class: 'r' }, 'Bad quarter'), h('th', { class: 'r' }, 'Risk'))),
+    h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Position'), h('th', { class: 'r' }, 'Size'), h('th', { class: 'r' }, 'Typical move'), h('th', { class: 'r' }, 'Bad round'), h('th', { class: 'r' }, 'Risk'))),
       h('tbody', {}, risk.lines.sort((a, b) => b.risk - a.risk).map((l) => h('tr', {}, h('td', {}, INST[l.id].short), h('td', { class: 'r num' }, fmtCr(l.value)), h('td', { class: 'r num' }, `${fmtNum(l.typical)}%`), h('td', { class: 'r num' }, `${fmtNum(l.bad)}%`), h('td', { class: 'r num' }, fmtCr(l.risk))))))),
-    h('p', { class: 'small muted' }, 'Risk = |size| × bad-quarter move, where a bad quarter is 2 × the instrument’s typical quarterly move. The typical move updates every quarter and at every crisis, from how sharply the price has actually been moving.'),
+    h('p', { class: 'small muted' }, 'Risk = |size| × bad-round move, where a bad round is 2 × the instrument’s typical per-round move. The typical move updates every round and at every crisis, from how sharply the price has actually been moving.'),
     h('h4', {}, '2 · Families: offsetting positions count for less'),
     h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Family'), h('th', { class: 'r' }, '|Net|'), h('th', { class: 'r' }, '√Σ risk²'), h('th', { class: 'r' }, 'Family risk'))), h('tbody', {}, famRows))),
     h('p', { class: 'small muted' }, 'Family risk = ½ × |net of risks, longs minus shorts| + ½ × √(sum of each risk squared).'),
@@ -278,13 +279,53 @@ export function scoreSheet(row) {
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Forecast accuracy'), h('div', { class: 'v' }, `${fmtNum(row.forecast, 1)}`), h('div', { class: 's' }, 'out of 25')),
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Risk discipline'), h('div', { class: 'v' }, `${row.discipline}`), h('div', { class: 's' }, 'out of 15'))),
     h('h4', {}, 'Risk-adjusted return (60)'), steps(row.steps.rar),
-    s.qret.length ? h('details', {}, h('summary', { class: 'linkish' }, 'Show the swing calculation, quarter by quarter'),
+    s.qret.length ? h('details', {}, h('summary', { class: 'linkish' }, 'Show the swing calculation, round by round'),
       h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Quarter'), h('th', { class: 'r' }, 'Return'), h('th', { class: 'r' }, '− mean'), h('th', { class: 'r' }, 'squared'))),
-        h('tbody', {}, s.qret.map((r, i) => h('tr', {}, h('td', {}, `Q${i + 1}`), h('td', { class: 'r num' }, `${fmtNum(r)}%`), h('td', { class: 'r num' }, fmtNum(r2(r - s.mean))), h('td', { class: 'r num' }, fmtNum(s.sq[i]))))))),
+        h('tbody', {}, s.qret.map((r, i) => h('tr', {}, h('td', {}, `Round ${i + 1}`), h('td', { class: 'r num' }, `${fmtNum(r)}%`), h('td', { class: 'r num' }, fmtNum(r2(r - s.mean))), h('td', { class: 'r num' }, fmtNum(s.sq[i]))))))),
       calc(`Mean = ${fmtNum(s.mean)}%. Average of the squares = ${fmtNum(s.variance)}. Swing = √${fmtNum(s.variance)} = ${fmtNum(s.swing)}%`)) : null,
     h('h4', {}, 'Forecast accuracy (25)'), steps(row.steps.forecast),
     h('h4', {}, 'Risk discipline (15)'), steps(row.steps.discipline),
     calc(`SPECULA Score = ${fmtNum(row.rar, 1)} + ${fmtNum(row.forecast, 1)} + ${row.discipline} = ${fmtNum(row.total, 1)}`)), { eyebrow: 'SPECULA Score' });
+}
+
+// ---------------- your own record (results are hidden from other funds) ----------------
+
+/** Your fund's numbers behind the SPECULA Score, from your own history only. */
+export function myRecord(team, { final = null } = {}) {
+  const s = fundStats(team.navHist);
+  const marked = Object.values(team.forecasts || {}).filter((f) => f.points !== undefined);
+  const disc = Math.max(0, RULES.score.discipline - RULES.score.perForced * (team.forced || 0));
+  return h('div', { class: 'stack' },
+    h('div', { class: 'kpis' },
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Return beyond cash'), h('div', { class: `v num ${s.excess > 0 ? 'up' : s.excess < 0 ? 'down' : ''}` }, `${fmtSigned(s.excess)}%`), h('div', { class: 's' }, `total ${fmtSigned(s.totalReturn)}% − cash ${fmtNum(s.cashGrowth)}%`)),
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Swing'), h('div', { class: 'v num' }, `${fmtNum(s.swing)}%`), h('div', { class: 's' }, 'round-to-round ups and downs')),
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Deepest fall'), h('div', { class: `v num ${s.deepest ? 'down' : ''}` }, `${fmtNum(s.deepest)}%`), h('div', { class: 's' }, 'from a peak')),
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Risk-adjusted return'), h('div', { class: 'v num' }, fmtNum(s.riskAdj)), h('div', { class: 's' }, s.end < s.start ? 'fund below ₹1,000 Cr: scores 0' : 'the 60 points compare this with the best fund')),
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Forecast points'), h('div', { class: 'v num' }, fmtNum(team.forecastPts || 0, 1)), h('div', { class: 's' }, `of ${marked.length * RULES.forecastMaxPoints} so far`)),
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Risk discipline'), h('div', { class: 'v num' }, `${disc} / 15`), h('div', { class: 's' }, `${team.forced || 0} forced liquidation${team.forced === 1 ? '' : 's'}`))),
+    h('button', { class: 'why', onclick: () => myRecordSheet(team) }, 'show the working'),
+    final ? null : h('p', { class: 'small muted' }, 'Your SPECULA Score is sealed until the end. Its biggest part, 60 points, compares your risk-adjusted return with the best fund in the room, so it can only be worked out once every fund has finished. The Event Head reveals the standings after the final release.'));
+}
+
+export function myRecordSheet(team) {
+  const s = fundStats(team.navHist);
+  const marked = Object.entries(team.forecasts || {}).filter(([, f]) => f.points !== undefined);
+  sheet('Your fund’s record', h('div', { class: 'stack' },
+    h('h4', {}, 'Risk-adjusted return'),
+    steps([
+      `Total return: ${fmtCr(s.end)} ÷ ${fmtCr(s.start)} − 1 = ${fmtNum(s.totalReturn)}%`,
+      `Cash alone would have grown ${fmtNum(s.cashGrowth)}% (${fmtNum(RULES.cashRatePct / 4)}% a round for ${s.n} rounds), so your decisions earned ${fmtNum(s.totalReturn)} − ${fmtNum(s.cashGrowth)} = ${fmtNum(s.excess)}%`,
+      `Swing = ${fmtNum(s.swing)}%${s.swing < RULES.swingFloorPct ? `, counted as at least ${fmtNum(RULES.swingFloorPct)}%` : ''}`,
+      `Deepest fall from a peak = ${fmtNum(s.deepest)}%`,
+      `Risk-adjusted return = ${fmtNum(s.excess)} ÷ ${fmtNum(s.swingUsed)} − ${RULES.fallPenaltyPerPct} × ${fmtNum(s.deepest)} = ${fmtNum(s.riskAdj)}`,
+      'At the end, the best risk-adjusted return in the room scores 60 and every other fund scores in proportion. You will see yours when the results are revealed.',
+    ]),
+    s.qret.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Round'), h('th', { class: 'r' }, 'Return'), h('th', { class: 'r' }, '− mean'), h('th', { class: 'r' }, 'squared'))),
+      h('tbody', {}, s.qret.map((r, i) => h('tr', {}, h('td', {}, `Round ${i + 1}`), h('td', { class: 'r num' }, `${fmtNum(r)}%`), h('td', { class: 'r num' }, fmtNum(r2(r - s.mean))), h('td', { class: 'r num' }, fmtNum(s.sq[i]))))))) : null,
+    h('h4', {}, 'Forecasts'),
+    marked.length ? marked.map(([q, f]) => h('div', { class: 'panel', style: { margin: '6px 0' } }, h('div', { class: 'eyebrow' }, `Round ${q}`), forecastBlock(f))) : h('p', { class: 'small muted' }, 'No forecast has been marked yet. Each one is marked when the next data drops.'),
+    h('h4', {}, 'Risk discipline'),
+    steps([`15 − 5 × ${team.forced || 0} forced liquidation${team.forced === 1 ? '' : 's'} = ${Math.max(0, 15 - 5 * (team.forced || 0))}`])), { eyebrow: 'Only your fund' });
 }
 
 export function standingsTable(rows, { me = null, onRow = null, big = false, limit = 99 } = {}) {

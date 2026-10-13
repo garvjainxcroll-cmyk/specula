@@ -2,17 +2,17 @@ import { h, mount } from '../ui.mjs';
 import { ECONOMIES, ECON_ORDER } from '../../src/config/economies.mjs';
 
 export const QUARTER_STEPS = [
-  ['The Data Drops', 'The quarter’s figures for all six economies appear on every screen.'],
-  ['The Window Opens', 'A two-minute clock starts on every device and the desk unlocks.'],
-  ['Trade and Forecast', 'Buy, sell and enter the quarter’s forecast. Change it as often as you like.'],
+  ['The Data Drops', 'The round’s figures for all six economies appear on every screen.'],
+  ['The Window Opens', 'A ten-minute clock starts on every device and the desk unlocks.'],
+  ['Trade and Forecast', 'Buy, sell and enter the round’s forecast. Change it as often as you like.'],
   ['Stay Alert', 'A crisis may break at any moment. Prices react at once.'],
   ['The Market Settles', 'At zero the desk locks, central banks act and prices reset.'],
-  ['Results', 'Fund values and standings appear on every screen at once.'],
+  ['Results', 'Your own profit and loss, and the reasons, appear on your desk. Standings stay sealed until the end.'],
 ];
 export const START_STATS = [
   ['₹1,000 Cr', 'Fund value, all in cash'], ['3×', 'Most you may hold, against fund value'], ['100%', 'Risk limit, shown live on the desk'],
-  ['0.10%', 'Cost of a trade, in calm markets'], ['4', 'Quarters in every round'], ['2 min', 'Trading window each quarter'],
-  ['24', 'Forecasts, one a quarter'], ['₹', 'Every price and value is in rupees'],
+  ['0.10%', 'Cost of a trade, in calm markets'], ['6', 'Rounds, one trading window each'], ['10 min', 'Trading window each round'],
+  ['6', 'Forecasts, one a round'], ['₹', 'Every price and value is in rupees'],
 ];
 
 export default function home(app, { band }) {
@@ -34,7 +34,7 @@ export default function home(app, { band }) {
       h('h2', {}, 'Every Fund Starts Equal'),
       h('div', { class: 'big-stats' }, START_STATS.map(([b, s]) => h('div', { class: 's' }, h('b', {}, b), h('span', { class: 'muted small' }, s)))),
       h('p', { class: 'muted', style: { marginTop: '12px' } }, 'Positions, prices and fund values carry over from round to round: the six rounds are one continuous story.'),
-      h('h2', {}, 'How Every Quarter Works'),
+      h('h2', {}, 'How Every Round Works'),
       h('ol', { class: 'step-list' }, QUARTER_STEPS.map(([t, d]) => h('li', {}, h('h4', { style: { marginTop: 0 } }, t), h('span', { class: 'small' }, d)))),
       h('hr'),
       h('div', { class: 'row muted small' }, 'For the hall: ', h('a', { href: '#/display' }, 'Big Screen'), ' · ', h('a', { href: '#/admin' }, 'Event Head console'))));

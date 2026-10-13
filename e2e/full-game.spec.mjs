@@ -1,8 +1,9 @@
-// End to end: 8 funds (two with two members each) play all 24 quarters through the real
-// screens. Every crisis is released from the Event Head console, the auction runs, phone
-// size is used throughout, reconnection and late orders are checked, the admin page is
-// reloaded mid-settlement, and the Big Screen's final standings must equal an
-// engine-only replay. Zero console errors.
+// End to end: 8 funds (two with two members each) play all six rounds through the real
+// screens. The Event Head chooses which crises to release (all of them in most rounds,
+// none in Round 03), the auction runs, phone size is used throughout, reconnection and
+// late orders are checked, the admin page is reloaded mid-settlement, no desk and no Big
+// Screen ever shows another fund's results, the scores stay sealed until the reveal, and
+// the revealed standings must equal an engine-only replay. Zero console errors.
 import { test, expect } from '@playwright/test';
 import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor } from '../src/engine/game.mjs';
 import { SCRIPT } from '../server/script.mjs';
@@ -12,13 +13,14 @@ const PASS = 'hall-pass-2026';
 const FUNDS = ['Alpha Capital', 'Bull Run', 'Copia Partners', 'Delta Macro', 'Eagle Eye', 'Fortuna Fund', 'Granary Traders', 'Helios Rates'];
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1366, height: 900 };
-const QUARTERS = Number(process.env.E2E_QUARTERS || 24);
-const RECONNECT_Q = 5; const LATE_Q = 7; const RELOAD_Q = 9; const AUCTION_Q = 21;
+const QUARTERS = Number(process.env.E2E_ROUNDS || 6);
+const RECONNECT_Q = 2; const LATE_Q = 3; const RELOAD_Q = 4; const AUCTION_Q = 6;
+const NO_CRISIS_Q = 3; // crises are optional: this round settles with none released
 const PICKS = ['AUREQ', 'AUR10Y', 'KESEQ', 'OIL', 'GOLD', 'AURFUT', 'DINAR', 'VER10Y', 'CALEQ', 'WHEAT', 'BANKCDS', 'FEAR', 'KESCDS', 'ORA', 'NORENERGY', 'AURHY', 'CROWN', 'SAR2Y', 'COPPER', 'AURIL10'];
 
 test.describe.configure({ mode: 'serial' });
 
-test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ browser, baseURL }) => {
+test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browser, baseURL }) => {
   test.setTimeout(80 * 60 * 1000);
   const errors = [];
   const offlineAllowed = new Set();
@@ -92,7 +94,7 @@ test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ brow
     // the second members of two funds trade too: the desk is shared
     for (const m of members.filter((x) => x.k === 1)) await trade(m, 'GOLD', 'buy', 10);
     // a reckless fund loads up on Kesh before the run on the dinar
-    if (q === 13) await trade(primary[3], 'KESEQ', 'buy', 900);
+    if (q === 4) await trade(primary[3], 'KESEQ', 'buy', 900);
 
     if (q === RECONNECT_Q) await reconnect(members[2]);
 
@@ -101,7 +103,8 @@ test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ brow
     }
 
     // ---- crises: released from the console, seen on every screen ----
-    const stageIds = await admin.locator('[data-stage]').evaluateAll((els) => els.map((e) => e.dataset.stage));
+    const stageIds = q === NO_CRISIS_Q ? [] : await admin.locator('[data-stage]').evaluateAll((els) => els.map((e) => e.dataset.stage));
+    if (q === NO_CRISIS_Q) await expect(admin.locator('[data-fire]').first()).toBeVisible(); // available, but the Event Head holds them
     for (const id of stageIds) {
       await admin.click(`[data-fire="${id}"]`);
       await expect(admin.locator(`.stage.fired[data-stage="${id}"]`)).toBeVisible({ timeout: 20000 });
@@ -134,12 +137,24 @@ test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ brow
     } else {
       await admin.click('#btn-bell');
     }
-    await expect(admin.locator(q < 24 ? '#btn-next' : '#btn-final')).toBeVisible({ timeout: 60000 });
+    await expect(admin.locator(q < QUARTERS ? '#btn-next' : '#btn-final')).toBeVisible({ timeout: 90000 });
     await expect(big.locator('[data-phase="results"]')).toBeVisible();
     // results reach every desk
     for (const m of primary) {
       if (m.phone) await m.page.click('[data-tab="results"]');
-      await expect(m.page.locator(`text=Results · Q${q}`)).toBeVisible({ timeout: 20000 });
+      await expect(m.page.locator(`text=Results · Round ${q}`)).toBeVisible({ timeout: 20000 });
+    }
+    // results are hidden: no desk and no Big Screen shows another fund
+    await expect(big.locator('text=Results are sealed')).toBeVisible();
+    const bigText = await big.locator('.bigscreen').innerText();
+    for (const f of FUNDS) expect(bigText, `Big Screen shows ${f} in Round ${q}`).not.toContain(f);
+    for (const m of primary.slice(0, 3)) {
+      if (m.phone) await m.page.click('[data-tab="score"]');
+      await expect(m.page.locator('[data-tip="score"]')).toContainText('only your fund');
+      const deskText = await m.page.locator('body').innerText();
+      for (const f of FUNDS.filter((x) => x !== m.fund)) expect(deskText, `${m.label} sees ${f} in Round ${q}`).not.toContain(f);
+      await expect(m.page.locator('[data-my-final]')).toHaveCount(0);
+      if (m.phone) await m.page.click('[data-tab="results"]');
     }
     // phone screens never scroll sideways
     for (const m of members.filter((x) => x.phone).slice(0, 2)) {
@@ -149,18 +164,28 @@ test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ brow
     if (q < QUARTERS) await admin.click('#btn-next');
   }
 
-  if (QUARTERS === 24) {
+  if (QUARTERS === 6) {
     await admin.click('#btn-final');
     await expect(big.locator('[data-phase="final"]')).toBeVisible({ timeout: 30000 });
-    await expect(big.getByText('Final standings · SPECULA Score')).toBeVisible();
+    // the scores are calculated but sealed
+    await expect(big.locator('text=The Event Head will now reveal the results.')).toBeVisible();
+    for (const f of FUNDS) expect(await big.locator('.bigscreen').innerText()).not.toContain(f);
+    const fin0 = await (await fetch(`${baseURL}/api/doc?key=final`)).json();
+    expect(fin0.ok).toBe(false);
+    await expect(admin.locator('#btn-reveal')).toBeVisible();
+    await admin.click('#btn-reveal');
+    await expect(big.getByText('Final standings · SPECULA Score')).toBeVisible({ timeout: 30000 });
+    await big.waitForTimeout(12000); // let the reveal play: last place first, the winner last
 
     // ---- the Big Screen equals an engine-only replay ----
     const exp = await (await fetch(`${baseURL}/api/admin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASS, action: 'export' }) })).json();
     const state = exp.data.state;
     let w = newGame(state.teams.map((t) => ({ id: t.id, name: t.name })), SCRIPT);
-    for (let q = 1; q <= 24; q++) {
+    for (let q = 1; q <= QUARTERS; q++) {
       w = openQuarter(w, SCRIPT, q);
-      for (const s of stagesFor(SCRIPT, q)) w = fireStage(w, SCRIPT, s.id).world;
+      const fired = exp.data[`resultfull/${q}`].stages; // exactly the crises the Event Head released
+      if (q === NO_CRISIS_Q) expect(fired).toEqual([]);
+      for (const id of fired) w = fireStage(w, SCRIPT, id).world;
       const orders = {}; const forecasts = {}; const bids = {};
       for (const t of state.teams) {
         const d = exp.data[`orders/${q}/${t.id}`];
@@ -182,10 +207,13 @@ test(`8 funds play ${QUARTERS} quarters through the real screens`, async ({ brow
     }
     const podium = await big.locator('.huge').allInnerTexts();
     expect(podium.slice(0, 3)).toEqual(['1', '2', '3']);
-    // the desk shows the same final score
-    const m0 = primary[0];
-    if (m0.phone) await m0.page.click('[data-tab="score"]');
-    await expect(m0.page.getByText('Final standings', { exact: true })).toBeVisible({ timeout: 20000 });
+    // each desk shows its own score and place, and only its own
+    for (const m of primary) {
+      if (m.phone) await m.page.click('[data-tab="score"]');
+      const mine = replay.find((r) => r.name === m.fund);
+      await expect(m.page.locator('[data-my-rank]')).toHaveAttribute('data-my-rank', String(mine.rank), { timeout: 20000 });
+      await expect(m.page.locator('[data-my-final]')).toContainText(fmtNum(mine.total, 1));
+    }
     // the debrief draws
     await admin.click('text=Debrief');
     await expect(admin.locator('text=What happened and why')).toBeVisible();

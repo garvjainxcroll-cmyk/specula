@@ -1,5 +1,6 @@
 // Balance pass (docs/08): play the real script many times with bot funds and report
-// who wins. Usage: node scripts/balance.mjs [games=20]
+// who wins. Usage: node scripts/balance.mjs [games=20] [lineup=standard] [crises=all|none|some]
+// Crises are optional for the Event Head, so the pass can release all of them, none, or a random pick.
 import { newGame, openQuarter, settleQuarter, finalRelease, stagesFor, fireStage, deskNow, checkOrder } from '../src/engine/game.mjs';
 import { rupeePrice } from '../src/engine/market.mjs';
 import { SCRIPT } from '../server/script.mjs';
@@ -7,15 +8,16 @@ import { BOTS, rng, ordersFor } from '../src/bots/bots.mjs';
 
 const LINEUP = ['economist', 'reader', 'cautious', 'momentum', 'gambler', 'gambler', 'random', 'buyhold', 'carry', 'idle'];
 
-export function playGame(script, lineup, seed, { quiet = true } = {}) {
+export function playGame(script, lineup, seed, { quiet = true, crises = 'all' } = {}) {
   const teams = lineup.map((b, k) => ({ id: `t${String(k + 1).padStart(2, '0')}`, name: `${BOTS[b].label} ${k + 1}`, bot: b }));
   const rands = Object.fromEntries(teams.map((t, k) => [t.id, rng(seed * 1000 + k + 1)]));
   let w = newGame(teams, script);
   const log = [];
-  for (let q = 1; q <= 24; q++) {
+  const pick = rng(seed * 7919 + 17);
+  for (let q = 1; q <= script.quarters.length; q++) {
     w = openQuarter(w, script, q);
     const orders = Object.fromEntries(teams.map((t) => [t.id, []]));
-    const stages = stagesFor(script, q);
+    const stages = chooseStages(stagesFor(script, q), crises, pick);
     for (let k = 0; k <= stages.length; k++) {
       if (k > 0) w = fireStage(w, script, stages[k - 1].id).world;
       for (const t of teams) {
@@ -42,6 +44,15 @@ export function playGame(script, lineup, seed, { quiet = true } = {}) {
   return { world: w, standings: w.final.standings.rows, teams, log };
 }
 
+/** Which stages the (simulated) Event Head releases: all, none, or a random pick that respects the order rules. */
+export function chooseStages(all, mode, rand) {
+  if (mode === 'none') return [];
+  if (mode !== 'some') return all;
+  const keepCrisis = new Set();
+  for (const s of all) if (s.stageNo === 1 && rand() < 0.6 && (!s.needs || keepCrisis.has(s.needs.replace(/-\d+$/, '')))) keepCrisis.add(s.crisisId);
+  return all.filter((s) => keepCrisis.has(s.crisisId) && (s.stageNo === 1 || rand() < 0.8));
+}
+
 const LINEUPS = {
   standard: LINEUP,
   crowded: ['reader', 'reader', 'reader', 'reader', 'cautious', 'cautious', 'economist', 'gambler', 'idle', 'buyhold'],
@@ -51,10 +62,11 @@ const LINEUPS = {
 function main() {
   const games = Number(process.argv[2] || 20);
   const lineup = LINEUPS[process.argv[3] || 'standard'];
-  console.log(`Balance pass: ${games} games, lineup "${process.argv[3] || 'standard'}"`);
+  const crises = process.argv[4] || 'all';
+  console.log(`Balance pass: ${games} games, lineup "${process.argv[3] || 'standard'}", crises: ${crises}`);
   const agg = {};
   for (let g = 1; g <= games; g++) {
-    const { standings, teams } = playGame(SCRIPT, lineup, g);
+    const { standings, teams } = playGame(SCRIPT, lineup, g, { crises });
     for (const row of standings) {
       const bot = teams.find((t) => t.id === row.id).bot;
       const a = (agg[bot] ||= { n: 0, score: 0, rank: 0, wins: 0, nav: 0, forced: 0, rar: 0, fc: 0, minNav: Infinity });

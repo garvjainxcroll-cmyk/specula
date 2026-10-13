@@ -34,7 +34,7 @@ export default function desk(app, { band }) {
       h('div', { class: 'eyebrow' }, 'Team Desk'), h('h1', {}, 'Join your fund'),
       h('p', { class: 'lead' }, 'Every member of your team can sign in on their own device. You all see the same desk, and any member’s trade is the fund’s trade.'),
       h('div', { class: 'card' }, form),
-      h('p', { class: 'small muted', style: { marginTop: '16px' } }, 'New to SPECULA? ', h('a', { href: '#/learn' }, 'Read How to Play'), ' or ', h('a', { href: '#/practice' }, 'try two practice quarters'), ' first.')));
+      h('p', { class: 'small muted', style: { marginTop: '16px' } }, 'New to SPECULA? ', h('a', { href: '#/learn' }, 'Read How to Play'), ' or ', h('a', { href: '#/practice' }, 'try two practice rounds'), ' first.')));
   }
 
   function start() {
@@ -54,7 +54,7 @@ export default function desk(app, { band }) {
           clock: clockLeft(), paused: s.timer?.pausedLeft !== null && s.timer?.pausedLeft !== undefined,
           qdoc: q && q.q === s.q ? q : (q || null), team, teamId: live.me?.teamId, teamName: me?.name || saved.teamName, members: me?.members || [],
           orders: (live.orders?.orders || []).filter(() => q?.run?.q === s.q), forecastSaved: live.orders?.forecast?.value ?? null, bidSaved: live.orders?.bid || null,
-          result, myResult: live.myResults?.[resQ] || null, standings: live.docs.standings, history: live.docs.history || [],
+          result, myResult: live.myResults?.[resQ] || null, final: s.revealed ? live.docs.final || null : null, history: live.docs.history || [],
         };
       },
       subscribe: (fn) => { adapter._emit = fn; return subscribe(() => { if (live.error === 'signed-out') { store(KEY, null); saved = null; showJoin('You have been signed out (the game may have been reset). Join again with your fund code.'); return; } fn(); }); },
@@ -73,7 +73,7 @@ export default function desk(app, { band }) {
           await new Promise((res) => setTimeout(res, 700 * (k + 1)));
         }
       }
-      return { ok: false, reason: 'Connection lost: the order may not have reached the market. When the connection returns, check “This quarter’s orders”.' };
+      return { ok: false, reason: 'Connection lost: the order may not have reached the market. When the connection returns, check “This round’s orders”.' };
     }
     if (destroy) destroy();
     destroy = createDesk(app, adapter, { band });

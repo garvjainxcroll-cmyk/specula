@@ -1,5 +1,11 @@
 // Every number printed in the participant guide is a promise to players. These tests
 // pin the code to the guide so nothing drifts.
+//
+// October 2026: at the Event Head's request the game now runs six rounds of one
+// ten-minute window each (no quarters inside rounds), every crisis is the Event Head's
+// choice, and results are hidden until the end. Those three changes depart from the
+// printed guide on purpose (see CHANGELOG.md); the guide must be reprinted to match.
+// Everything else below still pins the printed guide.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ECONOMIES, ECON_ORDER } from '../src/config/economies.mjs';
@@ -59,14 +65,16 @@ test('the desk rules on pages 01, 04, 05 and 06', () => {
   assert.equal(RULES.leverageLimit, 3);
   assert.equal(RULES.riskLimitPct, 100);
   assert.equal(RULES.baseSpreadPct, 0.10);
-  assert.equal(RULES.quartersPerRound, 4);
-  assert.equal(RULES.windowSeconds, 120);
-  assert.equal(RULES.quarters, 24);
+  // the Event Head's change (CHANGELOG, Oct 2026): six rounds, one ten-minute window each
+  assert.equal(RULES.rounds, 6);
+  assert.equal(RULES.quarters, 6);
+  assert.equal(RULES.windowSeconds, 600);
   assert.equal(RULES.forcedTargetPct, 80);
   assert.equal(RULES.forcedWorsePct, 2);
   assert.equal(RULES.borrowExtraPct, 1);
   assert.deepEqual(RULES.score, { rar: 60, forecast: 25, discipline: 15, perForced: 5 });
-  assert.equal(RULES.forecastMaxPoints * RULES.quarters, 240);
+  assert.equal(RULES.forecastMaxPoints, 10);
+  assert.equal(RULES.forecastMaxPoints * RULES.quarters, 60); // six forecasts, one a round
   // trading costs 0.10% in calm markets everywhere except Sarvan, which costs more
   for (const x of INSTRUMENTS) {
     if (x.econ === 'SAR') assert.ok(x.spread > 0.10, x.id); else assert.equal(x.spread, 0.10, x.id);
@@ -78,5 +86,5 @@ test('the six rounds and their names', () => {
     'Markets in Normal Times', 'Inflation and Interest Rates', 'Commodities and Trade',
     'Emerging Markets and Currencies', 'Banking and Credit', 'Sovereign Debt and Recovery',
   ]);
-  assert.deepEqual(ROUNDS.flatMap((r) => r.quarters), Array.from({ length: 24 }, (_, i) => i + 1));
+  assert.deepEqual(ROUNDS.flatMap((r) => r.quarters), [1, 2, 3, 4, 5, 6]); // one window per round
 });

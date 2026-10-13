@@ -8,7 +8,7 @@ import { releaseTable, decisionsRow, whyPanel, standingsTable, scoreSheet, forec
 
 export default function admin(app, { band }) {
   let pass = sstore('specula-admin');
-  let status = null; let lastKey = ''; let busy = false; let autoSettle = sstore('specula-autosettle') ?? true; let autoTried = 0;
+  let status = null; let priv = null; let privV = null; let lastKey = ''; let busy = false; let autoSettle = sstore('specula-autosettle') ?? true; let autoTried = 0;
   let clockEl = null; let view = sstore('specula-admin-view') || 'control';
   setToken(null);
 
@@ -28,7 +28,14 @@ export default function admin(app, { band }) {
   }
   async function refresh() {
     try { const r = await post('admin', { password: pass, action: 'status' }, { retries: 0 }); if (r.ok && r.data.ok !== false) status = r.data; } catch { /* offline */ }
+    await refreshPrivate();
     lastKey = ''; render();
+  }
+  // Standings, every fund's history and the final scores: for the Event Head only.
+  async function refreshPrivate() {
+    const v = live.state?.docs?.priv;
+    if (!v || v === privV) return;
+    try { const r = await post('admin', { password: pass, action: 'private' }, { retries: 0 }); if (r.ok && r.data.ok !== false) { priv = r.data.private; privV = v; } } catch { /* offline */ }
   }
 
   async function login() {
@@ -57,12 +64,12 @@ export default function admin(app, { band }) {
   }
 
   function start() { startPolling(() => 1000); refresh(); }
-  const unsub = subscribe(() => { if (pass) render(); });
+  const unsub = subscribe(() => { if (!pass) return; if (live.state?.docs?.priv !== privV) refreshPrivate().then(() => { lastKey = ''; render(); }); render(); });
 
   function render() {
     if (!pass) return;
     const s = live.state;
-    const key = JSON.stringify([s?.v, s?.docs, status && { c: status.codes, st: status.stages?.map((x) => x.fired), sub: status.subs }, view, busy]);
+    const key = JSON.stringify([s?.v, s?.docs, privV, status && { c: status.codes, st: status.stages?.map((x) => x.fired), sub: status.subs, a: !!status.auction }, view, busy]);
     if (key === lastKey) return;
     lastKey = key;
     const kept = {};
@@ -79,7 +86,7 @@ export default function admin(app, { band }) {
   }
   function phaseTitle(s) {
     if (!s.q) return s.phase === 'lobby' ? 'Lobby · add funds, then start' : 'Setup';
-    return `Q${s.q} · Round 0${s.round} · ${roundName(s.q)} · ${({ data: 'data drop', open: 'window open', settling: 'settling', results: 'results', final: 'final' })[s.phase] || s.phase}`;
+    return `Round 0${s.round} of 06 · ${roundName(s.q)} · ${({ data: 'data drop', open: 'window open', settling: 'settling', results: 'results', final: 'final' })[s.phase] || s.phase}`;
   }
 
   // ---------------- control ----------------
@@ -94,22 +101,24 @@ export default function admin(app, { band }) {
     return h('div', { class: 'admin-grid' },
       h('div', { class: 'stack' },
         h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Now'), h('h3', { style: { marginTop: 4 } }, phaseTitle(s)),
-          rs ? h('div', { class: 'panel', style: { margin: '10px 0' } }, h('div', { class: 'eyebrow' }, 'Run sheet · say to the hall'), rs.say.map((t) => h('p', { class: 'small' }, t)), rs.fire ? h('p', { class: 'small warn' }, `Crisis timing: ${rs.fire}`) : null) : null,
+          rs ? h('div', { class: 'panel', style: { margin: '10px 0' } }, h('div', { class: 'eyebrow' }, 'Run sheet · say to the hall'), rs.say.map((t) => h('p', { class: 'small' }, t)), rs.plan ? h('p', { class: 'small warn' }, `Crisis plan (all optional): ${rs.plan}`) : null) : null,
           phaseButtons(s, unfired)),
         st.length ? h('div', { class: 'card', style: { borderColor: unfired.length ? 'var(--down)' : 'var(--gold)' } },
-          h('div', { class: 'eyebrow' }, `Crises this quarter · ${st.length - unfired.length} of ${st.length} released`),
-          h('p', { class: 'small muted' }, 'Only you can see this. Teams see nothing until you press Release. Prices react at once; the desk stays open. Stage 2 can only follow stage 1.'),
-          st.map((x, i) => stageCard(x, s, unfired[0]?.id === x.id))) : (s.q ? h('div', { class: 'card quiet' }, h('p', { class: 'small muted' }, 'No crisis is scripted for this quarter.')) : null),
-        q ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Data release · Q${q.q}`), releaseTable(q.release), h('p', { class: 'small', style: { marginTop: 8 } }, `Forecast: ${forecastQuestion(q.run?.forecast)}`)) : null),
+          h('div', { class: 'eyebrow' }, `Crisis control · ${st.length - unfired.length} of ${st.length} released this round`),
+          h('p', { class: 'small muted' }, 'Only you can see this. Every crisis is optional: release any, all or none, in any order, whenever you like while the window is open. Teams see nothing until you press Release; prices react at once and the desk stays open. A second stage can only follow its first, and a few crises follow another (marked).'),
+          st.map((x) => stageCard(x, s, canFire(x, st)))) : (s.q ? h('div', { class: 'card quiet' }, h('p', { class: 'small muted' }, 'No crisis is available this round.')) : null),
+        q ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Data release · Round ${q.q}`), releaseTable(q.release), h('p', { class: 'small', style: { marginTop: 8 } }, `Forecast: ${forecastQuestion(q.run?.forecast)}`)) : null),
       h('div', { class: 'stack' },
         subsCard(s),
-        res ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Results · Q${res.q}`), decisionsRow(res.decisions), h('h4', {}, 'Why prices moved'), whyPanel(res, { limit: 8 })) : null,
-        live.docs.standings ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Standings'), standingsTable(live.docs.standings.rows, { onRow: scoreSheet })) : null,
-        status?.nextQuarter ? h('div', { class: 'card quiet' }, h('div', { class: 'eyebrow' }, `Coming next · Q${status.nextQuarter.q} (only you can see this)`), h('ul', { class: 'small' }, status.nextQuarter.headlines.map((t) => h('li', {}, t))), status.nextQuarter.crises.length ? h('p', { class: 'small warn' }, `Crisis: ${status.nextQuarter.crises.join(', ')}`) : null) : null));
+        res ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Results · Round ${res.q}`), decisionsRow(res.decisions), h('h4', {}, 'Why prices moved'), whyPanel(res, { limit: 8 })) : null,
+        priv?.standings?.rows?.length && s.q ? h('div', { class: 'card' }, h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, priv.standings.final ? 'Final standings' : 'Standings so far'), h('span', { class: 'badge alert' }, 'only you can see this')),
+          h('p', { class: 'tiny muted' }, 'Hidden from every team and from the Big Screen until you reveal the results. Before the end, the score is what it would be today.'),
+          standingsTable(priv.standings.rows, { onRow: scoreSheet })) : null,
+        status?.nextQuarter ? h('div', { class: 'card quiet' }, h('div', { class: 'eyebrow' }, `Coming next · Round 0${status.nextQuarter.q} (only you can see this)`), h('ul', { class: 'small' }, status.nextQuarter.headlines.map((t) => h('li', {}, t))), status.nextQuarter.crises.length ? h('p', { class: 'small warn' }, `Crises available: ${status.nextQuarter.crises.join(', ')}`) : null) : null));
   }
 
   function phaseButtons(s, unfired) {
-    const secs = h('select', { 'aria-label': 'Window length', id: 'win-secs', 'data-keep': 'win-secs', style: { width: 'auto' } }, [60, 90, 120, 150, 180, 240].map((x) => h('option', { value: x, selected: x === (s.timer?.seconds || 120) }, fmtClock(x * 1000))));
+    const secs = h('select', { 'aria-label': 'Window length', id: 'win-secs', 'data-keep': 'win-secs', style: { width: 'auto' } }, [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900].map((x) => h('option', { value: x, selected: x === (s.timer?.seconds || 600) }, `${x / 60} min`)));
     const B = (label, fn, cls = '', attrs = {}) => h('button', { class: `btn ${cls}`, disabled: busy, onclick: fn, ...attrs }, label);
     if (s.phase === 'data') return h('div', { class: 'row' }, secs, B('Open the window', () => call('openWindow', { seconds: Number(secs.value) }), 'lg', { id: 'btn-open' }));
     if (s.phase === 'open') {
@@ -118,23 +127,37 @@ export default function admin(app, { band }) {
         h('div', { class: 'row' },
           paused ? B('Resume', () => call('resume'), '', { id: 'btn-resume' }) : B('Pause', () => call('pause'), 'ghost', { id: 'btn-pause' }),
           B('+30 s', () => call('extend', { seconds: 30 }), 'ghost', { id: 'btn-extend' }),
-          B('Ring the bell now', async () => { if (unfired.length) { toast('Release the crisis first.', 'bad'); return; } if (confirm('Ring the bell now and settle the quarter?')) call('settle', { early: true }); }, 'danger', { id: 'btn-bell' })),
+          B('+2 min', () => call('extend', { seconds: 120 }), 'ghost', { id: 'btn-extend2' }),
+          B('Ring the bell now', async () => { if (confirm('Ring the bell now and settle the round?')) call('settle', { early: true }); }, 'danger', { id: 'btn-bell' })),
         h('label', { class: 'row small' }, h('input', { type: 'checkbox', checked: autoSettle, onchange: (e) => { autoSettle = e.target.checked; sstore('specula-autosettle', autoSettle); } }), 'Settle automatically when the clock reaches zero'),
-        unfired.length ? h('p', { class: 'small warn' }, 'This quarter cannot settle until its crisis is released. Release it before the clock runs out; if you release it after the bell, the desk reopens for 30 seconds.') : null);
+        unfired.length ? h('p', { class: 'small muted' }, `${unfired.length} crisis stage${unfired.length === 1 ? '' : 's'} not released. That is fine: the round settles with whatever you have released. Releasing in the last 15 seconds gives the desk 30 more seconds.`) : null);
     }
     if (s.phase === 'settling') return h('div', { class: 'stack' }, h('p', {}, 'Settling… if this does not finish in a few seconds (for example the page was reloaded), press:'), B('Finish settlement', () => call('settle', { early: true }), 'lg', { id: 'btn-finish' }));
     if (s.phase === 'results') {
-      if (s.q >= 24) return B('Publish the final release and scores', () => call('final'), 'lg', { id: 'btn-final' });
-      return h('div', { class: 'row' }, B(`Next: Q${s.q + 1} data drop`, () => call('next'), 'lg', { id: 'btn-next' }), s.q % 4 === 0 ? h('span', { class: 'badge alert' }, `Round 0${Math.ceil((s.q + 1) / 4)} begins: ${ROUNDS[Math.ceil((s.q + 1) / 4) - 1].name}`) : null);
+      if (s.q >= ROUNDS.length) return B('Publish the final release (scores stay sealed)', () => call('final'), 'lg', { id: 'btn-final' });
+      return h('div', { class: 'row' }, B(`Next: Round 0${s.q + 1} data drop`, () => call('next'), 'lg', { id: 'btn-next' }), h('span', { class: 'badge alert' }, ROUNDS[s.q].name));
     }
-    if (s.phase === 'final') return h('div', {}, h('p', {}, 'The game is over. Open the Debrief tab for charts and the round summaries.'), B('Open debrief', () => { view = 'debrief'; lastKey = ''; render(); }));
+    if (s.phase === 'final') {
+      if (!s.revealed) return h('div', { class: 'stack' }, h('p', {}, 'The final release is out and every score is calculated, but the results are still sealed. Teams see only their own fund; the Big Screen is waiting.'),
+        B('Reveal the results on every screen', () => { if (confirm('Reveal the final standings on the Big Screen and every desk?')) call('reveal'); }, 'lg', { id: 'btn-reveal' }));
+      return h('div', {}, h('p', {}, 'The results are revealed: the Big Screen shows the standings (last place first, the winner last) and each desk shows its own score and place. Open the Debrief tab for charts and the round summaries.'), B('Open debrief', () => { view = 'debrief'; lastKey = ''; render(); }));
+    }
     return null;
   }
 
+  function canFire(x, st) {
+    if (x.fired) return false;
+    if (st.some((y) => y.crisisId === x.crisisId && y.stageNo < x.stageNo && !y.fired)) return false;
+    if (x.needs && !st.find((y) => y.id === x.needs)?.fired) return false;
+    return true;
+  }
   function stageCard(x, s, isNext) {
     return h('div', { class: `stage ${x.fired ? 'fired' : ''} ${isNext ? 'next' : ''}`, 'data-stage': x.id },
       h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, `${x.crisisTitle}${x.of > 1 ? ` · stage ${x.stageNo} of ${x.of}` : ''}`), x.fired ? h('span', { class: 'badge' }, 'released') : null),
       h('b', {}, x.title), h('p', { class: 'small' }, x.headline),
+      x.advice ? h('p', { class: 'tiny', style: { color: 'var(--gold-text)' } }, x.advice) : null,
+      x.needsTitle && !x.fired ? h('p', { class: 'tiny warn' }, `Follows “${x.needsTitle}”: release that first.`) : null,
+      x.stageNo > 1 && !x.fired && !isNext ? h('p', { class: 'tiny muted' }, 'Follows stage 1 of this crisis.') : null,
       h('details', {}, h('summary', { class: 'linkish small' }, 'posts and effects'), (x.posts || []).map((p) => postEl(p)),
         h('p', { class: 'tiny muted' }, [x.M ? `crisis multiplier ×${x.M}` : '', x.spreadMult ? 'trading costs up' : '', (x.rules || []).length ? `rules: ${x.rules.map((r) => `${r.econ} ${modText(r)}`).join('; ')}` : '', x.pegBreak ? 'the dinar peg breaks' : '', x.defaultEntity ? `DEFAULT: ${x.defaultEntity}` : ''].filter(Boolean).join(' · '))),
       !x.fired && s.phase === 'open' ? h('button', { class: 'btn danger', style: { marginTop: 8 }, disabled: busy || !isNext, 'data-fire': x.id, onclick: () => { if (confirm(`Release “${x.title}” now?`)) call('fire', { stageId: x.id }); } }, 'Release now') : null,
@@ -143,11 +166,12 @@ export default function admin(app, { band }) {
 
   function subsCard(s) {
     const subs = status?.subs || {};
-    return h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Funds this quarter'),
-      h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fund'), h('th', { class: 'r' }, 'Signed in'), h('th', { class: 'r' }, 'Orders'), h('th', { class: 'r' }, 'Forecast'), s.q === 21 ? h('th', { class: 'r' }, 'Bid') : null)),
+    const hasAuction = !!live.docs.quarter?.run?.auction;
+    return h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Funds this round'),
+      h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fund'), h('th', { class: 'r' }, 'Signed in'), h('th', { class: 'r' }, 'Orders'), h('th', { class: 'r' }, 'Forecast'), hasAuction ? h('th', { class: 'r' }, 'Bid') : null)),
         h('tbody', {}, s.teams.map((t) => {
           const x = subs[t.id] || {};
-          return h('tr', {}, h('td', {}, t.name), h('td', { class: 'r' }, t.members.length), h('td', { class: 'r num' }, x.orders ?? 0), h('td', { class: 'r num' }, x.forecast ?? '—'), s.q === 21 ? h('td', { class: 'r num' }, x.bid ? `${fmtCr(x.bid.amountCr * 1e9, 0)} @ ${fmtPrice(x.bid.price)}` : '—') : null);
+          return h('tr', {}, h('td', {}, t.name), h('td', { class: 'r' }, t.members.length), h('td', { class: 'r num' }, x.orders ?? 0), h('td', { class: 'r num' }, x.forecast ?? '—'), hasAuction ? h('td', { class: 'r num' }, x.bid ? `${fmtCr(x.bid.amountCr * 1e9, 0)} @ ${fmtPrice(x.bid.price)}` : '—') : null);
         })))));
   }
 
@@ -161,7 +185,7 @@ export default function admin(app, { band }) {
           h('p', { class: 'small' }, 'One line per team. Each fund gets a private code; print or read them out to each team privately.'), ta,
           h('div', { class: 'row', style: { marginTop: 10 } }, h('button', { class: 'btn', id: 'btn-save-funds', disabled: busy, onclick: () => call('teams', { names: ta.value.split('\n').map((x) => x.trim()).filter(Boolean) }) }, 'Save funds and make codes'))) : null,
         s.phase === 'lobby' ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Step 2 · start'),
-          h('p', { class: 'small' }, 'When teams have signed in, start the game. Q1’s data drops on every screen; then you open the first window.'),
+          h('p', { class: 'small' }, 'When teams have signed in, start the game. Round 01’s data drops on every screen; then you open the first window.'),
           h('button', { class: 'btn lg', id: 'btn-start', disabled: busy || !s.teams.length, onclick: () => { if (confirm('Start the game? Funds cannot be changed afterwards.')) call('start'); } }, 'Start the game')) : null),
       h('div', { class: 'card' }, h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, `Fund codes · ${s.teams.length} funds`), h('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print')),
         h('table', { class: 'tbl codes' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fund'), h('th', {}, 'Code'), h('th', { class: 'r' }, 'Signed in'))),
@@ -171,12 +195,11 @@ export default function admin(app, { band }) {
 
   // ---------------- debrief ----------------
   function debrief(s) {
-    const hist = live.docs.history || [];
-    if (!hist.length) return h('div', { class: 'card' }, h('p', {}, 'The debrief fills up as quarters settle.'));
-    const labels = hist.map((x) => `Q${x.q}`);
-    const rows = (live.docs.final?.standings?.rows || live.docs.standings?.rows || []);
-    const auctionRes = live.results[21];
-    if (s.q >= 21 && !auctionRes) fetchResult(21).then(() => { lastKey = ''; render(); });
+    const hist = priv?.history || [];
+    if (!hist.length) return h('div', { class: 'card' }, h('p', {}, 'The debrief fills up as rounds settle.'));
+    const labels = hist.map((x) => `R${x.q}`);
+    const rows = (priv?.final?.standings?.rows || priv?.standings?.rows || []);
+    const auctionRes = status?.auction ? { auction: status.auction } : null;
     const summaries = status?.rounds || [];
     return h('div', { class: 'stack' },
       h('div', { class: 'grid g2' },
@@ -187,11 +210,12 @@ export default function admin(app, { band }) {
       h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Every fund’s value (₹ Cr)'), lineChart(rows.map((r) => ({ name: r.name, values: [1000, ...hist.map((x) => (x.nav[r.id] ?? null) / 1e9)] })), ['Start', ...labels], { height: 340, yFmt: (v) => fmtNum(v, 0) })),
       auctionRes?.auction ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, `Auction · ${INST[auctionRes.auction.spec.inst].name}`),
         h('p', { class: 'small' }, `Fair value (the settlement price): ${fmtPrice(auctionRes.auction.fair)}. Filled dots were allotted; green bought below fair value (an instant gain), red above it (a loss).`),
+        h('p', { class: 'tiny muted' }, 'Only you can see the bidders. Teams see only the cut-off price and how many times the sale was covered.'),
         bidChart(auctionRes.auction.bids.map((b) => ({ ...b, name: b.name })), auctionRes.auction.fair),
         h('table', { class: 'tbl' }, h('tbody', {}, auctionRes.auction.bids.map((b) => h('tr', {}, h('td', {}, b.name), h('td', { class: 'r num' }, fmtPrice(b.price)), h('td', { class: 'r num' }, fmtCr(b.amount, 0)), h('td', { class: 'r num' }, b.allotted ? `allotted ${fmtCr(b.allotted, 0)}` : 'not filled')))))) : null,
       h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'What happened and why · read these out in the hall'),
         summaries.length ? summaries.map((r) => h('div', { style: { margin: '14px 0' } }, h('h3', {}, `Round 0${r.n} · ${ROUNDS[r.n - 1].name}`), r.text.map((t) => h('p', {}, t)))) : h('p', { class: 'muted' }, 'Loading…')),
-      rows.length ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Final standings'), standingsTable(rows, { onRow: scoreSheet })) : null);
+      rows.length ? h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, priv?.final ? 'Final standings' : 'Standings so far (only you can see this)'), standingsTable(rows, { onRow: scoreSheet })) : null);
   }
 
   // ---------------- tools ----------------
@@ -203,7 +227,7 @@ export default function admin(app, { band }) {
       h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Backup'), h('p', { class: 'small' }, 'Download everything (prices, orders, results) as a file. Do this at the end, or any time.'),
         h('button', { class: 'btn ghost', onclick: async () => { const r = await post('admin', { password: pass, action: 'export' }); if (r.ok && r.data.ok !== false) { const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(r.data, null, 1)], { type: 'application/json' })), download: `specula-backup-${new Date().toISOString().slice(0, 16)}.json` }); a.click(); } } }, 'Download backup')),
       h('div', { class: 'card', style: { borderColor: 'var(--down)' } }, h('div', { class: 'eyebrow' }, 'Reset the game'),
-        h('p', { class: 'small' }, 'Wipes every quarter, order and result. Use after a rehearsal. The password stays.'),
+        h('p', { class: 'small' }, 'Wipes every round, order and result. Use after a rehearsal. The password stays.'),
         h('label', { class: 'row small' }, keep, 'Keep the same funds and codes (teams sign in again)'), conf,
         h('button', { class: 'btn danger', style: { marginTop: 8 }, id: 'btn-reset', onclick: () => { if (conf.value === 'RESET') call('reset', { confirm: 'RESET', keepTeams: keep.checked }); else toast('Type RESET first.', 'bad'); } }, 'Reset everything')),
       h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'Sign out'), h('button', { class: 'btn ghost', onclick: () => { sstore('specula-admin', null); pass = null; login(); } }, 'Sign out of the console')));
@@ -219,8 +243,7 @@ export default function admin(app, { band }) {
     clockEl.className = `clock ${s.phase === 'open' && left < 20000 ? 'closing' : ''} ${s.phase !== 'open' ? 'shut' : ''}`;
     // settle automatically at zero (once every few seconds at most)
     if (autoSettle && s.phase === 'open' && !paused && left !== null && left <= 0 && !busy && Date.now() - autoTried > 4000) {
-      const unfired = (status?.stages || []).filter((x) => !x.fired);
-      if (!unfired.length) { autoTried = Date.now(); call('settle', {}, { quiet: true }); }
+      autoTried = Date.now(); call('settle', {}, { quiet: true });
     }
   }
   const t = setInterval(tickClock, 250);

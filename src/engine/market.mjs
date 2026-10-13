@@ -137,7 +137,7 @@ export function carryRates(mkt) {
       case 'ig': rate = cy.yIG; label = 'interest at the investment-grade yield'; break;
       case 'hy': rate = cy.yHY; label = 'interest at the high-yield yield'; break;
       case 'fx': rate = s.i; label = `${ECONOMIES[x.econ].name}’s short-term rate`; break;
-      case 'fear': rate = r2(-RULES.fearFeePct * 4); label = `a fee of ${fmtNum(RULES.fearFeePct)}% a quarter`; break;
+      case 'fear': rate = r2(-RULES.fearFeePct * 4); label = `a fee of ${fmtNum(RULES.fearFeePct)}% a round`; break;
       case 'cds': {
         const sp = x.entity === 'KES' ? g.sKES : x.entity === 'VER' ? g.sVER : g.sBank;
         rate = r2(-sp); label = 'the premium, on the amount protected'; break;

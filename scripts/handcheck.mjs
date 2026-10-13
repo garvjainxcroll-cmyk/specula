@@ -1,5 +1,5 @@
 // HAND CHECK — recompute one fund's profit and loss, Risk Used and SPECULA Score for three
-// quarters from first principles (prices, positions and the rules on paper), without
+// rounds from first principles (prices, positions and the rules on paper), without
 // using the engine's accounting code, and confirm they match the site to the paisa.
 // Usage: node scripts/handcheck.mjs  (writes HAND_CHECK.md). Also run by tests/handcheck.test.mjs.
 import { writeFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { SCRIPT } from '../server/script.mjs';
 import { BOTS, rng, ordersFor } from '../src/bots/bots.mjs';
 import { fmtRupees, fmtNum } from '../src/engine/num.mjs';
 
-const CHECK_QS = [3, 14, 21];
+const CHECK_QS = [1, 4, 6];
 const TEAM = 't02'; // "Reads the economy"
 
 // ---- plain arithmetic, written out the way you would on paper ----
@@ -39,7 +39,7 @@ export function runHandCheck() {
   const rands = Object.fromEntries(teams.map((t, k) => [t.id, rng(1000 + k + 1)]));
   let w = newGame(teams, SCRIPT);
   const checks = []; let allOk = true;
-  for (let q = 1; q <= 24; q++) {
+  for (let q = 1; q <= SCRIPT.quarters.length; q++) {
     w = openQuarter(w, SCRIPT, q);
     const orders = Object.fromEntries(teams.map((t) => [t.id, []]));
     const stages = stagesFor(SCRIPT, q);
@@ -67,7 +67,7 @@ export function runHandCheck() {
   return { checks, score: sc, ok: allOk };
 }
 
-/** Recompute one quarter for TEAM by hand. */
+/** Recompute one round for TEAM by hand. */
 function check(w0, res, orders, q) {
   const team = w0.teams[TEAM]; const run = w0.run;
   const r = res.result.teams[TEAM];
@@ -108,7 +108,7 @@ function check(w0, res, orders, q) {
     if (c.to === 0) delete pos[c.id]; else pos[c.id] = c.to;
     L(c.id).forced += pen;
   }
-  // cash interest: fund value minus money in long positions, at 6% (or 7% if borrowing), a quarter
+  // cash interest: fund value minus money in long positions, at 6% (or 7% if borrowing), a quarter of a year per round
   let longs = 0; let nav = cash;
   for (const [id, v] of Object.entries(pos)) if (INST[id].funded) { nav += v; if (v > 0) longs += v; }
   const base = nav - longs;
@@ -170,7 +170,7 @@ function positionDetail(id, l) {
 }
 
 function handRisk(rb) {
-  // from the sizes and bad-quarter moves the site shows, redo steps 1–5 of Risk Used
+  // from the sizes and bad-round moves the site shows, redo steps 1–5 of Risk Used
   const fam = {};
   for (const l of rb.lines) {
     const risk = Math.round(Math.abs(l.value) * l.bad / 100);
@@ -202,7 +202,7 @@ function scoreCheck(w) {
   const ra = Math.round((ex / Math.max(swing, RULES.swingFloorPct) - RULES.fallPenaltyPerPct * deep) * 100) / 100;
   const best = Math.max(...rows.filter((r) => r.stats.end >= r.stats.start && r.stats.riskAdj > 0).map((r) => r.stats.riskAdj));
   const rar = Math.round(60 * ra / best * 10) / 10;
-  const fc = Math.round(25 * w.teams[TEAM].forecastPts / 240 * 10) / 10;
+  const fc = Math.round(25 * w.teams[TEAM].forecastPts / (10 * SCRIPT.quarters.length) * 10) / 10;
   const disc = Math.max(0, 15 - 5 * w.teams[TEAM].forced);
   const total = Math.round((rar + fc + disc) * 10) / 10;
   const ok = ra === me.stats.riskAdj && rar === me.rar && fc === me.forecast && disc === me.discipline && total === me.total;
@@ -213,12 +213,12 @@ function writeDoc(out) {
   const md = [];
   md.push('# Hand check: the maths, recomputed to the paisa', '');
   md.push('This file is produced by `node scripts/handcheck.mjs` and checked by `tests/handcheck.test.mjs` every time the tests run.');
-  md.push('It plays the real 24-quarter script with eight bot funds, then takes one fund (“Reads the economy”) and recomputes three quarters **by hand**:');
+  md.push('It plays the real six-round script, with every crisis released, with eight bot funds, then takes one fund (“Reads the economy”) and recomputes three rounds **by hand**:');
   md.push('the profit and loss on every position, the cash interest, the Risk Used at the bell, and finally the SPECULA Score — using only the prices, the positions and the rules written in the guide and in MODEL_EXPLAINED.md, not the engine’s accounting code.', '');
   md.push(`**Result: ${out.ok ? 'every figure matches the site exactly, to the paisa.' : 'MISMATCHES FOUND — see below.'}**`, '');
   for (const c of out.checks) {
-    const label = c.q === 3 ? 'a calm quarter' : c.q === 14 ? 'the Run on the Dinar (two crisis stages, the peg breaks)' : 'the Verana Bond Auction';
-    md.push(`## Quarter ${c.q}: ${label}`, '');
+    const label = c.q === 1 ? 'Markets in Normal Times (the Governor hoax and the crash)' : c.q === 4 ? 'the Run on the Dinar (the peg breaks), contagion and the Concord rescue' : 'the Verana Bond Auction, the Reckoning (a default) and the recovery';
+    md.push(`## Round 0${c.q}: ${label}`, '');
     md.push(`Fund value: ${fmtRupees(c.navOpen)} at the start → ${fmtRupees(c.navEnd)} on the site; by hand ${fmtRupees(c.handNavEnd)}. ${c.handNavEnd === c.navEnd ? '✔ match' : '✘ MISMATCH'}`, '');
     md.push('| Position | Price | Currency | Carry | Cost | Crowd | Forced | Total |', '|---|---:|---:|---:|---:|---:|---:|---:|');
     for (const [id, l] of Object.entries(c.ledger)) {
@@ -234,10 +234,10 @@ function writeDoc(out) {
   const s = out.score;
   md.push(`## The final SPECULA Score of “${s.name}”`, '');
   md.push(`- Total return ${s.tr}%; cash alone ${s.cash}%; earned by decisions ${s.ex}%`);
-  md.push(`- Swing ${s.swing}% (standard deviation of the 24 quarterly returns); deepest fall ${s.deep}%`);
+  md.push(`- Swing ${s.swing}% (standard deviation of the six round returns); deepest fall ${s.deep}%`);
   md.push(`- Risk-adjusted return = ${s.ex} ÷ ${Math.max(s.swing, 1)} − 0.10 × ${s.deep} = ${s.ra} (site ${s.site.ra})`);
   md.push(`- Risk-adjusted points = 60 × ${s.ra} ÷ best ${s.best} = ${s.rar} (site ${s.site.rar})`);
-  md.push(`- Forecast points = 25 × ${s.fpts} ÷ 240 = ${s.fc} (site ${s.site.fc})`);
+  md.push(`- Forecast points = 25 × ${s.fpts} ÷ 60 = ${s.fc} (site ${s.site.fc})`);
   md.push(`- Risk discipline = 15 − 5 × ${s.forced} = ${s.disc} (site ${s.site.disc})`);
   md.push(`- **SPECULA Score = ${s.rar} + ${s.fc} + ${s.disc} = ${s.total} (site ${s.site.total}) ${s.ok ? '✔' : '✘'}**`, '');
   writeFileSync(new URL('../HAND_CHECK.md', import.meta.url), md.join('\n'));

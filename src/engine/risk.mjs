@@ -1,11 +1,11 @@
 // Exposure (the 3× limit) and Risk Used (the 100% limit), with the working.
 //
 // Risk Used, in words (guide page 05): an estimate of what the fund could lose in a bad
-// quarter, as a share of the limit. It grows with the size of each position and with how
+// round, as a share of the limit. It grows with the size of each position and with how
 // sharply that instrument has been moving; positions that offset one another count for less.
 //
-//  1. For each position: risk = size × bad-quarter move, where a bad-quarter move is
-//     2 × the instrument's typical quarterly move ("how sharply it has been moving").
+//  1. For each position: risk = size × bad-round move, where a bad-round move is
+//     2 × the instrument's typical per-round move ("how sharply it has been moving").
 //  2. Positions are grouped into families that move together (Aurelian rates, shares, ...).
 //     Inside a family, offsetting positions count for less:
 //        family risk = ½ × |sum of signed risks| + ½ × √(sum of each risk squared)
@@ -91,7 +91,7 @@ export function forcedLiquidation(pos, nav, sigma, M) {
   return { forced: true, pos: p, closed, before, after };
 }
 
-/** Typical quarterly move after a new observed move r (% in rupee terms). */
+/** Typical per-round move after a new observed move r (% in rupee terms). */
 export function updateSigma(prev, r, floor) {
   const m = RULES.sigmaMemory;
   const s = Math.sqrt(m * prev * prev + (1 - m) * r * r);

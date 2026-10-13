@@ -6,6 +6,9 @@ import { INST } from '../../src/config/instruments.mjs';
 import { roundName } from '../../src/config/rules.mjs';
 import { releaseTable, quarterMoves, forecastQuestion, standingsTable } from '../explain.mjs';
 
+// No standings appear here during the game: results are sealed until the Event Head
+// presses "Reveal the results" after the final release.
+
 export default function display(app) {
   setToken(null);
   startPolling(() => 1500);
@@ -26,7 +29,7 @@ export default function display(app) {
     clockEl = h('div', { class: 'bigclock' }, '');
     mount(app, h('div', { class: 'bigscreen', 'data-phase': s.phase },
       h('div', { class: 'top' }, h('img', { src: 'img/crest.png', alt: '' }),
-        h('div', {}, h('div', { class: 'title' }, 'SPECULA'), h('div', { class: 'sub' }, s.q ? `Round 0${s.round} · ${roundName(s.q)} · Quarter ${s.q} of 24` : 'Copia et Inopia · Round 3')),
+        h('div', {}, h('div', { class: 'title' }, 'SPECULA'), h('div', { class: 'sub' }, s.q ? `Round 0${s.round} of 06 · ${roundName(s.q)}` : 'Copia et Inopia · Round 3')),
         s.phase === 'open' || s.phase === 'settling' ? clockEl : h('div', { class: 'bigclock', style: { fontSize: '40px', minWidth: '0' } }, phaseWord(s.phase))),
       h('div', { class: 'body' }, body(s, q)),
       Date.now() < takeoverUntil && takeoverStage && s.phase === 'open' ? takeover(takeoverStage) : null));
@@ -39,16 +42,16 @@ export default function display(app) {
       return h('div', { class: 'cols' },
         h('div', { class: 'dcard' }, h('h2', {}, 'Join your fund'),
           h('p', { class: 'join' }, 'On your phone or laptop open'), h('p', { class: 'codebox' }, `${location.host}/#/desk`),
-          h('p', { class: 'join' }, 'and enter your private fund code.'), h('p', { class: 'muted', style: { fontSize: '24px' } }, 'New? Read How to Play or try the two practice quarters while you wait.')),
+          h('p', { class: 'join' }, 'and enter your private fund code.'), h('p', { class: 'muted', style: { fontSize: '24px' } }, 'New? Read How to Play or try the two practice rounds while you wait.')),
         h('div', { class: 'dcard' }, h('h2', {}, `Funds · ${s.teams.length}`),
           h('table', { class: 'tbl' }, h('tbody', {}, s.teams.map((t) => h('tr', {}, h('td', {}, t.name), h('td', { class: 'r muted' }, t.members.length ? `${t.members.length} signed in` : '—')))))));
     }
     const res = live.docs.result && live.results[s.docs.result];
     if (s.phase === 'data') {
-      return [h('div', { class: 'dcard' }, h('h2', {}, `The data drops · Quarter ${s.q}`), releaseTable(q.release, { compact: false })),
+      return [h('div', { class: 'dcard' }, h('h2', {}, `The data drops · Round ${s.q}`), releaseTable(q.release, { compact: false })),
         h('div', { class: 'cols' },
           h('div', { class: 'dcard' }, h('h2', {}, 'Headlines'), h('ul', { class: 'ticker' }, (q.run?.headlines || []).map((t) => h('li', {}, t)))),
-          h('div', { class: 'dcard' }, h('h2', {}, 'This quarter’s forecast'), h('p', { class: 'ticker' }, forecastQuestion(q.run?.forecast)), q.run?.auction ? h('p', { class: 'ticker', style: { color: '#e2bf7b' } }, `Round decision: ${q.run.auction.title}`) : null, h('p', { class: 'muted', style: { fontSize: '24px' } }, 'The two-minute window opens soon. Read the rules on your desk.')))];
+          h('div', { class: 'dcard' }, h('h2', {}, 'This round’s forecast'), h('p', { class: 'ticker' }, forecastQuestion(q.run?.forecast)), q.run?.auction ? h('p', { class: 'ticker', style: { color: '#e2bf7b' } }, `Round decision: ${q.run.auction.title}`) : null, h('p', { class: 'muted', style: { fontSize: '24px' } }, `The ${Math.round((s.timer?.seconds || 600) / 60)}-minute window opens soon. Read the rules on your desk.`)))];
     }
     if (s.phase === 'open' || s.phase === 'settling') {
       const stages = q.run?.stages || [];
@@ -63,24 +66,35 @@ export default function display(app) {
     }
     if (s.phase === 'results' && res) {
       const moves = Object.values(quarterMoves(res)).filter((m) => !m.points && m.total !== 0).sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).slice(0, 7);
-      return [h('div', { class: 'dcard' }, h('h2', {}, `Central banks act · Quarter ${res.q}`),
+      return [h('div', { class: 'dcard' }, h('h2', {}, `Central banks act · Round ${res.q}`),
         h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '14px' } }, ECON_ORDER.map((e) => {
           const d = res.decisions[e];
           return h('div', { class: 'rate' }, h('div', { class: 'n' }, ECONOMIES[e].name), h('div', { class: 'v' }, `${fmtNum(d.iNew)}%`), h('div', { class: d.change > 0 ? 'up' : d.change < 0 ? 'down' : 'muted', style: { fontSize: '22px' } }, d.change ? fmtSigned(d.change) : 'unchanged'));
         }))),
       h('div', { class: 'cols' },
-        h('div', { class: 'dcard' }, h('h2', {}, 'Standings'), standingsTable(live.docs.standings?.rows || [], { big: true, limit: 10 })),
-        h('div', { class: 'dcard' }, h('h2', {}, 'Biggest moves'), h('table', { class: 'tbl' }, h('tbody', {}, moves.map((m) => h('tr', {}, h('td', {}, INST[m.id].name), h('td', { class: 'r' }, pct(m.total, { dp: 1 }))))))))];
+        h('div', { class: 'dcard' }, h('h2', {}, 'Biggest moves'), h('table', { class: 'tbl' }, h('tbody', {}, moves.map((m) => h('tr', {}, h('td', {}, INST[m.id].name), h('td', { class: 'r' }, pct(m.total, { dp: 1 }))))))),
+        h('div', { class: 'dcard' }, h('h2', {}, 'Results are sealed'),
+          h('p', { class: 'ticker' }, 'Every fund’s profit and loss, line by line, is on its own desk.'),
+          h('p', { class: 'ticker' }, 'No fund can see another’s. The standings are revealed only at the end.'),
+          (res.stages || []).length ? h('p', { class: 'muted', style: { fontSize: '24px' } }, `Crises this round: ${res.stages.length}`) : h('p', { class: 'muted', style: { fontSize: '24px' } }, 'No crisis broke this round.')))];
+    }
+    if (s.phase === 'final' && !(s.revealed && live.docs.final)) {
+      return h('div', { class: 'dcard center', style: { padding: '80px 40px' } },
+        h('p', { class: 'huge', style: { fontSize: '96px' } }, 'THE BELL HAS RUNG'),
+        h('p', { class: 'ticker' }, 'Six rounds are over. Every score has been calculated.'),
+        h('p', { class: 'ticker', style: { color: '#e2bf7b' } }, 'The Event Head will now reveal the results.'));
     }
     if (s.phase === 'final') {
-      const rows = live.docs.final?.standings?.rows || live.docs.standings?.rows || [];
-      const hist = live.docs.history || [];
+      const fin = live.docs.final;
+      const rows = fin.standings?.rows || [];
+      const paths = fin.navPaths || {};
+      const order = rows.slice().reverse(); // the reveal runs from last place to first
       return [h('div', { class: 'cols' },
         h('div', { class: 'dcard' }, h('h2', {}, 'Final standings · SPECULA Score'),
-          rows.slice(0, 3).map((r, i) => h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '20px', margin: '10px 0' } }, h('span', { class: 'huge', style: { fontSize: '72px', color: ['#d8b870', '#ead2ae', '#b08d57'][i] } }, `${i + 1}`), h('span', { style: { fontSize: '44px', fontWeight: 600 } }, r.name), h('span', { style: { fontSize: '40px', marginLeft: 'auto' } }, fmtNum(r.total, 1)))),
-          standingsTable(rows.slice(3), { big: true, limit: 12 })),
-        h('div', { class: 'dcard' }, h('h2', {}, 'Every fund, quarter by quarter (₹ Cr)'),
-          lineChart(rows.slice(0, 10).map((r) => ({ name: r.name, values: [1000, ...hist.map((x) => (x.nav[r.id] ?? null) / 1e9)] })), ['Start', ...hist.map((x) => `Q${x.q}`)], { height: 420, yFmt: (v) => fmtNum(v, 0) })))];
+          rows.slice(0, 3).map((r, i) => h('div', { class: 'reveal', style: { display: 'flex', alignItems: 'baseline', gap: '20px', margin: '10px 0', animationDelay: `${(order.length - 1 - i) * 0.9 + 1.2}s` } }, h('span', { class: 'huge', style: { fontSize: '72px', color: ['#d8b870', '#ead2ae', '#b08d57'][i] } }, `${i + 1}`), h('span', { style: { fontSize: '44px', fontWeight: 600 } }, r.name), h('span', { style: { fontSize: '40px', marginLeft: 'auto' } }, fmtNum(r.total, 1)))),
+          h('div', { class: 'reveal', style: { animationDelay: '0.3s' } }, standingsTable(rows.slice(3), { big: true, limit: 12 }))),
+        h('div', { class: 'dcard reveal', style: { animationDelay: `${rows.length * 0.9 + 1.5}s` } }, h('h2', {}, 'Every fund, round by round (₹ Cr)'),
+          lineChart(rows.slice(0, 10).map((r) => ({ name: r.name, values: (paths[r.id] || []).map((x) => x / 1e9) })), ['Start', ...rows.length ? (paths[rows[0].id] || []).slice(1).map((_, k) => `R${k + 1}`) : []], { height: 420, yFmt: (v) => fmtNum(v, 0) })))];
     }
     return h('div', { class: 'dcard' }, h('p', { class: 'ticker' }, 'Results are on their way…'));
   }

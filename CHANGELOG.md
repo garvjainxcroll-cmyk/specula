@@ -2,6 +2,31 @@
 
 The printed guide is a promise to players. Where the guide gives a number or a rule, the code follows it exactly (`tests/guide.test.mjs` pins every one). Where the guide is silent or needed interpreting, the decision is recorded here. **Items marked ⚑ are interpretations you may want to confirm before the event.**
 
+## 2.0.0 — six rounds, crisis control, sealed results (13 October 2026)
+
+**Requested by the Event Head. These three changes depart from the printed guide on purpose; the guide (`reference/SPECULA_Guide.pdf`) must be reprinted to match** — see “Guide pages that no longer match” below.
+
+### What changed
+- **Six rounds, one ten-minute window each — no quarters inside rounds.** The 24 old quarters were merged four into one: each round’s hidden news is the sum of its four quarters’ news, its headlines were rewritten, and its crises are all of that round’s crises. Each round is one step of the model and stands for three months of the economy (interest, carry and fees per round are a quarter of the yearly rate, as before). The window is 10:00 by default; the Event Head can choose 1–15 minutes and add +30 s or +2 min.
+- **Six forecasts** (one a round): up to 60 points, scaled to 25 in the SPECULA Score as before. Round forecasts: Aurelia’s policy rate, Aurelia’s inflation, Calder’s growth, Kesh’s inflation, Aurelia’s policy rate, Verana’s growth.
+- **Crisis control is the Event Head’s.** Every crisis is optional: any, all or none, in any order, whenever the Event Head likes. A round no longer refuses to settle while a crisis is unreleased. Two dependencies are kept so the story makes sense: the Concord Rescue follows the Run on the Dinar, and the Grand Bargain follows the Reckoning. Stage 2 still follows stage 1.
+- **Results are sealed.** No public document — and so no desk and no Big Screen — holds another fund’s value, profit, forecast marks, auction bid or standing. The desk’s Score tab became **My score**: the fund’s own return beyond cash, swing, deepest fall, risk-adjusted return, forecast points and forced liquidations, with the working. The Event Head’s console keeps live standings, every fund’s history and every auction bid, marked “only you can see this”. After Round 06: **Publish the final release** (scores stay sealed), then **Reveal the results**: the Big Screen reveals the standings from last place to first, and each desk shows its own score and place.
+- The public auction result now gives only what a central bank would publish: the cut-off price, the amount sold, how many times the sale was covered and how many funds bid.
+- Practice mode: still two short rounds, and its final screen shows only your own score and place.
+
+### Re-tuning and checks
+- No coefficient needed to change. Merging four quarters’ news into one round makes each data drop a bigger surprise (Aurelia’s inflation is 5.7% against 4.3% expected in Round 02), which rewards reading the data even more.
+- Kesh’s reserves still fall visibly before Round 04: 140 at the start, 129, 96, then 61 in Round 04’s release (79 if no crisis was released). With no crisis at all the peg holds all game.
+- Balance (docs/08_BALANCE.md), 20 games each, with all, some or none of the crises released: a skilled fund (reader, cautious reader or model economist) wins every game in every mode; the reckless gambler finishes last or second-last, and its worst fund fell to ₹47 Cr.
+- The hand check now recomputes Rounds 01, 04 and 06 (every crisis released) and matches to the paisa.
+
+### Guide pages that no longer match (reprint before the event)
+- **Page 01** — the stats (“4 quarters in every round”, “2 min trading window each quarter”, “24 forecasts, one a quarter”) and “A Quarter” steps (“a two-minute clock”, “fund values and standings appear on every screen”): now six rounds, one ten-minute window each, six forecasts, and each desk sees only its own results.
+- **Pages 03 and 04** — “every quarter” for futures, fees, premiums, carry, crowd impact and Risk Used: read “every round” (each round stands for three months).
+- **Page 05** — “every quarter the desk names one figure”; “twenty-four forecasts, up to 240 points”: now one a round, six forecasts, up to 60 points.
+- **Page 06** — the round cards (“four quarters · about 10 minutes”), “calculated after the last quarter of Round 06”, “from all 24 quarters”, “after every quarter your screen shows … your standing”, “positions stay open from quarter to quarter”: now one ten-minute window per round, scores after Round 06, revealed by the Event Head at the end, and no standings during the game.
+- Crises: the guide already says the Event Head may release a crisis at any moment; now every crisis is also optional.
+
 ## 1.0.0 — first complete build (12 October 2026)
 
 ### Interpretations of the guide

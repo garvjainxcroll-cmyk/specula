@@ -31,7 +31,7 @@ export function scaleTargets(world, targets, nav, riskCap = 85, levCap = 2.8) {
   return out;
 }
 
-/** Model-based expected rupee return of each instrument this quarter, if no more news arrives. */
+/** Model-based expected rupee return of each instrument this round, if no more news arrives. */
 export function expectedReturns(world) {
   const dec = decideAll(world.mkt, figsFromRelease(world.release), world.round.mods);
   const sm = settleMarket(world, world.release, dec, {}, world.round.mods);
@@ -55,7 +55,7 @@ export const BOTS = {
   /** Does nothing at all. */
   idle: { label: 'Does nothing', decide: () => null, forecast: () => null },
 
-  /** Big random leveraged bets every quarter; never reacts to a crisis; random forecasts. */
+  /** Big random leveraged bets every round; never reacts to a crisis; random forecasts. */
   gambler: {
     label: 'Reckless gambler',
     decide(ctx) {
@@ -107,7 +107,7 @@ export const BOTS = {
     forecast: (ctx) => currentValue(ctx),
   },
 
-  /** Chases last quarter's winners and shorts its losers. */
+  /** Chases last round's winners and shorts its losers. */
   momentum: {
     label: 'Momentum chaser',
     decide(ctx) {
@@ -138,7 +138,7 @@ export const BOTS = {
     forecast: (ctx) => readerForecast(ctx),
   },
 
-  /** A perfect economist: uses the full model to estimate this quarter's price moves. */
+  /** A perfect economist: uses the full model to estimate this round's price moves. */
   economist: {
     label: 'Model economist',
     decide(ctx) {
