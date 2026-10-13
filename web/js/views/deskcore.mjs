@@ -4,7 +4,7 @@
 import { h, mount, sheet, toast, money, pct, fmtCr, fmtNum, fmtSigned, fmtPrice, fmtRupees, fmtClock, calc, steps, postEl, sstore, sparkline } from '../ui.mjs';
 import { ECONOMIES, ECON_ORDER } from '../../src/config/economies.mjs';
 import { INSTRUMENTS, INST, FAMILIES } from '../../src/config/instruments.mjs';
-import { RULES, FORECAST_VARS } from '../../src/config/rules.mjs';
+import { RULES, FORECAST_VARS, roundName } from '../../src/config/rules.mjs';
 import { deskNow, checkOrder } from '../../src/engine/game.mjs';
 import { riskUsed, grossExposure } from '../../src/engine/risk.mjs';
 import { rupeePrice } from '../../src/engine/market.mjs';
@@ -95,7 +95,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     updateClock(v);
     return h('div', { class: 'desk-top' }, h('div', { class: 'inner' },
       h('div', { style: { minWidth: '0', flex: '1 1 160px' } },
-        h('div', { class: 'eyebrow' }, v.q ? (practice ? `Practice round ${v.q} of 2` : `Round 0${v.round} of 06 · ${v.qdoc?.run?.roundName || v.qdoc?.roundName || ''}`) : 'SPECULA'),
+        h('div', { class: 'eyebrow' }, v.q ? (practice ? `Practice round ${v.q} of 2` : `Round 0${v.round || v.q} of 06 · ${roundName(v.q)}`) : 'SPECULA'),
         h('div', { style: { fontWeight: 600, fontSize: '18px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, v.teamName || 'Your fund')),
       clockEl,
       n ? h('button', { class: 'kpi click', style: { padding: '4px 10px', minWidth: '120px' }, onclick: () => { tab = 'fund'; lastKey = ''; render(); } },

@@ -175,7 +175,8 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
     await expect(admin.locator('#btn-reveal')).toBeVisible();
     await admin.click('#btn-reveal');
     await expect(big.getByText('Final standings · SPECULA Score')).toBeVisible({ timeout: 30000 });
-    await big.waitForTimeout(12000); // let the reveal play: last place first, the winner last
+    // the reveal plays from last place to first; the winner appears last
+    await expect(big.locator('.reveal.in')).toHaveCount(await big.locator('.reveal').count(), { timeout: 30000 });
 
     // ---- the Big Screen equals an engine-only replay ----
     const exp = await (await fetch(`${baseURL}/api/admin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASS, action: 'export' }) })).json();

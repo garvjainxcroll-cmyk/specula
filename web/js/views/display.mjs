@@ -16,6 +16,7 @@ export default function display(app) {
   let lastKey = ''; let clockEl = null;
   const seen = new Set(sstore('specula-display-seen') || []);
   let takeoverUntil = 0; let takeoverStage = null;
+  let revealAt = 0; // when this screen first showed the revealed standings
 
   function render() {
     const s = live.state;
@@ -33,6 +34,7 @@ export default function display(app) {
         s.phase === 'open' || s.phase === 'settling' ? clockEl : h('div', { class: 'bigclock', style: { fontSize: '40px', minWidth: '0' } }, phaseWord(s.phase))),
       h('div', { class: 'body' }, body(s, q)),
       Date.now() < takeoverUntil && takeoverStage && s.phase === 'open' ? takeover(takeoverStage) : null));
+    playReveal();
     tick();
   }
   function phaseWord(p) { return { setup: 'SOON', lobby: 'JOIN', data: 'DATA', results: 'RESULTS', final: 'FINAL' }[p] || ''; }
@@ -91,12 +93,24 @@ export default function display(app) {
       const order = rows.slice().reverse(); // the reveal runs from last place to first
       return [h('div', { class: 'cols' },
         h('div', { class: 'dcard' }, h('h2', {}, 'Final standings · SPECULA Score'),
-          rows.slice(0, 3).map((r, i) => h('div', { class: 'reveal', style: { display: 'flex', alignItems: 'baseline', gap: '20px', margin: '10px 0', animationDelay: `${(order.length - 1 - i) * 0.9 + 1.2}s` } }, h('span', { class: 'huge', style: { fontSize: '72px', color: ['#d8b870', '#ead2ae', '#b08d57'][i] } }, `${i + 1}`), h('span', { style: { fontSize: '44px', fontWeight: 600 } }, r.name), h('span', { style: { fontSize: '40px', marginLeft: 'auto' } }, fmtNum(r.total, 1)))),
-          h('div', { class: 'reveal', style: { animationDelay: '0.3s' } }, standingsTable(rows.slice(3), { big: true, limit: 12 }))),
-        h('div', { class: 'dcard reveal', style: { animationDelay: `${rows.length * 0.9 + 1.5}s` } }, h('h2', {}, 'Every fund, round by round (₹ Cr)'),
+          rows.slice(0, 3).map((r, i) => h('div', { class: 'reveal', 'data-delay': String((order.length - 1 - i) * 0.9 + 1.2), style: { display: 'flex', alignItems: 'baseline', gap: '20px', margin: '10px 0' } }, h('span', { class: 'huge', style: { fontSize: '72px', color: ['#d8b870', '#ead2ae', '#b08d57'][i] } }, `${i + 1}`), h('span', { style: { fontSize: '44px', fontWeight: 600 } }, r.name), h('span', { style: { fontSize: '40px', marginLeft: 'auto' } }, fmtNum(r.total, 1)))),
+          h('div', { class: 'reveal', 'data-delay': '0.3' }, standingsTable(rows.slice(3), { big: true, limit: 12 }))),
+        h('div', { class: 'dcard reveal', 'data-delay': String(rows.length * 0.9 + 1.5) }, h('h2', {}, 'Every fund, round by round (₹ Cr)'),
           lineChart(rows.slice(0, 10).map((r) => ({ name: r.name, values: (paths[r.id] || []).map((x) => x / 1e9) })), ['Start', ...rows.length ? (paths[rows[0].id] || []).slice(1).map((_, k) => `R${k + 1}`) : []], { height: 420, yFmt: (v) => fmtNum(v, 0) })))];
     }
     return h('div', { class: 'dcard' }, h('p', { class: 'ticker' }, 'Results are on their way…'));
+  }
+
+  // The reveal runs on timers, not CSS animation delays, so it always finishes (and a
+  // re-render does not start it again).
+  function playReveal() {
+    const els = app.querySelectorAll('.reveal[data-delay]');
+    if (!els.length) return;
+    if (!revealAt) revealAt = Date.now();
+    for (const el of els) {
+      const wait = revealAt + Number(el.dataset.delay) * 1000 - Date.now();
+      if (wait <= 0) el.classList.add('in'); else setTimeout(() => el.classList.add('in'), wait);
+    }
   }
 
   function takeover(st) {
