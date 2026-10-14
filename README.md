@@ -14,4 +14,4 @@ Screens: Home `/`, How to Play `/#/learn`, Practice `/#/practice`, Team Desk `/#
 
 ---
 
-**Also in this repository:** [`broker/`](broker/README.md), a separate live paper-trading broker website (ten stocks, a host who moves prices, loans and updates). Its own Netlify upload is `broker/market-netlify.zip`; see [broker/DEPLOY.md](broker/DEPLOY.md).
+**Also in this repository:** [`broker/`](broker/README.md), a separate live paper-trading game for teams in SPECULA's style (the host creates the game and its teams with private codes; ten stocks, host price moves, loans, updates, Big Screen). Its own Netlify upload is `broker/market-netlify.zip`; see [broker/DEPLOY.md](broker/DEPLOY.md).

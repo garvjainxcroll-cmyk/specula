@@ -53,7 +53,7 @@ export function lineChart(box, { fmtY, fmtX, fmtTip = fmtX } = {}) {
     if (d.ref != null && d.refFit) { lo = Math.min(lo, d.ref); hi = Math.max(hi, d.ref); }
     if (hi - lo < hi * 0.002) { const mid = (hi + lo) / 2; lo = mid * 0.997; hi = mid * 1.003; }
     const padY = (hi - lo) * 0.1; lo -= padY; hi += padY;
-    const x0 = d.xs[0]; const x1 = d.xs[d.xs.length - 1] || x0 + 1;
+    const x0 = d.xs[0]; const x1 = Math.max(d.xs[d.xs.length - 1], x0 + 1); // market time can be exactly 0
     const X = (x) => padL + ((x - x0) / Math.max(1, x1 - x0)) * pw;
     const Y = (y) => padT + (1 - (y - lo) / (hi - lo)) * ph;
     geom = { X, Y, padL, pw };

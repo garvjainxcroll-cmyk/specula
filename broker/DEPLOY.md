@@ -2,7 +2,7 @@
 
 You do not need to be a programmer. Allow 15 minutes the first time.
 
-The website has two parts: the pages people see, and a small **server function** that keeps one shared market for everybody (prices, accounts, loans, updates). Both deploy together on Netlify, and the data is stored for you by **Netlify Blobs**, which switches itself on.
+The website has two parts: the pages people see, and a small **server function** that keeps one shared market for everybody (prices, teams, loans, updates). Both deploy together on Netlify, and the data is stored for you by **Netlify Blobs**, which switches itself on.
 
 ---
 
@@ -34,36 +34,41 @@ If you see a page saying **"The website is online, but its server did not start"
 1. Open `https://YOUR-SITE.netlify.app/api/health`. You should see `{"ok":true,"storage":"blobs",...}`.
 2. Open `https://YOUR-SITE.netlify.app/#/host`. The first time, it asks you to **choose the host password** (at least 6 characters). **Do this before you share the link**, because the first person to open this page chooses the password. Write it down.
    - Alternative: in Netlify → **Project configuration → Environment variables**, add `HOST_PASSWORD` with your password, then redeploy. That password then always works.
-3. Open `https://YOUR-SITE.netlify.app/` on a phone: you see the sign-in page.
+3. Open `https://YOUR-SITE.netlify.app/` on a phone: you see the Home page. **Team Desk** asks for a team code.
 
-## The two links
+## The links
 
 | Who | Link |
 |---|---|
-| Investors (everyone playing) | `https://YOUR-SITE.netlify.app/` |
+| Everyone (Home, How to Play) | `https://YOUR-SITE.netlify.app/` |
+| Teams | `https://YOUR-SITE.netlify.app/#/desk` (with their team code) |
+| The projector | `https://YOUR-SITE.netlify.app/#/display` (press F11 for full screen) |
 | You, the host | `https://YOUR-SITE.netlify.app/#/host` |
 
-Never share the host link's password.
+Never share the host password. Give each team only its own code.
 
 ---
 
-## A rehearsal (the day before, 10 minutes)
+## A rehearsal (the day before, 15 minutes)
 
-1. Host console → **Open market**.
-2. On two phones, create two accounts on the sign-in page. Each starts with ₹10,00,000.
-3. Buy a stock on one phone. On the console, press **−10%** on that stock: the phone's money drops at once.
-4. Console → **Loans**: send ₹10,000 from one phone's account to the other at 10% with a deadline of **1 minute**. Both phones get a notice now, and another when it is repaid.
-5. Console → **Updates**: post a test update. It appears on both phones, numbered.
-6. Console → **Settings** → **New game** (type `RESET`) to give everyone ₹10,00,000 again before the real event. Accounts are kept.
-7. After the rehearsal, look at **Usage** in Netlify. Every open screen asks the server for prices about once every 1.5 seconds, so a two-hour event with 50 players makes roughly 250,000 requests. Check this fits your Netlify plan.
+1. Console → **Game**: type a name (or leave it empty), set **Number of teams** to 3, press **Save teams and make codes**.
+2. On two phones, open Team Desk and join two different teams with their codes. On a laptop, open the Big Screen: it shows the teams signing in.
+3. Console → **Start the game** with a 5-minute session. The clock appears on the desks and the Big Screen.
+4. Buy a stock on one phone. Console → **Market**: press **−10%** on that stock: the phone's money drops at once.
+5. Console → **Loans**: send ₹10,000 from one team to the other at 10% with a deadline of **1 minute**. Both phones get a notice now, and another when it is repaid.
+6. Console → **Updates**: post a test update. It appears on both phones and the Big Screen, numbered.
+7. Console → **Game** → **End the game**, then **Reveal the results**: the Big Screen shows the standings.
+8. Console → **Tools** → **New game (keep the teams)** (type `RESET`). Every team is back to ₹10,00,000 with the same codes. Or **Delete everything** to start from scratch.
+9. Look at **Usage** in Netlify. Every open screen asks the server for prices about once every 1.5 seconds, so a two-hour event with 50 devices makes roughly 250,000 requests. Check this fits your Netlify plan.
 
 ## On the day
 
-- **Before people arrive:** Settings → **New game**, and keep the market **closed** (prices are paused, orders refused).
-- Share the investors' link. People sign up with their name, email, phone and school or team.
-- Press **Open market** to start. **Close market** pauses everything; open it again to continue.
+- **Before people arrive:** create the game and the teams, print the codes (Game → **Print**), and put the Big Screen on the projector. Teams can join while the game waits in the lobby; prices are paused and orders wait.
+- Hand each team its code privately. Members join at Team Desk with the code and their name.
+- Press **Start the game**. **Close the market** pauses everything; **Open the market** carries on (with a new session length if you like).
+- If a code leaks: Game → **New code** for that team. Members already signed in stay signed in.
 - If your laptop crashes: open `/#/host` on any device and sign in. Nothing is lost; everything is stored online.
-- At the end: **Dataset** → **Download CSV** keeps a copy of every investor and every loan.
+- At the end: **End the game**, then **Reveal the results**. Dataset → **Download CSV** keeps a copy of every team, everyone who signed in and every loan.
 
 ## Running it without Netlify (one Wi-Fi network)
 

@@ -1,12 +1,18 @@
-// The server: accounts, prices, trades, loans, updates and the host's controls.
-// It runs inside the Netlify function (netlify/functions/api.mjs) and, for tests and the
-// local server, against an in-memory store with the same interface.
+// The server: the game, teams and their codes, prices, trades, loans, updates and the
+// host's controls. It runs inside the Netlify function (netlify/functions/api.mjs) and,
+// for tests and the local server, against an in-memory store with the same interface.
+//
+// The game, as in SPECULA: the host creates the game (an optional name and the teams),
+// every team gets a private code, members join a team's desk with the code and their
+// name, and any member's trade is the team's trade. Phases: lobby → live → ended.
 //
 // Who may see what (tests/api.test.mjs checks every rule):
-//  - An investor sees prices, their own account, their own loans (with the other party's
-//    name) and the host's updates. Never another investor's money, holdings or details,
-//    never the host's price moves, levels or the price seed.
-//  - The host (password) sees everything: every account, every loan, every move.
+//  - A team member sees prices, their own team's account, their own team's loans (with
+//    the other team's name) and the host's updates. Never another team's money, holdings,
+//    members or code, never the host's price moves, levels or the price seed.
+//  - The Big Screen (public) sees prices, updates and the team names; standings only once
+//    the host reveals the results at the end.
+//  - The host (password) sees everything.
 //  - Prices are worked out here only, from the time and a secret seed, so nobody can
 //    read a future price from the website.
 
@@ -16,6 +22,8 @@ import { priceAt, pricesAt, levelsAt, levelAt, marketTime, isRunning, setRunning
 const KEY = 'state';
 const TOKEN_MS = 30 * 864e5;
 const MAX_TRADES = 5000;
+const MAX_TEAMS = 120;
+const CODE_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const enc = new TextEncoder();
 
 // ---------------- responses ----------------
@@ -24,9 +32,9 @@ function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 }
 const ok = (body = {}) => json({ ok: true, ...body });
-// A refusal (not enough cash, market closed, wrong password…) is an ordinary answer.
+// A refusal (not enough cash, market closed, wrong code…) is an ordinary answer.
 const refuse = (error, extra = {}) => json({ ok: false, refused: true, error, ...extra });
-const denied = (error = 'Please sign in again.') => json({ ok: false, auth: true, error }, 401);
+const denied = (error = 'Please join your team again.') => json({ ok: false, auth: true, error }, 401);
 class Refusal { constructor(msg) { this.msg = msg; } }
 const no = (msg) => { throw new Refusal(msg); };
 
@@ -74,18 +82,30 @@ function freshState(now, keep = {}) {
     secret: keep.secret || randomId(32),
     seed: randomId(16),
     host: keep.host || null, // { salt, hash, hv }
+    game: { name: keep.name || '', phase: 'lobby', revealed: false, startedAt: null, endedAt: null },
     clock: [[now, 0, 0]],
+    timer: { endsAt: null },
     moves: {}, // ticker -> [[marketTime, fromLevel, toLevel, durationMs, wallTime, label]]
-    users: keep.users || [],
+    teams: keep.teams || [],
     loans: [],
     updates: [],
-    n: { user: keep.users ? keep.n.user : 0, loan: 0, update: 0 },
+    n: { team: keep.n?.team || 0, member: keep.n?.member || 0, loan: 0, update: 0 },
     uv: 0,
   };
 }
-function freshAccount(u, now) {
-  u.cash = START_CASH; u.h = {}; u.rz = 0; u.tr = []; u.reset = now;
-  return u;
+function freshFund(t, now) {
+  t.cash = START_CASH; t.h = {}; t.rz = 0; t.tr = []; t.reset = now;
+  return t;
+}
+function newCode(s) {
+  for (;;) {
+    const c = randomId(6, CODE_ABC);
+    if (!s.teams.some((t) => t.code === c)) return c;
+  }
+}
+function newTeam(s, name, now) {
+  s.n.team += 1;
+  return freshFund({ id: `t${s.n.team}${randomId(4)}`, n: s.n.team, name, code: newCode(s), members: [], created: now }, now);
 }
 
 async function load(store, now) {
@@ -97,7 +117,8 @@ async function load(store, now) {
   return r;
 }
 
-const hasDue = (s, now) => s.loans.some((L) => L.status === 'ongoing' && L.due <= now);
+const timerDue = (s, now) => !!(s.timer.endsAt && s.timer.endsAt <= now && isRunning(s.clock));
+const hasDue = (s, now) => timerDue(s, now) || s.loans.some((L) => L.status === 'ongoing' && L.due <= now);
 
 /** Read, change and save the game, safely even when many people act at once. */
 async function mutate(store, now, fn) {
@@ -108,7 +129,7 @@ async function mutate(store, now, fn) {
     let out;
     try { out = await fn(s); } catch (e) {
       if (!(e instanceof Refusal)) throw e;
-      if (settled) { s.v = (cur.data.v || 0) + 1; s.wid = randomId(10); await store.set(KEY, s, { onlyIfMatch: cur.etag }); } // keep the settlement
+      if (settled) { s.v = (cur.data.v || 0) + 1; s.wid = randomId(10); await store.set(KEY, s, { onlyIfMatch: cur.etag }); } // keep what fell due
       throw e;
     }
     if (out === NOCHANGE && !settled) return { s: cur.data, out };
@@ -128,7 +149,7 @@ async function readState(store, now) {
   return cur.data;
 }
 
-const userById = (s, id) => s.users.find((u) => u.id === id) || null;
+const teamById = (s, id) => s.teams.find((t) => t.id === id) || null;
 const tIndex = (t) => TICKERS.indexOf(t);
 
 // ---------------- money ----------------
@@ -138,74 +159,80 @@ function accrued(L, w) {
   return L.amount + Math.round((L.final - L.amount) * f);
 }
 
-/** An account in figures. Liquidable = cash + what the shares would sell for now. */
-function summary(s, u, now, prices) {
+/** A team's money. Liquidable = cash + what its shares would sell for now. */
+function summary(s, t, now, prices) {
   let hv = 0; let inv = 0;
-  for (const [t, [q, c]] of Object.entries(u.h)) { hv += q * prices[t]; inv += c; }
+  for (const [k, [q, c]] of Object.entries(t.h)) { hv += q * prices[k]; inv += c; }
   let rec = 0; let pay = 0;
   for (const L of s.loans) {
     if (L.status !== 'ongoing') continue;
-    if (L.lender === u.id) rec += accrued(L, now);
-    if (L.borrower === u.id) pay += accrued(L, now);
+    if (L.lender === t.id) rec += accrued(L, now);
+    if (L.borrower === t.id) pay += accrued(L, now);
   }
-  const liq = u.cash + hv;
+  const liq = t.cash + hv;
   const nw = liq + rec - pay;
   const pnl = nw - START_CASH;
-  return { cash: u.cash, hv, inv, upl: hv - inv, rpl: u.rz, liq, rec, pay, nw, pnl, pct: Math.round((pnl / START_CASH) * 1e6) / 1e4 };
+  return { cash: t.cash, hv, inv, upl: hv - inv, rpl: t.rz, liq, rec, pay, nw, pnl, pct: Math.round((pnl / START_CASH) * 1e6) / 1e4 };
 }
 
-function buy(u, t, q, p, w, m) {
+function buy(t, k, q, p, w, m) {
   const cost = q * p;
-  if (cost > u.cash) {
-    const max = Math.max(0, Math.floor(u.cash / p));
-    no(u.cash <= 0 ? 'You have no cash to buy with.' : `Not enough cash: ${q} × ₹${(p / 100).toFixed(2)} costs ₹${(cost / 100).toFixed(2)}. You can buy up to ${max}.`);
+  if (cost > t.cash) {
+    const max = Math.max(0, Math.floor(t.cash / p));
+    no(t.cash <= 0 ? 'Your team has no cash to buy with.' : `Not enough cash: ${q} × ₹${(p / 100).toFixed(2)} costs ₹${(cost / 100).toFixed(2)}. You can buy up to ${max}.`);
   }
-  u.cash -= cost;
-  const h = (u.h[t] ||= [0, 0]);
+  t.cash -= cost;
+  const h = (t.h[k] ||= [0, 0]);
   h[0] += q; h[1] += cost;
-  u.tr.push([w, m, tIndex(t), q, p]);
-  if (u.tr.length > MAX_TRADES) u.tr.splice(0, u.tr.length - MAX_TRADES);
+  t.tr.push([w, m, tIndex(k), q, p]);
+  if (t.tr.length > MAX_TRADES) t.tr.splice(0, t.tr.length - MAX_TRADES);
 }
 
-function sell(u, t, q, p, w, m, forced = 0) {
-  const h = u.h[t];
-  if (!h || h[0] < q) no(h ? `You hold only ${h[0]} ${t}.` : `You do not hold any ${t}.`);
+function sell(t, k, q, p, w, m, forced = 0) {
+  const h = t.h[k];
+  if (!h || h[0] < q) no(h ? `Your team holds only ${h[0]} ${k}.` : `Your team does not hold any ${k}.`);
   const costOut = Math.round((h[1] * q) / h[0]);
   h[0] -= q; h[1] -= costOut;
-  if (h[0] === 0) delete u.h[t];
+  if (h[0] === 0) delete t.h[k];
   const proceeds = q * p;
-  u.cash += proceeds;
-  u.rz += proceeds - costOut;
-  u.tr.push(forced ? [w, m, tIndex(t), -q, p, 1] : [w, m, tIndex(t), -q, p]);
-  if (u.tr.length > MAX_TRADES) u.tr.splice(0, u.tr.length - MAX_TRADES);
+  t.cash += proceeds;
+  t.rz += proceeds - costOut;
+  t.tr.push(forced ? [w, m, tIndex(k), -q, p, 1] : [w, m, tIndex(k), -q, p]);
+  if (t.tr.length > MAX_TRADES) t.tr.splice(0, t.tr.length - MAX_TRADES);
 }
 
-// ---------------- loans ----------------
+// ---------------- what falls due: loan deadlines and the session clock ----------------
 
-/** Repay every loan whose deadline has passed, at its deadline. Returns true if any. */
+/** Settle, in time order, every loan deadline and session end that has passed. */
 function settleDue(s, now) {
-  const due = s.loans.filter((L) => L.status === 'ongoing' && L.due <= now).sort((a, b) => a.due - b.due);
-  for (const L of due) settleLoan(s, L, L.due);
-  return due.length > 0;
+  let changed = false;
+  for (;;) {
+    const L = s.loans.filter((x) => x.status === 'ongoing' && x.due <= now).sort((a, b) => a.due - b.due)[0];
+    const end = timerDue(s, now) ? s.timer.endsAt : null;
+    if (!L && end === null) return changed;
+    changed = true;
+    if (end !== null && (!L || end <= L.due)) { s.clock = setRunning(s.clock, end, false); s.timer.endsAt = null; continue; }
+    settleLoan(s, L, L.due);
+  }
 }
 
 // At the deadline the borrower repays the loan plus interest to the lender. If the
-// borrower's cash is short, their shares are sold (largest holding first, at the price at
+// borrower's cash is short, its shares are sold (largest holding first, at the price at
 // the deadline) until it is covered. If even that is not enough, the borrower's cash goes
 // below zero: the lender is always paid in full.
 function settleLoan(s, L, at) {
-  const b = userById(s, L.borrower);
-  const l = userById(s, L.lender);
+  const b = teamById(s, L.borrower);
+  const l = teamById(s, L.lender);
   const sold = [];
   if (b && b.cash < L.final) {
     const m = marketTime(s.clock, at);
-    const hs = Object.entries(b.h).map(([t, [q]]) => ({ t, q, p: priceAt(s, t, m) })).sort((x, y) => y.q * y.p - x.q * x.p);
+    const hs = Object.entries(b.h).map(([k, [q]]) => ({ k, q, p: priceAt(s, k, m) })).sort((x, y) => y.q * y.p - x.q * x.p);
     for (const x of hs) {
       const need = L.final - b.cash;
       if (need <= 0) break;
       const q = Math.min(x.q, Math.ceil(need / x.p));
-      sell(b, x.t, q, x.p, at, m, 1);
-      sold.push([x.t, q, x.p]);
+      sell(b, x.k, q, x.p, at, m, 1);
+      sold.push([x.k, q, x.p]);
     }
   }
   if (b) b.cash -= L.final;
@@ -216,11 +243,8 @@ function settleLoan(s, L, at) {
   L.short = b && b.cash < 0 ? -b.cash : 0;
 }
 
-function loanForHost(L, now) {
-  return { ...L, now: L.status === 'ongoing' ? accrued(L, now) : null };
-}
-function loanForUser(L, uid) {
-  const role = L.lender === uid ? 'lender' : 'borrower';
+function loanForTeam(L, tid) {
+  const role = L.lender === tid ? 'lender' : 'borrower';
   return {
     id: L.id, n: L.n, role, other: role === 'lender' ? L.borrowerName : L.lenderName,
     amount: L.amount, rate: L.rate, final: L.final, start: L.start, due: L.due, mins: L.mins,
@@ -235,24 +259,33 @@ function market(s, now) {
   const m = marketTime(s.clock, now);
   return { g: s.created, open: isRunning(s.clock), m, p: pricesAt(s, m), o: pricesAt(s, 0) };
 }
+const gameDoc = (s) => ({ name: s.game.name, phase: s.game.phase, revealed: !!s.game.revealed, endsAt: s.timer.endsAt, startedAt: s.game.startedAt, endedAt: s.game.endedAt, teams: s.teams.length });
 const updatesDoc = (s) => s.updates.slice().sort((a, b) => a.n - b.n).map((x) => ({ id: x.id, n: x.n, text: x.text, at: x.at, ed: x.ed || null }));
 const tradeDoc = (r) => ({ w: r[0], t: TICKERS[r[2]], q: r[3], p: r[4], f: r[5] ? 1 : 0 });
-const holdingsDoc = (u) => Object.entries(u.h).map(([t, [q, c]]) => ({ t, q, cost: c }));
+const holdingsDoc = (t) => Object.entries(t.h).map(([k, [q, c]]) => ({ t: k, q, cost: c }));
 
-function meDoc(s, u, now, prices) {
+/** Every team ranked by net worth (= total P&L), best first; equal net worth, equal place. */
+function standings(s, now, prices) {
+  const list = s.teams.map((t) => ({ id: t.id, name: t.name, ...summary(s, t, now, prices) }))
+    .sort((a, b) => b.nw - a.nw || a.name.localeCompare(b.name));
+  // teams with exactly the same net worth share a place
+  return list.map((x) => ({ rank: 1 + list.filter((y) => y.nw > x.nw).length, id: x.id, name: x.name, nw: x.nw, liq: x.liq, pnl: x.pnl, pct: x.pct }));
+}
+
+function teamDoc(s, t, member, now, prices) {
   return {
-    id: u.id, name: u.name, email: u.email, phone: u.phone, org: u.org, joined: u.joined,
-    cash: u.cash, h: holdingsDoc(u), sum: summary(s, u, now, prices),
-    tr: u.tr.slice(-150).map(tradeDoc).reverse(), ntr: u.tr.length,
-    loans: s.loans.filter((L) => L.lender === u.id || L.borrower === u.id).map((L) => loanForUser(L, u.id)),
+    id: t.id, name: t.name, member: member ? { id: member.id, name: member.name } : null, members: t.members.map((x) => x.name),
+    cash: t.cash, h: holdingsDoc(t), sum: summary(s, t, now, prices),
+    tr: t.tr.slice(-150).map(tradeDoc).reverse(), ntr: t.tr.length,
+    loans: s.loans.filter((L) => L.lender === t.id || L.borrower === t.id).map((L) => loanForTeam(L, t.id)),
   };
 }
 
-function hostUserRow(s, u, now, prices) {
-  const last = u.tr.length ? u.tr[u.tr.length - 1][0] : null;
+function hostTeamRow(s, t, now, prices) {
+  const last = t.tr.length ? t.tr[t.tr.length - 1][0] : null;
   return {
-    id: u.id, no: u.no, name: u.name, email: u.email, phone: u.phone, org: u.org, joined: u.joined, last: u.last || null,
-    lastTrade: last, ntr: u.tr.length, h: holdingsDoc(u), sum: summary(s, u, now, prices),
+    id: t.id, n: t.n, name: t.name, code: t.code, members: t.members, created: t.created,
+    lastTrade: last, ntr: t.tr.length, h: holdingsDoc(t), sum: summary(s, t, now, prices),
   };
 }
 
@@ -277,16 +310,16 @@ function priceHistory(s, tickers, range, now) {
   return { g: s.created, m, xs, ws, p };
 }
 
-/** An account's net worth over time, rebuilt from its trades, loans and the prices. */
-function accountHistory(s, u, now, range) {
+/** A team's net worth over time, rebuilt from its trades, loans and the prices. */
+function teamHistory(s, t, now, range) {
   const spans = { '30m': 1800e3, '1h': 3600e3, '1d': 86400e3 };
-  const start0 = Math.max(u.reset || u.joined, s.created);
-  const from = Math.max(start0, now - (spans[range] || spans['1d']));
+  const start0 = Math.max(t.reset || t.created, s.created);
+  const from = Math.min(now, Math.max(start0, now - (spans[range] || spans['1d'])));
   const ev = [];
-  for (const r of u.tr) ev.push([r[0], 0, -r[3] * r[4], r[2], r[3]]);
-  const mine = s.loans.filter((L) => L.lender === u.id || L.borrower === u.id);
+  for (const r of t.tr) ev.push([r[0], 0, -r[3] * r[4], r[2], r[3]]);
+  const mine = s.loans.filter((L) => L.lender === t.id || L.borrower === t.id);
   for (const L of mine) {
-    const sign = L.lender === u.id ? -1 : 1;
+    const sign = L.lender === t.id ? -1 : 1;
     ev.push([L.start, 1, sign * L.amount]);
     if (L.status === 'elapsed') ev.push([L.settledAt, 2, -sign * L.final]);
     if (L.status === 'cancelled') ev.push([L.cancelledAt, 2, -sign * L.amount]);
@@ -310,7 +343,7 @@ function accountHistory(s, u, now, range) {
     let rec = 0; let pay = 0;
     for (const L of mine) {
       const end = L.settledAt || L.cancelledAt || Infinity;
-      if (L.start <= w && w < end) { if (L.lender === u.id) rec += accrued(L, w); else pay += accrued(L, w); }
+      if (L.start <= w && w < end) { if (L.lender === t.id) rec += accrued(L, w); else pay += accrued(L, w); }
     }
     lq.push(cash + hv);
     nw.push(cash + hv + rec - pay);
@@ -322,11 +355,20 @@ function accountHistory(s, u, now, range) {
 
 const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const cleanText = (v, max) => String(v ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
-const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const normCode = (c) => String(c ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
 function rupeesToPaise(v) {
   const n = Number(String(v ?? '').replace(/[₹,\s]/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
+function checkNames(raw) {
+  const names = (Array.isArray(raw) ? raw : []).map((x) => clean(x, 40)).filter(Boolean);
+  if (!names.length) no('Type at least one team name.');
+  if (names.length > MAX_TEAMS) no(`At most ${MAX_TEAMS} teams.`);
+  const seen = new Set();
+  for (const n of names) { const k = n.toLowerCase(); if (seen.has(k)) no(`Two teams are called “${n}”. Each team needs its own name.`); seen.add(k); }
+  return names;
+}
+const hasHistory = (s, t) => t.tr.length > 0 || s.loans.some((L) => L.lender === t.id || L.borrower === t.id);
 
 // ---------------- the handler ----------------
 
@@ -340,6 +382,7 @@ export async function handle(request, store, env = {}) {
     const text = await request.text();
     if (text.length > 20000) return refuse('That is too long.');
     try { body = text ? JSON.parse(text) : {}; } catch { return refuse('That request could not be read.'); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) body = {};
   }
   const token = request.headers.get('x-token') || '';
   try {
@@ -353,15 +396,15 @@ export async function handle(request, store, env = {}) {
 }
 
 async function route(c) {
-  const { path, method, body, url, token, store, env, now } = c;
+  const { path, method, body, url, token, store, now } = c;
   const POST = method === 'POST';
 
   if (path === 'health') return ok({ storage: store.kind, now });
 
-  // ---- public: prices ----
+  // ---- public: prices, the Big Screen ----
   if (path === 'market' && !POST) {
     const s = await readState(store, now);
-    return ok({ now, mk: market(s, now) });
+    return ok({ now, game: gameDoc(s), mk: market(s, now) });
   }
   if (path === 'history' && !POST) {
     const s = await readState(store, now);
@@ -370,70 +413,86 @@ async function route(c) {
     if (!tickers.length) return refuse('Unknown stock.');
     return ok({ now, ...priceHistory(s, tickers, url.searchParams.get('r') || '30m', now) });
   }
-
-  // ---- investors: sign up and sign in ----
-  if (path === 'signup' && POST) {
-    const name = clean(body.name, 60); const email = clean(body.email, 120).toLowerCase();
-    const phone = clean(body.phone, 20); const org = clean(body.org, 80); const pass = String(body.password ?? '');
-    if (name.length < 2) no('Please type your full name.');
-    if (!isEmail(email)) no('Please type a valid email address.');
-    if (!/^[+\d][\d\s-]{6,19}$/.test(phone)) no('Please type a valid phone number.');
-    if (pass.length < 6 || pass.length > 100) no('Choose a password of at least 6 characters.');
-    const salt = randomId(16);
-    const hash = await pbkdf2(pass, salt);
-    const { s, out: u } = await mutate(store, now, (s) => {
-      if (s.users.some((x) => x.email === email)) no('An account with that email already exists. Please sign in.');
-      s.n.user += 1;
-      const u = freshAccount({ id: `u${s.n.user}${randomId(4)}`, no: s.n.user, name, email, phone, org, salt, hash, joined: now, last: now }, now);
-      s.users.push(u);
-      return u;
+  if (path === 'board' && !POST) {
+    const s = await readState(store, now);
+    const mk = market(s, now);
+    const uv = Number(url.searchParams.get('uv'));
+    return ok({
+      now, game: gameDoc(s), mk,
+      teams: s.teams.map((t) => ({ name: t.name, members: t.members.length })),
+      uv: s.uv, ...(uv !== s.uv ? { updates: updatesDoc(s).slice(-6) } : {}),
+      standings: s.game.phase === 'ended' && s.game.revealed ? standings(s, now, mk.p).map(({ rank, name, nw, pnl, pct }) => ({ rank, name, nw, pnl, pct })) : null,
     });
-    const m = marketTime(s.clock, now);
-    return ok({ token: await makeToken(s, `u:${u.id}`, now), me: meDoc(s, userById(s, u.id), now, pricesAt(s, m)) });
   }
-  if (path === 'login' && POST) {
-    const email = clean(body.email, 120).toLowerCase(); const pass = String(body.password ?? '');
-    const s0 = await readState(store, now);
-    const u0 = s0.users.find((x) => x.email === email);
-    if (!u0 || !safeEqual(await pbkdf2(pass, u0.salt), u0.hash)) no('That email and password do not match an account.');
-    const { s } = await mutate(store, now, (s) => { const u = userById(s, u0.id); if (!u) no('That account no longer exists.'); u.last = now; });
-    return ok({ token: await makeToken(s, `u:${u0.id}`, now) });
+
+  // ---- teams: join with the code ----
+  if (path === 'join' && POST) {
+    const code = normCode(body.code);
+    const name = clean(body.name, 40);
+    const phone = clean(body.phone, 20);
+    if (code.length < 4) no('Type your team code (6 letters and numbers).');
+    if (name.length < 2) no('Type your name.');
+    if (phone && !/^[+\d][\d\s-]{6,19}$/.test(phone)) no('That phone number does not look right. Leave it empty if you prefer.');
+    const { s, out } = await mutate(store, now, (s) => {
+      const t = s.teams.find((x) => x.code === code);
+      if (!t) no('That code does not match any team. Check it with the host.');
+      let m = t.members.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (m) { m.last = now; if (phone) m.phone = phone; } else {
+        if (t.members.length >= 50) no('This team already has 50 members signed in.');
+        s.n.member += 1;
+        m = { id: `m${s.n.member}${randomId(3)}`, name, phone, joined: now, last: now };
+        t.members.push(m);
+      }
+      return { tid: t.id, mid: m.id, team: t.name };
+    });
+    return ok({ token: await makeToken(s, `m:${out.tid}:${out.mid}`, now), team: out.team, game: gameDoc(s) });
   }
 
   // ---- the host ----
   if (path.startsWith('host/') || path === 'host') return hostRoute(c);
 
-  // ---- investors: signed in ----
+  // ---- team members: signed in ----
   const s = await readState(store, now);
   const sub = await readToken(s, token, now);
-  const me = sub && sub.startsWith('u:') ? userById(s, sub.slice(2)) : null;
-  if (!me) return denied();
+  const [kind, tid, mid] = (sub || '').split(':');
+  const team = kind === 'm' ? teamById(s, tid) : null;
+  const member = team ? team.members.find((x) => x.id === mid) : null;
+  if (!team || !member) return denied();
 
   if (path === 'poll' && !POST) {
     const mk = market(s, now);
     const uv = Number(url.searchParams.get('uv'));
-    return ok({ now, mk, me: meDoc(s, me, now, mk.p), uv: s.uv, ...(uv !== s.uv ? { updates: updatesDoc(s) } : {}) });
+    let place = null;
+    if (s.game.phase === 'ended' && s.game.revealed) {
+      const st = standings(s, now, mk.p);
+      const mine = st.find((x) => x.id === team.id);
+      place = { rank: mine.rank, of: st.length };
+    }
+    return ok({ now, game: gameDoc(s), mk, me: teamDoc(s, team, member, now, mk.p), place, uv: s.uv, ...(uv !== s.uv ? { updates: updatesDoc(s) } : {}) });
   }
   if (path === 'me/history' && !POST) {
-    return ok({ now, ...accountHistory(s, me, now, url.searchParams.get('r') || '1d') });
+    return ok({ now, ...teamHistory(s, team, now, url.searchParams.get('r') || '1d') });
   }
   if (path === 'trade' && POST) {
-    const t = String(body.t || ''); const side = body.side === 'sell' ? 'sell' : body.side === 'buy' ? 'buy' : null;
+    const k = String(body.t || ''); const side = body.side === 'sell' ? 'sell' : body.side === 'buy' ? 'buy' : null;
     const q = Number(body.q);
-    if (!BY_T[t]) no('Unknown stock.');
+    if (!BY_T[k]) no('Unknown stock.');
     if (!side) no('Choose Buy or Sell.');
     if (!Number.isInteger(q) || q < 1 || q > 10000000) no('Quantity must be a whole number of shares, at least 1.');
     const { s: s2, out } = await mutate(store, now, (s) => {
+      if (s.game.phase === 'lobby') no('The game has not started yet. Orders open when the host starts it.');
+      if (s.game.phase === 'ended') no('The game is over. No more orders.');
       if (!isRunning(s.clock)) no('The market is closed. Orders open when the host opens the market.');
-      const u = userById(s, me.id);
-      if (!u) no('That account no longer exists.');
+      const t = teamById(s, team.id);
+      if (!t) no('Your team no longer exists.');
       const m = marketTime(s.clock, now);
-      const p = priceAt(s, t, m);
-      if (side === 'buy') buy(u, t, q, p, now, m); else sell(u, t, q, p, now, m);
-      return { t, side, q, p, value: q * p, at: now };
+      const p = priceAt(s, k, m);
+      if (side === 'buy') buy(t, k, q, p, now, m); else sell(t, k, q, p, now, m);
+      return { t: k, side, q, p, value: q * p, at: now, by: member.name };
     });
     const mk = market(s2, now);
-    return ok({ fill: out, now, mk, me: meDoc(s2, userById(s2, me.id), now, mk.p) });
+    const t2 = teamById(s2, team.id);
+    return ok({ fill: out, now, game: gameDoc(s2), mk, me: teamDoc(s2, t2, t2.members.find((x) => x.id === member.id), now, mk.p) });
   }
   return json({ ok: false, error: 'Not found' }, 404);
 }
@@ -474,37 +533,150 @@ async function hostRoute(c) {
   // ---- reading ----
   if (path === 'host/poll' && !POST) {
     const mk = market(s, now);
-    const m = mk.m;
     return ok({
-      now, mk: { ...mk, lv: levelsAt(s, m), base: Object.fromEntries(STOCKS.map((x) => [x.t, x.base])) },
+      now, game: gameDoc(s), mk: { ...mk, lv: levelsAt(s, mk.m), base: Object.fromEntries(STOCKS.map((x) => [x.t, x.base])) },
       moves: moveLog(s),
-      users: s.users.map((u) => hostUserRow(s, u, now, mk.p)),
-      loans: s.loans.map((L) => loanForHost(L, now)),
+      teams: s.teams.map((t) => hostTeamRow(s, t, now, mk.p)),
+      standings: standings(s, now, mk.p),
+      loans: s.loans.map((L) => ({ ...L, now: L.status === 'ongoing' ? accrued(L, now) : null })),
       updates: updatesDoc(s), uv: s.uv,
       env: !!envPass, storage: store.kind,
     });
   }
-  if (path === 'host/user' && !POST) {
-    const u = userById(s, url.searchParams.get('id'));
-    if (!u) no('That investor was not found.');
+  if (path === 'host/team' && !POST) {
+    const t = teamById(s, url.searchParams.get('id'));
+    if (!t) no('That team was not found.');
     const mk = market(s, now);
     return ok({
-      now, user: { ...hostUserRow(s, u, now, mk.p), tr: u.tr.map(tradeDoc).reverse() },
-      loans: s.loans.filter((L) => L.lender === u.id || L.borrower === u.id).map((L) => loanForHost(L, now)),
-      hist: accountHistory(s, u, now, url.searchParams.get('r') || '1d'),
+      now, team: { ...hostTeamRow(s, t, now, mk.p), tr: t.tr.map(tradeDoc).reverse() },
+      loans: s.loans.filter((L) => L.lender === t.id || L.borrower === t.id).map((L) => ({ ...L, now: L.status === 'ongoing' ? accrued(L, now) : null })),
+      hist: teamHistory(s, t, now, url.searchParams.get('r') || '1d'),
     });
   }
 
   if (!POST) return json({ ok: false, error: 'Not found' }, 404);
 
-  // ---- the market ----
-  if (path === 'host/market') {
+  // ---- creating the game: its name and the teams ----
+  if (path === 'host/game') {
+    const name = clean(body.name, 60);
+    await mutate(store, now, (s) => { s.game.name = name; });
+    return ok({ name });
+  }
+  if (path === 'host/teams') {
+    // One name per line, in order: line i renames team i (its code stays the same), extra
+    // lines add teams, and fewer lines remove the last teams (only if they have not traded).
+    const names = checkNames(body.names);
     const { s: s2 } = await mutate(store, now, (s) => {
-      const next = setRunning(s.clock, now, !!body.open);
-      if (next === s.clock) return NOCHANGE;
-      s.clock = next;
+      if (s.game.phase === 'ended') no('The game is over. Start a new game (Tools) to change the teams.');
+      const drop = s.teams.slice(names.length);
+      for (const t of drop) if (hasHistory(s, t)) no(`“${t.name}” has already traded or has a loan, so it cannot be removed. Keep at least ${s.teams.indexOf(t) + 1} lines.`);
+      s.teams = s.teams.slice(0, names.length);
+      names.forEach((n, i) => { if (s.teams[i]) s.teams[i].name = n; else s.teams.push(newTeam(s, n, now)); });
     });
-    return ok({ open: isRunning(s2.clock) });
+    return ok({ teams: s2.teams.map((t) => ({ id: t.id, name: t.name, code: t.code })) });
+  }
+  if (path === 'host/team/add') {
+    const name = clean(body.name, 40);
+    if (!name) no('Type the new team’s name.');
+    const { out } = await mutate(store, now, (s) => {
+      if (s.game.phase === 'ended') no('The game is over.');
+      if (s.teams.length >= MAX_TEAMS) no(`At most ${MAX_TEAMS} teams.`);
+      if (s.teams.some((t) => t.name.toLowerCase() === name.toLowerCase())) no('A team already has that name.');
+      const t = newTeam(s, name, now);
+      s.teams.push(t);
+      return { id: t.id, name: t.name, code: t.code };
+    });
+    return ok({ team: out });
+  }
+  if (path === 'host/team/rename') {
+    const name = clean(body.name, 40);
+    if (!name) no('Type the team’s name.');
+    await mutate(store, now, (s) => {
+      const t = teamById(s, body.id);
+      if (!t) no('That team was not found.');
+      if (s.teams.some((x) => x !== t && x.name.toLowerCase() === name.toLowerCase())) no('Another team already has that name.');
+      t.name = name;
+      for (const L of s.loans) { if (L.lender === t.id) L.lenderName = name; if (L.borrower === t.id) L.borrowerName = name; }
+    });
+    return ok();
+  }
+  if (path === 'host/team/code') {
+    const { out } = await mutate(store, now, (s) => {
+      const t = teamById(s, body.id);
+      if (!t) no('That team was not found.');
+      t.code = newCode(s);
+      return t.code;
+    });
+    return ok({ code: out });
+  }
+  if (path === 'host/team/remove') {
+    await mutate(store, now, (s) => {
+      const t = teamById(s, body.id);
+      if (!t) no('That team was not found.');
+      if (hasHistory(s, t)) no(`“${t.name}” has already traded or has a loan, so it cannot be removed.`);
+      s.teams = s.teams.filter((x) => x.id !== t.id);
+    });
+    return ok();
+  }
+
+  // ---- running the game ----
+  const secsOf = (v) => { const x = Math.round(Number(v) || 0); if (x < 0 || x > 6 * 3600) no('Choose a session of at most 6 hours.'); return x; };
+  if (path === 'host/start') {
+    const secs = secsOf(body.secs);
+    const { s: s2 } = await mutate(store, now, (s) => {
+      if (s.game.phase !== 'lobby') no('The game has already started.');
+      if (!s.teams.length) no('Create the teams first.');
+      s.game.phase = 'live'; s.game.startedAt = now; s.game.revealed = false;
+      s.clock = setRunning(s.clock, now, true);
+      s.timer.endsAt = secs ? now + secs * 1000 : null;
+    });
+    return ok({ game: gameDoc(s2) });
+  }
+  if (path === 'host/market') {
+    const open = !!body.open;
+    const secs = open ? secsOf(body.secs) : 0;
+    const { s: s2 } = await mutate(store, now, (s) => {
+      if (s.game.phase !== 'live') no(s.game.phase === 'lobby' ? 'Start the game first.' : 'The game is over.');
+      s.clock = setRunning(s.clock, now, open);
+      s.timer.endsAt = open && secs ? now + secs * 1000 : null;
+    });
+    return ok({ open: isRunning(s2.clock), game: gameDoc(s2) });
+  }
+  if (path === 'host/timer') {
+    const add = Math.round(Number(body.add) || 0);
+    if (!add || Math.abs(add) > 3 * 3600) no('Choose how much time to add.');
+    const { s: s2 } = await mutate(store, now, (s) => {
+      if (!isRunning(s.clock)) no('The market is closed. Open it with a session length instead.');
+      const base = s.timer.endsAt || now;
+      s.timer.endsAt = Math.max(now + 5000, base + add * 1000);
+    });
+    return ok({ game: gameDoc(s2) });
+  }
+  if (path === 'host/end') {
+    const { s: s2 } = await mutate(store, now, (s) => {
+      if (s.game.phase !== 'live') no('The game is not running.');
+      s.clock = setRunning(s.clock, now, false);
+      s.timer.endsAt = null;
+      // every loan still running is repaid now, with its full interest
+      for (const L of s.loans.filter((x) => x.status === 'ongoing').sort((a, b) => a.due - b.due)) settleLoan(s, L, now);
+      s.game.phase = 'ended'; s.game.endedAt = now; s.game.revealed = false;
+    });
+    return ok({ game: gameDoc(s2) });
+  }
+  if (path === 'host/reveal') {
+    const show = body.show !== false;
+    const { s: s2 } = await mutate(store, now, (s) => {
+      if (s.game.phase !== 'ended') no('End the game first. Results are revealed only at the end.');
+      s.game.revealed = show;
+    });
+    return ok({ game: gameDoc(s2) });
+  }
+  if (path === 'host/resume') {
+    const { s: s2 } = await mutate(store, now, (s) => {
+      if (s.game.phase !== 'ended') no('The game is not over.');
+      s.game.phase = 'live'; s.game.revealed = false; s.game.endedAt = null;
+    });
+    return ok({ game: gameDoc(s2) });
   }
   if (path === 'host/move') {
     const t = String(body.t || '');
@@ -531,7 +703,7 @@ async function hostRoute(c) {
     return ok({ move: out });
   }
 
-  // ---- loans ----
+  // ---- loans between teams ----
   if (path === 'host/loan') {
     const amount = rupeesToPaise(body.amount);
     const rate = Number(body.rate);
@@ -540,9 +712,10 @@ async function hostRoute(c) {
     if (!Number.isFinite(rate) || rate < 0 || rate > 1000) no('Type an interest rate between 0% and 1000%.');
     if (!Number.isFinite(mins) || mins < 0.1 || mins > 30 * 24 * 60) no('Choose a deadline between 6 seconds (0.1 min) and 30 days.');
     const { out } = await mutate(store, now, (s) => {
-      const l = userById(s, body.lender); const b = userById(s, body.borrower);
-      if (!l || !b) no('Choose both the lender and the borrower.');
-      if (l.id === b.id) no('The lender and the borrower must be different people.');
+      if (s.game.phase === 'ended') no('The game is over.');
+      const l = teamById(s, body.lender); const b = teamById(s, body.borrower);
+      if (!l || !b) no('Choose both the lending team and the borrowing team.');
+      if (l.id === b.id) no('The lender and the borrower must be different teams.');
       if (l.cash < amount) no(`${l.name} has only ₹${(l.cash / 100).toFixed(2)} in cash, less than the loan.`);
       s.n.loan += 1;
       const L = {
@@ -561,7 +734,7 @@ async function hostRoute(c) {
       const L = s.loans.find((x) => x.id === body.id);
       if (!L) no('That loan was not found.');
       if (L.status !== 'ongoing') no('Only an ongoing loan can be cancelled.');
-      const l = userById(s, L.lender); const b = userById(s, L.borrower);
+      const l = teamById(s, L.lender); const b = teamById(s, L.borrower);
       if (b) b.cash -= L.amount;
       if (l) l.cash += L.amount;
       L.status = 'cancelled'; L.cancelledAt = now;
@@ -600,16 +773,7 @@ async function hostRoute(c) {
     return ok();
   }
 
-  // ---- accounts and the game ----
-  if (path === 'host/user/delete') {
-    await mutate(store, now, (s) => {
-      const u = userById(s, body.id);
-      if (!u) no('That investor was not found.');
-      if (s.loans.some((L) => L.status === 'ongoing' && (L.lender === u.id || L.borrower === u.id))) no('This investor has an ongoing loan. Cancel it or wait for it to end first.');
-      s.users = s.users.filter((x) => x.id !== u.id);
-    });
-    return ok();
-  }
+  // ---- tools ----
   if (path === 'host/password') {
     if (envPass) no('The host password is set on the server (HOST_PASSWORD); change it there.');
     const pass = String(body.password ?? '');
@@ -621,10 +785,10 @@ async function hostRoute(c) {
   }
   if (path === 'host/reset') {
     if (body.confirm !== 'RESET') no('Type RESET to confirm.');
-    const everything = body.mode === 'everything';
+    const keepTeams = body.mode !== 'everything';
     const { s: s2 } = await mutate(store, now, (s) => {
-      const users = everything ? [] : s.users.map((u) => freshAccount(u, now));
-      const next = freshState(now, { host: s.host, secret: everything ? null : s.secret, users: everything ? null : users, n: s.n });
+      const teams = keepTeams ? s.teams.map((t) => freshFund(t, now)) : null;
+      const next = freshState(now, { host: s.host, secret: keepTeams ? s.secret : null, teams, n: keepTeams ? s.n : null, name: keepTeams ? s.game.name : '' });
       Object.keys(s).forEach((k) => delete s[k]);
       Object.assign(s, next);
     });
