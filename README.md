@@ -11,3 +11,7 @@ Six rounds, one ten-minute trading window each. Every crisis is the Event Headâ€
 Screens: Home `/`, How to Play `/#/learn`, Practice `/#/practice`, Team Desk `/#/desk`, Big Screen `/#/display`, Event Head `/#/admin`.
 
 > Keep this repository **private**: it contains the secret script.
+
+---
+
+**Also in this repository:** [`broker/`](broker/README.md), a separate live paper-trading broker website (ten stocks, a host who moves prices, loans and updates). Its own Netlify upload is `broker/market-netlify.zip`; see [broker/DEPLOY.md](broker/DEPLOY.md).

@@ -1,0 +1,16 @@
+# Netlify settings. The website is built into dist/ (scripts/build.mjs);
+# the one function (netlify/functions/api.mjs) answers every /api/* request.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    Cache-Control = "public, max-age=0, must-revalidate"

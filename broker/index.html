@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Markets: server not running</title>
+<style>
+  :root { --surface: #070302; --raised: #121619; --ink: #fcf0de; --muted: #b3a48b; --gold: #d8b870; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --surface: #f7f1e6; --raised: #fffdf8; --ink: #121619; --muted: #5e5344; --gold: #7a5c1e; } }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--surface); color: var(--ink); font: 18px/1.5 Georgia, serif; padding: 16px; box-sizing: border-box; }
+  main { max-width: 620px; background: var(--raised); border: 2px solid var(--gold); border-radius: 8px; padding: 28px; }
+  h1 { font-size: 24px; letter-spacing: 0.04em; margin: 0 0 12px; }
+  p, li { color: var(--muted); }
+  b { color: var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <h1>The website is online, but its server did not start</h1>
+  <p>This page only appears when Netlify published the files without building them. The market needs its small server (a Netlify Function) so that every player shares the same prices.</p>
+  <ol>
+    <li>In Netlify, open this project → <b>Deploys</b>. Make sure you are <b>signed in</b> and drag the zip onto the Deploys page again (signed-in drops are built).</li>
+    <li>If this page still appears, use the GitHub way in <b>DEPLOY.md</b>: it always builds the server.</li>
+    <li>Check by opening <b>/api/health</b> on your site. It must say <b>"ok":true</b>.</li>
+  </ol>
+</main>
+</body>
+</html>
