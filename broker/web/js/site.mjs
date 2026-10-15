@@ -3,12 +3,14 @@
 import { h } from './dom.mjs';
 import { get } from './net.mjs';
 
-export const DEFAULT_NAME = 'Live Market';
+// Unnamed unless the host names the game: the header then shows only what the site is.
+export const DEFAULT_NAME = '';
 let game = null;
 try { game = JSON.parse(sessionStorage.getItem('game') || 'null'); } catch { game = null; }
 const names = new Set();
 
 export const gameName = () => game?.name || DEFAULT_NAME;
+export const pageTitle = () => gameName() || 'Paper Trading';
 export const gameInfo = () => game;
 
 /** Remember the game (from any server answer) and rename every header on the page. */
@@ -18,8 +20,8 @@ export function setGame(g) {
   game = g;
   try { sessionStorage.setItem('game', JSON.stringify({ name: g.name })); } catch { /* private mode */ }
   if (!changed) return;
-  for (const el of [...names]) { if (el.isConnected) el.textContent = gameName(); else names.delete(el); }
-  document.title = gameName();
+  for (const el of [...names]) { if (el.isConnected) { el.textContent = gameName(); el.hidden = !gameName(); } else names.delete(el); }
+  document.title = pageTitle();
 }
 
 export async function refreshGame() {
@@ -31,8 +33,9 @@ const NAV = [['', 'Home'], ['learn', 'How to Play'], ['desk', 'Team Desk']];
 /** The header band. `active` is the route to underline. */
 export function band(active, { nav = true, sub = 'Paper trading · live market' } = {}) {
   const name = h('span', { class: 'brand-name', text: gameName() });
+  name.hidden = !gameName();
   names.add(name);
-  document.title = gameName();
+  document.title = pageTitle();
   return h('header', { class: 'band' }, h('div', { class: 'bar' },
     h('a', { class: 'brand', href: '#/' }, name, h('span', { class: 'sub', text: sub })),
     nav ? h('nav', { 'aria-label': 'Main' }, NAV.map(([r, label]) => h('a', { href: `#/${r}`, 'aria-current': r === active ? 'page' : null, text: label }))) : null));

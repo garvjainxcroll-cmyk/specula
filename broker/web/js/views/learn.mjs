@@ -18,7 +18,7 @@ export default function learn(app) {
       S('join', 'Joining your team',
         P('The host creates the game and gives every team a private code of six letters and numbers. Open Team Desk, type your team’s code and your name, and you are in.'),
         P('Every member of a team can sign in on their own phone or laptop. You all see the same desk: the same cash, the same shares. Any member’s order is the team’s order, so talk to each other.'),
-        P('Keep the code private. Anyone with it can trade for your team.')),
+        P('Keep the code private: anyone with it can trade for your team. If it leaks, ask the host for a new code; everyone then joins again with it.')),
       S('stocks', 'The ten stocks',
         h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' },
           h('thead', {}, h('tr', {}, ['Ticker', 'Company', 'Sector', 'Listed at'].map((x, i) => h('th', { class: i === 3 ? 'num' : '', text: x })))),

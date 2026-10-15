@@ -33,7 +33,8 @@ If you see a page saying **"The website is online, but its server did not start"
 
 1. Open `https://YOUR-SITE.netlify.app/api/health`. You should see `{"ok":true,"storage":"blobs",...}`.
 2. Open `https://YOUR-SITE.netlify.app/#/host`. The first time, it asks you to **choose the host password** (at least 6 characters). **Do this before you share the link**, because the first person to open this page chooses the password. Write it down.
-   - Alternative: in Netlify → **Project configuration → Environment variables**, add `HOST_PASSWORD` with your password, then redeploy. That password then always works.
+   - Alternative: in Netlify → **Project configuration → Environment variables**, add `HOST_PASSWORD` with your password, then redeploy (Way 1: drag the zip onto the **Deploys** page again; Way 2: **Deploys → Trigger deploy**). That password then always works.
+   - **If the console asks you to sign in with a password you never chose**, someone opened it before you, or you forgot yours. Set `HOST_PASSWORD` as above and redeploy: it replaces the old password and signs everyone else out of the console.
 3. Open `https://YOUR-SITE.netlify.app/` on a phone: you see the Home page. **Team Desk** asks for a team code.
 
 ## The links
@@ -66,7 +67,7 @@ Never share the host password. Give each team only its own code.
 - **Before people arrive:** create the game and the teams, print the codes (Game → **Print**), and put the Big Screen on the projector. Teams can join while the game waits in the lobby; prices are paused and orders wait.
 - Hand each team its code privately. Members join at Team Desk with the code and their name.
 - Press **Start the game**. **Close the market** pauses everything; **Open the market** carries on (with a new session length if you like).
-- If a code leaks: Game → **New code** for that team. Members already signed in stay signed in.
+- If a code leaks: Game → **New code** for that team. Everyone signed in to that team is signed out at once and joins again with the new code. To sign out just one person: Dataset → click the team → **Sign out** next to their name.
 - If your laptop crashes: open `/#/host` on any device and sign in. Nothing is lost; everything is stored online.
 - At the end: **End the game**, then **Reveal the results**. Dataset → **Download CSV** keeps a copy of every team, everyone who signed in and every loan.
 

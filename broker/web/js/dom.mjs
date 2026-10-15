@@ -73,7 +73,8 @@ export function toast(msg, { title = '', kind = '', sticky = false, ms = 4200 } 
 export function sheet(title, body, { wide = false, sub = '', autofocus = true } = {}) {
   const prev = document.activeElement;
   const close = () => { scrim.remove(); document.removeEventListener('keydown', onKey); prev?.focus?.(); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  // Escape closes only the sheet on top (a confirmation can sit on another sheet)
+  const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && scrim === [...document.querySelectorAll('.scrim')].at(-1)) { e.preventDefault(); close(); } };
   const scrim = h('div', { class: 'scrim', onclick: (e) => { if (e.target === scrim) close(); } },
     h('div', { class: `sheet${wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       h('div', { class: 'sheet-head' },
@@ -84,6 +85,7 @@ export function sheet(title, body, { wide = false, sub = '', autofocus = true } 
   document.addEventListener('keydown', onKey);
   const target = (autofocus && scrim.querySelector('input, select, textarea')) || scrim.querySelector('button');
   target?.focus({ preventScroll: true });
+  close.scrim = scrim;
   return close;
 }
 
@@ -96,7 +98,7 @@ export function confirmBox(title, text, okLabel = 'Confirm', danger = false) {
       h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '16px' } },
         h('button', { class: 'btn ghost', type: 'button', onclick: () => finish(false), text: 'Cancel' }),
         h('button', { class: `btn${danger ? ' danger' : ''}`, type: 'button', onclick: () => finish(true), text: okLabel }))));
-    const obs = new MutationObserver(() => { if (!document.querySelector('.scrim')) { obs.disconnect(); finish(false); } });
+    const obs = new MutationObserver(() => { if (!close.scrim.isConnected) { obs.disconnect(); finish(false); } });
     obs.observe(document.body, { childList: true });
   });
 }
@@ -108,4 +110,9 @@ export function download(name, text, type = 'text/csv;charset=utf-8') {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
-export const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+/** One CSV cell. Text that a spreadsheet would run as a formula (= + - @ …) gets a leading ' so it stays text. */
+export const csvCell = (v) => {
+  let s = String(v ?? '');
+  if (typeof v !== 'number' && /^[=+\-@\t\r|%]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};

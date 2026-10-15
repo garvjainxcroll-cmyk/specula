@@ -11,6 +11,7 @@ import { lineChart, spark } from '../chart.mjs';
 import { band, setGame, themeSwitch, trackDeskHeight, fmtLeft } from '../site.mjs';
 
 let root; let poller = null; let shell = null; let view = null;
+let resync = () => {}; // the Game tab's team list follows the server again
 const H = { data: null, prev: null };
 const subs = new Set();
 const cleanups = [];
@@ -29,6 +30,7 @@ export default function host(app) {
 
 async function renderAuth() {
   poller?.stop(); poller = null; shell = null;
+  view?.destroy?.(); view = null; subs.clear();
   swap(root, band(null), h('p', { class: 'boot', text: 'Loading the host console…' }));
   let setup = true;
   try { const r = await get('host/status'); setup = r.setup; } catch (e) {
@@ -58,7 +60,8 @@ async function renderAuth() {
   swap(root, band(null), h('main', { class: 'narrow join-page' },
     h('p', { class: 'eyebrow', text: 'Host' }), h('h1', { text: setup ? 'Host console' : 'Set your password', style: { margin: '6px 0 10px' } }),
     h('p', { class: 'lead', text: setup ? 'Sign in to run the game.' : 'First visit after deploying: choose the host password. Only someone with it can run the game, so do this before you share the link. Write it down.' }),
-    h('div', { class: 'card' }, form)));
+    h('div', { class: 'card' }, form),
+    setup ? h('p', { class: 'muted small', style: { marginTop: '14px' }, text: 'Forgot the password, or someone else chose it before you? In Netlify, add HOST_PASSWORD with a new password and redeploy (DEPLOY.md, Step 3). That password then replaces the old one and signs everyone else out of the console.' }) : null));
   pass.focus();
 }
 
@@ -154,7 +157,7 @@ async function act(path, body, okMsg = '') {
     if (okMsg) toast(okMsg);
     refresh();
     return r;
-  } catch { toast('No connection to the server. Nothing has changed; try again.', { kind: 'err', ms: 7000 }); return null; }
+  } catch { toast('No answer from the server. Check the screen before trying again: it may already have happened.', { kind: 'err', ms: 8000 }); refresh(); return null; }
 }
 
 function onRoute() {
@@ -196,6 +199,7 @@ function GameView(el) {
   const step = (d) => h('button', { type: 'button', 'aria-label': d > 0 ? 'One more team' : 'One fewer team', text: d > 0 ? '+' : '−', onclick: () => { count.value = String(Math.max(1, Math.min(120, (Number(count.value) || 0) + d))); fitLines(); } });
   count.addEventListener('change', fitLines);
   names.addEventListener('input', () => { dirty = true; count.value = String(lines().length || 1); });
+  count.addEventListener('input', () => { dirty = true; });
   const saveTeams = h('button', { class: 'btn', type: 'button', id: 'btn-save-teams', text: 'Save teams and make codes' });
   saveTeams.addEventListener('click', async () => { if (await act('host/teams', { names: lines() }, 'Teams saved. Each team has its own code below.')) dirty = false; });
 
@@ -225,7 +229,8 @@ function GameView(el) {
   const codesBody = h('div');
   const addIn = h('input', { type: 'text', id: 'add-team', maxlength: '40', placeholder: 'New team’s name' });
   const addForm = h('form', { class: 'row no-print', novalidate: true, style: { marginTop: '12px' } }, h('div', { style: { flex: '1 1 200px' } }, addIn), h('button', { class: 'btn ghost', type: 'submit', text: 'Add a team' }));
-  addForm.addEventListener('submit', async (e) => { e.preventDefault(); const r = await act('host/team/add', { name: addIn.value }); if (r) { toast(`${r.team.name} added. Code: ${r.team.code}`); addIn.value = ''; } });
+  addForm.addEventListener('submit', async (e) => { e.preventDefault(); const r = await act('host/team/add', { name: addIn.value }); if (r) { toast(`${r.team.name} added. Code: ${r.team.code}`); addIn.value = ''; dirty = false; } });
+  resync = () => { dirty = false; };
   const codesCard = h('section', { class: 'card' },
     h('div', { class: 'row between' }, h('p', { class: 'eyebrow', id: 'codes-title', text: 'Team codes' }), h('button', { class: 'btn sm ghost no-print', type: 'button', onclick: () => window.print(), text: 'Print' })),
     codesBody, addForm,
@@ -238,7 +243,7 @@ function GameView(el) {
     const d = H.data; if (!d) return;
     const g = d.game;
     if (!nameIn.dataset.dirty && document.activeElement !== nameIn) nameIn.value = g.name || '';
-    if (!dirty && document.activeElement !== names) {
+    if (!dirty && document.activeElement !== names && document.activeElement !== count) {
       if (d.teams.length) { names.value = d.teams.map((t) => t.name).join('\n'); count.value = String(d.teams.length); } else if (!names.value) fitLines();
       dirty = false;
     }
@@ -329,17 +334,17 @@ async function renameTeam(t) {
     e.preventDefault();
     const r = await post('host/team/rename', { id: t.id, name: input.value }, tokenH()).catch(() => null);
     if (!r?.ok) { set(err, r?.error || 'Could not reach the server.'); return; }
-    close(); refresh();
+    resync(); close(); refresh();
   });
 }
 async function newCode(t) {
-  if (!(await confirmBox(`New code for ${t.name}?`, 'The old code stops working at once. Members already signed in stay signed in. Give the new code to the team.', 'Make a new code'))) return;
+  if (!(await confirmBox(`New code for ${t.name}?`, 'The old code stops working at once, and everyone signed in to this team is signed out. Give the new code to the team: they join again with it. Use this if a code has leaked.', 'Make a new code'))) return;
   const r = await act('host/team/code', { id: t.id });
-  if (r) toast(`${t.name}’s new code is ${r.code}.`, { sticky: true });
+  if (r) toast(`${t.name}’s new code is ${r.code}. Its members must join again with it.`, { sticky: true });
 }
 async function removeTeam(t) {
   if (!(await confirmBox(`Remove ${t.name}?`, 'The team and its code are removed; anyone signed in to its desk is signed out.', 'Remove', true))) return;
-  act('host/team/remove', { id: t.id }, `${t.name} was removed.`);
+  if (await act('host/team/remove', { id: t.id }, `${t.name} was removed.`)) resync();
 }
 
 // ======================= market control =======================
@@ -367,15 +372,25 @@ function MarketView(el) {
       lvl, c, exp, quick, form, h('div', { class: 'mc-foot' }, h('span', { class: 'tiny muted', text: `Listed ${rs(s.base)} · ${s.sector}` }), base)));
   }
   const log = h('div');
+  const note = h('p', { class: 'bar closed', hidden: true, style: { borderRadius: '8px', marginBottom: '16px' } });
   el.append(
+    note,
     h('div', { class: 'card-head' }, h('div', {}, h('p', { class: 'eyebrow', text: 'Only you can see this' }), h('h1', { text: 'Market control', style: { marginTop: '6px' } })),
       h('p', { class: 'muted small', style: { maxWidth: '62ch', margin: 0 }, text: 'Each stock wiggles a little on its own and averages to its listed price. Your moves shift it up or down from there and stay until you move it again. Every holding team’s money changes at once. Teams see only prices, never your moves.' })),
     grid,
     h('section', { class: 'card quiet', style: { marginTop: '24px' } }, h('div', { class: 'card-head' }, h('h3', { text: 'Your moves' }), h('span', { class: 'only-host', text: 'Only you can see this' })), log));
-  let sigLog = '';
+  let sigLog = ''; let sigPhase = '';
   function draw() {
     const d = H.data; if (!d) return;
     const sp = series('30m');
+    const phase = `${d.game.phase}:${d.mk.open}`;
+    if (phase !== sigPhase) {
+      sigPhase = phase;
+      const ended = d.game.phase === 'ended';
+      for (const b of grid.querySelectorAll('button, input, select')) b.disabled = ended;
+      note.hidden = d.mk.open && !ended;
+      set(note, ended ? 'The game is over and its prices are final. Take the game back (Game tab) to move prices again.' : 'The market is closed: prices stand still, and a move you make now happens when it opens.');
+    }
     const exposure = {};
     for (const t of d.teams) for (const x of t.h) { const e = (exposure[x.t] ||= { n: 0, q: 0 }); e.n++; e.q += x.q; }
     for (const s of STOCKS) {
@@ -387,8 +402,8 @@ function MarketView(el) {
       const last = d.moves.find((m) => m.t === s.t);
       const ramp = last && last.dur > 0 && d.mk.m < last.m + last.dur ? Math.ceil((last.m + last.dur - d.mk.m) / 1000) : 0;
       swap(c.lvl,
-        Math.abs(lv) < 0.005 ? h('span', { class: 'pill', text: 'No move: automatic only' }) : h('span', { class: `pill ${dir(lv)}`, text: `Your level ${arrow(lv)} ${pct(lv, 1)}` }),
-        ramp ? h('span', { class: 'pill gold', text: `Moving to ${pct((last.to - 1) * 100, 1)} · ${ramp}s${d.mk.open ? '' : ' (paused: market closed)'}` }) : null);
+        Math.abs(lv) < 0.005 ? (ramp ? null : h('span', { class: 'pill', text: 'No move: automatic only' })) : h('span', { class: `pill ${dir(lv)}`, text: `Your level ${arrow(lv)} ${pct(lv, 1)}` }),
+        ramp ? h('span', { class: 'pill gold', text: last.atOpen ? `Moving to ${pct((last.to - 1) * 100, 1)} at the opening bell` : `Moving to ${pct((last.to - 1) * 100, 1)} · ${ramp}s${d.mk.open ? '' : ' (paused: market closed)'}` }) : null);
       const e = exposure[s.t];
       set(c.exp, e ? `${e.n} team${e.n > 1 ? 's' : ''} hold it · ${qty(e.q)} shares · ${compact(e.q * p)} at stake` : 'No team holds it yet.');
       if (sp) spark(c.c, sp.p[s.t], dir(sp.p[s.t].at(-1) - sp.p[s.t][0]), o);
@@ -401,7 +416,7 @@ function MarketView(el) {
         h('thead', {}, h('tr', {}, ['Time', 'Stock', 'Move', 'Speed', 'Level before', 'Level after'].map((x, i) => h('th', { class: i > 3 ? 'num' : '', text: x })))),
         h('tbody', {}, d.moves.slice(0, 60).map((m) => h('tr', {},
           h('td', { class: 'nowrap', text: clock(m.w) }), h('td', {}, h('span', { class: 'tk', text: m.t })), h('td', { text: m.label }),
-          h('td', { text: m.dur ? `over ${ago(m.dur)}` : 'instant' }),
+          h('td', { text: m.atOpen ? 'instant, at the opening bell' : m.dur ? `over ${ago(m.dur)}` : 'instant' }),
           h('td', { class: 'num', text: pct((m.from - 1) * 100, 1) }), h('td', { class: `num ${dir(m.to - m.from)}`, text: pct((m.to - 1) * 100, 1) })))))));
     }
   }
@@ -412,7 +427,8 @@ function MarketView(el) {
 async function move(t, mode, value, secs) {
   const r = await act('host/move', { t, mode, value, secs });
   if (!r) return false;
-  toast(`${t}: ${r.move.label}, ${secs ? `over ${ago(secs * 1000)}` : 'instantly'}. Level now ${pct((r.move.to - 1) * 100, 1)} from the listed price.`, { title: 'Move applied' });
+  const when = r.move.atOpen ? (secs ? `over ${ago(secs * 1000)} once the market opens` : 'at the opening bell (the market is closed)') : (secs ? `over ${ago(secs * 1000)}` : 'instantly');
+  toast(`${t}: ${r.move.label}, ${when}. Level ${pct((r.move.to - 1) * 100, 1)} from the listed price.`, { title: 'Move applied' });
   return true;
 }
 
@@ -479,17 +495,18 @@ function DataView(el) {
         }))));
       }
     }
-    const people = d.teams.flatMap((t) => t.members.map((m) => ({ ...m, team: t.name, tid: t.id }))).sort((a, b) => a.joined - b.joined);
+    const people = d.teams.flatMap((t) => t.members.map((m) => ({ ...m, team: t.name, tid: t.id, liq: t.sum.liq }))).sort((a, b) => a.joined - b.joined);
     const ps = JSON.stringify(people) + needle;
     if (force || ps !== psig) {
       psig = ps;
       const shown = people.filter((p) => !needle || `${p.name} ${p.phone} ${p.team}`.toLowerCase().includes(needle));
       set(pcount, `${people.length} ${people.length === 1 ? 'person' : 'people'}`);
       swap(peopleWrap, people.length ? h('table', { class: 'tbl nowrap' },
-        h('thead', {}, h('tr', {}, ['#', 'Name', 'Phone', 'Team', 'First signed in', 'Last signed in'].map((x) => h('th', { text: x })))),
+        h('thead', {}, h('tr', {}, ['#', 'Name', 'Phone', 'Team', 'Team’s total liquidable money', 'First signed in', 'Last signed in'].map((x, i) => h('th', { class: i === 4 ? 'num' : '', text: x })))),
         h('tbody', {}, shown.map((p, i) => h('tr', { class: 'click', tabindex: '0', onclick: () => openTeam(p.tid) },
           h('td', { class: 'muted', text: String(i + 1) }), h('td', {}, h('b', { text: p.name, style: { fontWeight: 600 } })), h('td', { text: p.phone || '—' }),
-          h('td', { text: p.team }), h('td', { text: when(p.joined) }), h('td', { text: when(p.last || p.joined) }))))) : h('p', { class: 'muted', style: { margin: 0 }, text: 'Nobody has signed in yet. Members join at Team Desk with their team’s code.' }));
+          h('td', { text: p.team }), h('td', { class: 'num gold', style: { fontWeight: 600 }, text: rs(p.liq) }),
+          h('td', { text: when(p.joined) }), h('td', { text: when(p.last || p.joined) }))))) : h('p', { class: 'muted', style: { margin: 0 }, text: 'Nobody has signed in yet. Members join at Team Desk with their team’s code.' }));
     }
     const ls = JSON.stringify(d.loans) + Math.floor(d.now / 1000);
     if (ls !== lsig) { lsig = ls; set(lcount, `${d.loans.length} in all`); swap(loansWrap, loansTable(d.loans, d.now, false)); }
@@ -551,12 +568,16 @@ function csvLoans() {
 function openTeam(id) {
   const body = h('div', {}, h('p', { class: 'muted', text: 'Loading…' }));
   const close = sheet('Team', body, { wide: true, autofocus: false });
-  let chart = null; let timer = null; let first = true;
+  let chart = null; let timer = null; let first = true; let sig = '';
   const load = async () => {
     if (!body.isConnected) { clearInterval(timer); chart?.destroy(); return; }
     const r = await get(`host/team?id=${encodeURIComponent(id)}`, tokenH()).catch(() => null);
     if (!r?.ok) { if (first) swap(body, h('p', { class: 'form-error', text: r?.error || 'Could not load this team.' })); return; }
     const t = r.team; const d = H.data;
+    const sg = JSON.stringify([t.sum, t.members, t.ntr, t.h, r.loans.map((L) => [L.id, L.status])]);
+    if (sg === sig) return;
+    sig = sg;
+    const listTop = body.querySelector('.list-plain')?.scrollTop;
     const title = body.closest('.sheet')?.querySelector('.sheet-head h2');
     if (title) set(title, t.name);
     const kv = (label, v, cls = '') => h('div', { class: 'kpi' }, h('dt', { text: label }), h('dd', { class: `num ${cls}`, text: v }));
@@ -581,8 +602,17 @@ function openTeam(id) {
             h('span', { class: `side ${x.q > 0 ? 'b' : 's'}`, text: x.q > 0 ? 'BUY' : 'SELL' }),
             h('span', {}, `${qty(Math.abs(x.q))} ${x.t} at ${rs(x.p)}`, x.f ? h('span', { class: 'muted small', text: ' · loan repayment' }) : null),
             h('span', { class: 'muted tiny', text: when(x.w) })))) : h('p', { class: 'muted', style: { margin: 0 }, text: 'No orders.' }))),
-      h('section', { class: 'card quiet tight', style: { marginTop: '16px' } }, h('h3', { text: 'Loans', style: { marginBottom: '8px' } }), loansTable(r.loans, r.now, false)));
+      h('section', { class: 'card quiet tight', style: { marginTop: '16px' } }, h('h3', { text: 'Loans', style: { marginBottom: '8px' } }), loansTable(r.loans, r.now, false)),
+      h('section', { class: 'card quiet tight', style: { marginTop: '16px' } }, h('h3', { text: `Members signed in (${t.members.length})`, style: { marginBottom: '8px' } }),
+        t.members.length ? h('ul', { class: 'list-plain' }, t.members.map((m) => h('li', { class: 'trade-row', style: { gridTemplateColumns: '1fr auto auto' } },
+          h('span', {}, h('b', { text: m.name, style: { fontWeight: 600 } }), h('span', { class: 'muted small', text: m.phone ? ` · ${m.phone}` : '' })),
+          h('span', { class: 'muted tiny', text: `since ${when(m.joined)}` }),
+          h('button', { class: 'linkbtn', type: 'button', style: { color: 'var(--down)' }, text: 'Sign out', onclick: async () => {
+            if (!(await confirmBox(`Sign ${m.name} out?`, `${m.name} is signed out of ${t.name}’s desk at once. Anyone with the team’s code can join again, so if the code has leaked, also make a new code.`, 'Sign out', true))) return;
+            if (await act('host/member/remove', { team: t.id, member: m.id }, `${m.name} was signed out.`)) { sig = ''; load(); }
+          } })))) : h('p', { class: 'muted', style: { margin: 0 }, text: 'Nobody has joined this team yet.' })));
     if (scrollTop) body.closest('.sheet').scrollTop = scrollTop;
+    if (listTop && body.querySelector('.list-plain')) body.querySelector('.list-plain').scrollTop = listTop;
     chart?.destroy();
     chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compact(v).replace('₹', '')), fmtX: hm, fmtTip: clock });
     chart.set({ xs: r.hist.ws, ws: r.hist.ws, ys: r.hist.nw, ref: START_CASH, refFit: true, refLabel: 'Started with ₹10,00,000', tone: dir(t.sum.nw - START_CASH), label: `${t.name}: net worth` });
@@ -642,7 +672,7 @@ function LoansView(el) {
       toast(`${rs(r.loan.amount)} sent from ${l.name} to ${b.name}. ${rs(r.loan.final)} comes back at ${hm(r.loan.due)}.`, { title: `Loan ${r.loan.id} sent` });
       amount.value = '';
       refresh();
-    } catch { set(err, 'Could not reach the server. The loan was not sent.'); } finally { go.disabled = false; }
+    } catch { set(err, 'No answer from the server. The loan may already have been sent: check the list below before sending it again.'); refresh(); } finally { go.disabled = false; }
   });
   let usig = ''; let lsig = '';
   function draw() {
@@ -685,7 +715,7 @@ function UpdatesView(el) {
       const r = await post('host/update', { text: text.value }, tokenH());
       if (!r.ok) { set(err, r.error); return; }
       text.value = ''; toast(`Update ${pad(r.update.n)} is live for every team.`, { title: 'Posted' }); refresh();
-    } catch { set(err, 'Could not reach the server. The update was not posted.'); } finally { go.disabled = false; }
+    } catch { set(err, 'No answer from the server. The update may already be posted: check the list below before posting it again.'); refresh(); } finally { go.disabled = false; }
   });
   let sig = '';
   function draw() {

@@ -9,13 +9,15 @@ import { ensure, series, tick } from '../series.mjs';
 import { spark } from '../chart.mjs';
 import { setGame, gameName, fmtLeft } from '../site.mjs';
 
+const TAGLINE = 'Ten companies · one live market';
+
 const pad = (n) => String(n).padStart(2, '0');
 const ord = (n) => `${n}${[, 'st', 'nd', 'rd'][(n % 100 >> 3 ^ 1) && n % 10] || 'th'}`;
 
 export default function display(app) {
   document.documentElement.dataset.theme = 'dark';
   const D = { board: null, prev: null, updates: [], uv: -1 };
-  const title = h('div', { class: 'bs-title', text: gameName() });
+  const title = h('div', { class: 'bs-title', text: gameName() || TAGLINE });
   const sub = h('div', { class: 'bs-sub', text: 'Live market' });
   const bigclock = h('div', { class: 'bigclock word', text: '—' });
   const body = h('div', { class: 'bs-body' });
@@ -55,7 +57,7 @@ export default function display(app) {
   function render() {
     const b = D.board; if (!b) return;
     const g = b.game;
-    setGame(g); set(title, gameName());
+    setGame(g); set(title, gameName() || TAGLINE);
     set(sub, g.phase === 'lobby' ? `Paper trading · ${b.teams.length} team${b.teams.length === 1 ? '' : 's'}` : g.phase === 'ended' ? 'The game is over' : `Live market · ${b.teams.length} teams`);
     const m = g.phase === 'lobby' ? 'lobby' : g.phase === 'ended' ? (g.revealed && b.standings ? 'reveal' : 'sealed') : 'live';
     if (m !== mode) {
@@ -127,6 +129,7 @@ export default function display(app) {
   const poller = loop(async () => {
     const r = await get(`board?uv=${D.uv}`);
     if (!r.ok) return;
+    if (D.board && r.mk.g !== D.board.mk.g && !r.updates) { D.uv = -1; D.updates = []; } // a new game
     D.prev = D.board; D.board = r;
     if (r.updates) { D.updates = r.updates; D.uv = r.uv; }
     if (tick(r.mk, r.now)) ensure('30m').then(render);

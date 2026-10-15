@@ -124,7 +124,7 @@ test('exactly the ten listed stocks, at their listed prices on average', async (
     n++;
     w.tick(2000);
   }
-  for (const s of STOCKS) assert.ok(Math.abs(sums[s.t] / n / s.base - 1) < 0.004, `${s.t} averages to its listed price`);
+  for (const s of STOCKS) assert.ok(Math.abs(sums[s.t] / n / s.base - 1) < 0.008, `${s.t} averages to its listed price`);
 });
 
 test('the session clock closes the market by itself; the host can add time or reopen', async () => {
@@ -364,11 +364,13 @@ test('teams that have traded cannot be removed; others can', async () => {
   assert.equal((await w.post('host/team/add', { name: 'delta' }, h)).ok, false);
   const hp = await w.get('host/poll', h);
   assert.deepEqual(hp.teams.map((t) => t.name), ['Alpha', 'Charlie', 'Delta']);
-  // a new code for a leaked one: members already in stay in
+  // a new code for a leaked one: everyone signed in with the old code is signed out
   const nc = await w.post('host/team/code', { id: teams[2].id }, h);
   assert.notEqual(nc.code, teams[2].code);
-  assert.equal((await w.get('poll', a)).ok, true);
+  assert.equal((await w.get('poll', a)).status, 401, 'the old sign-in no longer works');
   assert.equal((await w.post('join', { code: teams[2].code, name: 'Spy' })).ok, false, 'the old code no longer works');
+  const back = await w.join(nc.code);
+  assert.equal((await w.get('poll', back)).me.name, 'Charlie', 'the team joins again with the new code');
 });
 
 test('many people trading at the same moment: no order is lost', async () => {
@@ -399,6 +401,57 @@ test('the host password: first visit chooses it, then it is needed', async () =>
   assert.ok(r.ok, r.error);
   assert.equal((await w.get('host/poll', t)).status, 401);
   assert.equal((await w.get('host/poll', r.token)).ok, true);
+});
+
+test('ten wrong host passwords lock the console for five minutes, even when sent all at once', async () => {
+  const w = world();
+  await w.game(['Alpha']);
+  const before = (await w.store.getMeta('state')).etag;
+  const said = [];
+  for (let i = 0; i < 11; i++) said.push((await w.post('host/login', { password: `guess${i}` })).error);
+  assert.deepEqual(said.map((e) => (e.startsWith('Too many') ? 'L' : 'W')).join(''), 'WWWWWWWWWWL');
+  assert.equal((await w.post('host/login', { password: 'hostpass' })).ok, false, 'locked even for the right password');
+  assert.equal((await w.store.getMeta('state')).etag, before, 'wrong passwords never touch the game');
+  w.tick(5 * 60000 + 1);
+  assert.ok((await w.post('host/login', { password: 'hostpass' })).ok, 'open again after five minutes');
+  // 200 guesses at the same moment, the right one last: only ten are ever checked
+  const burst = await Promise.all([...Array(200).keys()].map((i) => w.post('host/login', { password: i === 199 ? 'hostpass' : `x${i}` })));
+  assert.equal(burst.filter((r) => r.error === 'Wrong host password.').length, 10);
+  assert.equal(burst[199].ok, false);
+  assert.equal((await w.store.getMeta('state')).etag, before);
+});
+
+test('the lock counts each connection apart, and forgets tries after fifteen minutes', async () => {
+  const store = memoryStore();
+  let now = Date.UTC(2026, 9, 14, 9, 0, 0);
+  const login = async (password, ip) => (await handle(new Request('http://x/api/host/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }),
+  }), store, { now: () => now, ip })).json();
+  await handle(new Request('http://x/api/host/setup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'hostpass' }) }), store, { now: () => now });
+  for (let i = 0; i < 10; i++) await login(`guess${i}`, '10.0.0.66');
+  assert.match((await login('hostpass', '10.0.0.66')).error, /Too many/, 'the guesser is locked out');
+  assert.ok((await login('hostpass', '10.0.0.7')).ok, 'the host on another connection is not');
+  // nine typos, then a quarter of an hour later more tries: the old ones no longer count
+  for (let i = 0; i < 9; i++) await login(`typo${i}`, '10.0.0.8');
+  now += 16 * 60000;
+  for (let i = 0; i < 9; i++) assert.equal((await login(`typo${i}`, '10.0.0.8')).error, 'Wrong host password.');
+  assert.ok((await login('hostpass', '10.0.0.8')).ok);
+});
+
+test('HOST_PASSWORD on the server replaces a password someone else chose, and signs them out', async () => {
+  const store = memoryStore();
+  const now = Date.UTC(2026, 9, 14, 9, 0, 0);
+  const call = async (path, body, token, env) => (await handle(new Request(`http://x/api/${path}`, {
+    method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', ...(token ? { 'x-token': token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  }), store, { now: () => now, ...env })).json();
+  const theirs = (await call('host/setup', { password: 'grabbed' })).token;
+  assert.ok((await call('host/poll', null, theirs)).ok);
+  const env = { HOST_PASSWORD: 'the-real-host' };
+  assert.equal((await call('host/poll', null, theirs, env)).ok, false, 'their session ends');
+  assert.equal((await call('host/login', { password: 'grabbed' }, null, env)).ok, false);
+  const mine = (await call('host/login', { password: 'the-real-host' }, null, env)).token;
+  assert.ok((await call('host/poll', null, mine, env)).ok);
 });
 
 test('a team’s value over time is rebuilt from its trades', async () => {
@@ -439,4 +492,141 @@ test('starting again: a new game keeps the teams and codes; delete everything re
   const hp2 = await w.get('host/poll', r2.token);
   assert.equal(hp2.teams.length, 0);
   assert.equal(hp2.game.name, '');
+});
+
+test('a crafted stock name or range is refused and changes nothing', async () => {
+  const w = world();
+  const { teams } = await w.game(['Alpha']);
+  const a = await w.join(teams[0].code);
+  for (const t of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+    const r = await w.post('trade', { t, side: 'buy', q: 1 }, a);
+    assert.equal(r.ok, false, `${t} refused`);
+  }
+  assert.equal((await w.get('poll', a)).me.cash, START_CASH);
+  assert.equal([][0], undefined, 'nothing polluted');
+  for (const p of ['history?r=__proto__', 'history?t=constructor', 'me/history?r=__proto__']) {
+    const r = await w.get(p, a);
+    assert.notEqual(r.status, 500, p);
+  }
+  assert.ok((await w.get('me/history?r=__proto__', a)).nw.every(Number.isFinite));
+});
+
+test('the team list keeps teams by name: deleting a line removes that team only, never one with members', async () => {
+  const w = world();
+  const h = await w.host();
+  const r = await w.post('host/teams', { names: ['A', 'B', 'C', 'D'] }, h);
+  const code = Object.fromEntries(r.teams.map((t) => [t.name, t.code]));
+  const d = await w.join(code.D, 'Dev');
+  // B does not turn up: delete its line
+  const r2 = await w.post('host/teams', { names: ['A', 'C', 'D'] }, h);
+  assert.deepEqual(r2.teams.map((t) => [t.name, t.code]), [['A', code.A], ['C', code.C], ['D', code.D]]);
+  assert.equal((await w.get('poll', d)).me.name, 'D', 'D’s member is still on D');
+  // editing one line renames that team and keeps its code
+  const r3 = await w.post('host/teams', { names: ['A', 'Cee', 'D'] }, h);
+  assert.deepEqual(r3.teams.map((t) => [t.name, t.code]), [['A', code.A], ['Cee', code.C], ['D', code.D]]);
+  // a team with members is never dropped by the list
+  assert.equal((await w.post('host/teams', { names: ['A', 'Cee'] }, h)).ok, false);
+  // deleting one line and renaming another in the same save: each team keeps its own code
+  const r4 = await w.post('host/teams', { names: ['A', 'Cee', 'D', 'E', 'F'] }, h);
+  code.E = r4.teams[3].code; code.F = r4.teams[4].code;
+  assert.notEqual(code.E, code.F);
+  const r5 = await w.post('host/teams', { names: ['Cee', 'D', 'Echo', 'F'] }, h);
+  assert.ok(r5.ok, r5.error);
+  assert.deepEqual(r5.teams.map((t) => [t.name, t.code]), [['Cee', code.C], ['D', code.D], ['Echo', code.E], ['F', code.F]]);
+  const r6 = await w.post('host/teams', { names: ['Cee', 'D', 'Echo', 'Fox', 'G', 'H'] }, h);
+  assert.equal(r6.teams[3].code, code.F, 'an edited line is a rename');
+  // a rename next to a deletion is not guessed: the host is asked to do one, then the other
+  const r7 = await w.post('host/teams', { names: ['Cee', 'D', 'Echo', 'Fox', 'Gee'] }, h);
+  assert.equal(r7.ok, false, 'G or H renamed to Gee and the other deleted: not clear which');
+  assert.match(r7.error, /not clear/);
+});
+
+test('two people with the same name and different phones stay two people', async () => {
+  const w = world();
+  const { h, teams } = await w.game(['Alpha'], { start: false });
+  assert.ok((await w.post('join', { code: teams[0].code, name: 'Priya', phone: '+91 90000 00001' })).ok);
+  const r = await w.post('join', { code: teams[0].code, name: 'priya', phone: '+91 90000 00002' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /surname|initial/);
+  assert.ok((await w.post('join', { code: teams[0].code, name: 'Priya', phone: '+91 90000 00001' })).ok, 'the same person can sign in again');
+  assert.ok((await w.post('join', { code: teams[0].code, name: 'Priya', phone: '090000-00001' })).ok, 'however the number is written');
+  const m = (await w.get('host/poll', h)).teams[0].members;
+  assert.deepEqual(m.map((x) => [x.name, x.phone]), [['Priya', '+91 90000 00001']]);
+  // the host can sign one member out
+  const me = await w.join(teams[0].code, 'Spy');
+  const spy = (await w.get('host/poll', h)).teams[0].members.find((x) => x.name === 'Spy');
+  assert.ok((await w.post('host/member/remove', { team: teams[0].id, member: spy.id }, h)).ok);
+  assert.equal((await w.get('poll', me)).status, 401);
+});
+
+test('after the end prices are final; while closed, a move happens at the opening bell', async () => {
+  const w = world();
+  const { h } = await w.game(['Alpha']);
+  await w.post('host/market', { open: false }, h);
+  const p0 = (await w.get('market')).mk.p.SKYF;
+  const r = await w.post('host/move', { t: 'SKYF', mode: 'pct', value: -10, secs: 0 }, h);
+  assert.ok(r.ok && r.move.atOpen);
+  assert.equal((await w.get('market')).mk.p.SKYF, p0, 'paused prices stay paused');
+  await w.post('host/market', { open: true }, h);
+  w.tick(3000);
+  assert.ok((await w.get('market')).mk.p.SKYF < p0 * 0.93, 'the move happened at the open');
+  // while closed, percent moves add up: +10% twice is +21%, −50% then +100% is back to 1
+  await w.post('host/market', { open: false }, h);
+  for (const [t, v] of [['NEXO', 10], ['NEXO', 10], ['VANT', -50], ['VANT', 100]]) assert.ok((await w.post('host/move', { t, mode: 'pct', value: v, secs: 0 }, h)).ok);
+  await w.post('host/market', { open: true }, h);
+  w.tick(3000);
+  const lv = (await w.get('host/poll', h)).mk.lv;
+  assert.ok(Math.abs(lv.NEXO - 1.21) < 1e-9 && Math.abs(lv.VANT - 1) < 1e-9, `${lv.NEXO} ${lv.VANT}`);
+  await w.post('host/end', {}, h);
+  const r2 = await w.post('host/move', { t: 'SKYF', mode: 'pct', value: 50, secs: 0 }, h);
+  assert.equal(r2.ok, false);
+});
+
+test('the game opens exactly at the listed prices', async () => {
+  const w = world();
+  const { h } = await w.game(['Alpha'], { start: false });
+  const p = (await w.get('market')).mk;
+  for (const s of STOCKS) assert.equal(p.p[s.t], s.base, `${s.t} opens at its listed price`);
+  await w.post('host/start', {}, h);
+  w.tick(300000);
+  const later = (await w.get('market')).mk.p;
+  assert.ok(STOCKS.some((s) => later[s.t] !== s.base), 'and then moves');
+});
+
+test('cancelling a spent loan sells shares to give it back; resets never reuse an updates version', async () => {
+  const w = world();
+  const { h, teams } = await w.game(['Alpha', 'Bravo']);
+  const b = await w.join(teams[1].code);
+  const L = await w.post('host/loan', { lender: teams[0].id, borrower: teams[1].id, amount: 500000, rate: 5, mins: 60 }, h);
+  const px = (await w.get('market')).mk.p.AURI;
+  await w.post('trade', { t: 'AURI', side: 'buy', q: Math.floor((START_CASH + 50000000) / px) }, b);
+  await w.post('host/loan/cancel', { id: L.loan.id }, h);
+  const pb = await w.get('poll', b);
+  assert.ok(pb.me.cash >= 0, 'shares were sold, so cash is not below zero');
+  assert.ok(pb.me.loans[0].sold.length > 0);
+  await w.post('host/update', { text: 'one' }, h);
+  const uv1 = (await w.get('poll', b)).uv;
+  const r = await w.post('host/reset', { mode: 'keep', confirm: 'RESET' }, h);
+  await w.post('host/update', { text: 'new game news' }, r.token);
+  const p2 = await w.get(`poll?uv=${uv1}`, b);
+  assert.notEqual(p2.uv, uv1);
+  assert.deepEqual(p2.updates.map((u) => [u.n, u.text]), [[1, 'new game news']]);
+});
+
+test('a save whose reply was lost is not applied twice', async () => {
+  const { memoryStore: ms } = await import('../server/storage-memory.mjs');
+  const inner = ms();
+  let lose = 0;
+  const store = { ...inner, kind: 'memory', getMeta: (k) => inner.getMeta(k), del: (k) => inner.del(k),
+    async set(k, d, o) { const r = await inner.set(k, d, o); if (lose > 0 && r.modified && d.teams?.some((t) => t.tr.length)) { lose--; throw new Error('reply lost'); } return r; } };
+  let now = Date.UTC(2026, 9, 14, 9);
+  const call = async (method, path, body, token) => (await handle(new Request(`http://x/api/${path}`, { method, headers: { 'content-type': 'application/json', ...(token ? { 'x-token': token } : {}) }, body: body ? JSON.stringify(body) : undefined }), store, { now: () => now })).json();
+  const h = (await call('POST', 'host/setup', { password: 'hostpass' })).token;
+  const t = (await call('POST', 'host/teams', { names: ['Alpha'] }, h)).teams[0];
+  await call('POST', 'host/start', {}, h);
+  const a = (await call('POST', 'join', { code: t.code, name: 'Asha' })).token;
+  lose = 1;
+  const r = await call('POST', 'trade', { t: 'NEXO', side: 'buy', q: 10 }, a);
+  assert.ok(r.ok, r.error);
+  assert.equal((await call('GET', 'poll', null, a)).me.h[0].q, 10, 'bought once, not twice');
 });

@@ -4,9 +4,10 @@ import { handle } from '../../server/api.mjs';
 import { blobsStore } from '../../server/storage-blobs.mjs';
 
 let store;
-export default async (request) => {
+export default async (request, context) => {
   store ||= blobsStore('market');
-  return handle(request, store, { HOST_PASSWORD: process.env.HOST_PASSWORD || '' });
+  // context.ip is the visitor's internet address, set by Netlify (used only to count wrong host passwords)
+  return handle(request, store, { HOST_PASSWORD: process.env.HOST_PASSWORD || '', ip: context?.ip || '' });
 };
 
 export const config = { path: ['/api/*'] };

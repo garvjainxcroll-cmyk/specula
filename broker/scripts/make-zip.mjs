@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'market-netlify.zip');
 if (existsSync(out)) rmSync(out);
-const items = ['package.json', 'package-lock.json', 'netlify.toml', 'netlify', 'server', 'src', 'web', 'scripts/build.mjs', 'scripts/dev-server.mjs', 'dist', 'index.html', 'DEPLOY.md', 'README.md'];
+const items = ['package.json', 'package-lock.json', 'netlify.toml', 'netlify', 'server', 'src', 'web', 'scripts/build.mjs', 'scripts/dev-server.mjs', 'scripts/make-zip.mjs', 'dist', 'index.html', 'tests', 'e2e', 'playwright.config.mjs', 'DEPLOY.md', 'README.md'];
 execFileSync('python3', ['-I', '-c', `
 import zipfile, os, sys
 root, out, items = sys.argv[1], sys.argv[2], sys.argv[3:]

@@ -1,6 +1,6 @@
 # The market: a live paper-trading game for teams
 
-A multiplayer stock-market game that looks and works like an online broker app, laid out like SPECULA: a Home page, How to Play, a Team Desk for every team, a Big Screen for the projector and a host console where you create the game and its teams. Styled with the JACO CORP design system (Night: black, charcoal and one gold; Cinzel and EB Garamond). No logo, and no name unless you give the game one.
+A multiplayer stock-market game that looks and works like an online broker app, laid out like SPECULA: a Home page, How to Play, a Team Desk for every team, a Big Screen for the projector and a host console where you create the game and its teams. Styled with the JACO CORP design system (Night: black, charcoal and one gold; Cinzel and EB Garamond). No logo, and no name unless you give the game one (until then the screens just say what they are, e.g. “Ten companies. One live market.”).
 
 **To put it online:** read [DEPLOY.md](DEPLOY.md). The ready-made upload is **`market-netlify.zip`**.
 
@@ -16,11 +16,11 @@ A multiplayer stock-market game that looks and works like an online broker app, 
 
 ## Running a game
 
-1. **Create the game** (console → Game). Optionally give it a name (it appears on every screen). Set the **number of teams**: the names fill in as Team 01, Team 02… and you can type real names, one per line. Press **Save teams and make codes**: every team gets a private six-character code. Print the codes or read them out privately.
-2. **Teams join.** Each member opens Team Desk, types the team's code and their own name (and, optionally, a phone number). Every member of a team sees the same desk; any member's order is the team's order. Every team starts with **₹10,00,000**.
+1. **Create the game** (console → Game). Optionally give it a name (it appears on every screen). Set the **number of teams**: the names fill in as Team 01, Team 02… and you can type real names, one per line. Press **Save teams and make codes**: every team gets a private six-character code. Print the codes or read them out privately. Editing a line renames that team (its code stays); deleting a line removes that team, unless members have already joined it (use its **Remove** button then). If you rename a team and delete the one next to it in the same save, the console asks you to do one, save, then the other, so no code moves to the wrong team.
+2. **Teams join.** Each member opens Team Desk, types the team's code and their own name (and, optionally, a phone number). Every member of a team sees the same desk; any member's order is the team's order. Every team starts with **₹10,00,000**. If a code leaks, press **New code** for that team: everyone signed in to it is signed out and joins again with the new code. You can also sign out one member from the team's page (Dataset → click the team).
 3. **Start the game.** Choose a session length (the market closes by itself when it runs out, and you can add time) or none. You can close and reopen the market at any time; while it is closed, prices pause and orders are refused.
 4. **During the game**:
-   - **Market:** move any stock by −10%, −5%, −2%, +2%, +5% or +10%, by any percentage, or to a set price, at once or over 10 seconds to 30 minutes. **Back to listed price** undoes it. Every holding team's money changes at once. Teams see only prices, never your moves.
+   - **Market:** move any stock by −10%, −5%, −2%, +2%, +5% or +10%, by any percentage, or to a set price, at once or over 10 seconds to 30 minutes. **Back to listed price** undoes it. Every holding team's money changes at once. Teams see only prices, never your moves. A move made while the market is closed happens when it opens; after the game ends, prices are final.
    - **Loans:** send money from one team to another, with no approval needed, at an interest rate and deadline you choose (minutes or hours). It comes back automatically with interest at the deadline. Both teams are told each time.
    - **Updates:** type news for every team; it appears on every desk and on the Big Screen, numbered in order.
    - **Dataset:** every team with its code, members, cash, holdings value, **total liquidable money**, loans, net worth and total P&L, live; everyone who signed in, with their phone number; every loan with its initial amount, final amount, deadline and status. Click a team for its whole portfolio. Everything downloads as CSV.
@@ -45,10 +45,11 @@ A multiplayer stock-market game that looks and works like an online broker app, 
 ## How it works, in plain words
 
 **Prices.** Each price = listed price × the host's level × (1 + a small automatic wiggle).
-- The **wiggle** is a mix of slow and fast waves and small random steps, centred on zero. It keeps prices moving a little every second (about ±1–2.5%; tech, EV and green-energy stocks move more, banks and retail less). Over time it **averages to the listed price**: in testing, a one-hour average stays within about 0.15% of it.
+- The **wiggle** is six layers of random drift, from a few seconds to several minutes long. It keeps prices moving a little every second (about ±1–2.5%; tech, EV and green-energy stocks move more, banks and retail less). Each layer is pulled back towards zero all the time, so the price keeps returning to the listed price and **averages to it**: in testing, a one-hour average is typically within about 0.1% of the listed price, and rarely more than 0.5% away even for the liveliest stocks.
 - The **host's level** starts at 1 (no change). A move takes it from where it is to a new value, at once or gradually, and it stays until the host moves it again.
+- The game opens at exactly the listed prices; the wiggle eases in over the first 90 seconds.
 - Prices move in steps of ₹0.05, as on Indian exchanges, and stand still while the market is closed.
-- Prices are worked out **only on the server** from the time and a secret number chosen when the game starts. Every screen shows the same price at the same moment, and nobody can see a future price or tell which moves were the host's.
+- Prices are worked out **only on the server** from the time and a secret number chosen when the game starts. Every screen shows the same price at the same moment. The drift is random, with no repeating pattern, so past prices say nothing about where a price goes next beyond the published rule that it returns to the listed price. Teams see only prices, never the host's moves.
 
 **Money.** All amounts are kept in whole paise, so sums are exact.
 - *Total liquidable money* = cash + what the team's shares would sell for now.
@@ -61,9 +62,9 @@ A multiplayer stock-market game that looks and works like an online broker app, 
 1. At once: the amount leaves the lender's cash and arrives in the borrower's. Both teams get a notice.
 2. At the deadline the website automatically takes the amount + interest from the borrower and pays it to the lender. Both teams get a notice.
 3. If the borrower does not have enough cash then, its shares are sold at that moment's price (largest holding first) until it is covered. If even that is not enough, its cash goes below zero. The lender is always paid in full.
-4. The host can cancel an ongoing loan: the amount goes back, with no interest.
+4. The host can cancel an ongoing loan: the amount goes back, with no interest (if the borrower has spent it, its shares are sold to give it back).
 
-**Privacy.** A desk receives only its own team's account: never another team's money, holdings, members or code, and never the host's moves. The Big Screen shows prices, updates, team names and how many members have signed in, and the standings only after the host reveals them.
+**Privacy and safety.** A desk receives only its own team's account: never another team's money, holdings, members or code, and never the host's moves. The Big Screen shows prices, updates, team names and how many members have signed in, and the standings only after the host reveals them. Ten wrong host passwords from one internet connection within fifteen minutes lock that connection out of the console for five minutes, even if they are all sent at the same moment. Other connections, and a console that is already signed in, keep working. If you forget the password, or someone opened the console before you and chose one, set `HOST_PASSWORD` in Netlify (see DEPLOY.md): it replaces the old password and signs everyone else out of the console. Every save is checked and can be retried without being applied twice, so a slow connection never doubles an order or a loan. CSV downloads are safe to open in Excel (nothing typed by players runs as a formula).
 
 ## For developers
 

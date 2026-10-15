@@ -68,7 +68,10 @@ function renderJoin(msg = '') {
 
 function leave(msg = '') {
   setToken('team', '');
+  closeTicket?.(); closeTicket = null; pop?.remove(); pop = null;
   poller?.stop(); poller = null;
+  pane?.destroy?.(); pane = null; subs.clear(); shown = null;
+  Object.assign(S, { mk: null, me: null, game: null, place: null, updates: [], uv: -1, now: 0, first: true, prev: null });
   if (location.hash !== '#/desk') history.replaceState(null, '', '#/desk');
   renderJoin(msg);
 }
@@ -142,14 +145,19 @@ function drawBanner() {
   swap(shell.banner, bars);
 }
 
+let seq = 0; let orderSeq = 0;
+let closeTicket = null; // the open order ticket, if any
 async function poll() {
+  const my = ++seq;
   const r = await get(`poll?uv=${S.uv}`, token('team'));
-  if (r.status === 401) { leave('Your desk was signed out (the team may have been removed or the game deleted). Join again with your team code.'); return; }
+  if (my < orderSeq) return; // this answer left before an order's result arrived: it is older
+  if (r.status === 401) { leave('Your desk was signed out: the host gave your team a new code, signed you out, or removed the team. Join again with your team’s code (ask the host if it changed).'); return; }
   if (!r.ok) return;
   apply(r);
 }
 
 function apply(r) {
+  if (S.mk && r.mk.g !== S.mk.g) { shown = null; S.updates = []; S.uv = -1; S.first = true; }
   const prev = S.mk;
   S.mk = r.mk; S.me = r.me; S.now = r.now;
   if (r.game) { S.game = r.game; setGame(r.game); }
@@ -160,7 +168,7 @@ function apply(r) {
     S.updates = r.updates; S.uv = r.uv;
     if (!S.first) for (const u of fresh) if (route().view !== 'updates') toast(u.text.length > 120 ? `${u.text.slice(0, 120)}…` : u.text, { title: `Update ${pad(u.n)} from the host`, ms: 9000 });
   }
-  if (tick(r.mk, r.now)) ensure('30m').then(publish);
+  if (tick(r.mk, r.now)) { ensure('30m').then(publish); if (chartRange !== '30m') ensure(chartRange).then(publish); }
   checkNotices();
   S.first = false;
   S.prev = prev;
@@ -366,7 +374,9 @@ function openTicket(t, side0) {
     err, go,
     h('p', { class: 'tiny muted', style: { margin: '10px 0 0' }, text: 'A market order for your team: it fills at the live price the moment it reaches the market. No brokerage is charged.' }));
   const q = () => Math.max(0, Math.floor(Number(input.value) || 0));
+  let inFlight = false;
   function maxQ() {
+    if (!S.mk || !S.me) return 0;
     const p = S.mk.p[t];
     if (side === 'buy') return Math.max(0, Math.floor(S.me.cash / p));
     return S.me.h.find((x) => x.t === t)?.q || 0;
@@ -375,6 +385,7 @@ function openTicket(t, side0) {
     swap(quick, [25, 50, 75, 100].map((f) => h('button', { type: 'button', text: f === 100 ? (side === 'buy' ? 'Max' : 'All') : `${f}%`, onclick: () => { input.value = String(Math.max(1, Math.floor((maxQ() * f) / 100))); draw(); } })));
   }
   function draw() {
+    if (!S.mk || !S.me) return;
     const p = S.mk.p[t]; const n = q(); const held = S.me.h.find((x) => x.t === t)?.q || 0;
     for (const b of sideSeg.children) b.setAttribute('aria-pressed', String(b.dataset.side === side));
     tickText(pxEl, rs(p), 0);
@@ -388,7 +399,7 @@ function openTicket(t, side0) {
     go.className = `btn block lg${side === 'sell' ? ' sell solid' : ''}`;
     set(go, `${side === 'buy' ? 'Buy' : 'Sell'} ${n ? qty(n) : ''} ${t}`.replace(/\s+/g, ' '));
     const bad = !n || (side === 'buy' ? n * p > S.me.cash : n > held);
-    go.disabled = bad || !canTrade();
+    go.disabled = inFlight || bad || !canTrade();
     if (S.game?.phase === 'lobby') set(err, 'The game has not started yet. Orders open when the host starts it.');
     else if (S.game?.phase === 'ended') set(err, 'The game is over. No more orders.');
     else if (!S.mk.open) set(err, 'The market is closed. Orders open when the host opens it.');
@@ -400,23 +411,33 @@ function openTicket(t, side0) {
   minus.addEventListener('click', () => { input.value = String(Math.max(1, q() - 1)); draw(); });
   plus.addEventListener('click', () => { input.value = String(q() + 1); draw(); });
   input.addEventListener('input', () => { err.dataset.server = ''; draw(); });
+  const fail = (msg) => {
+    err.dataset.server = '1'; set(err, msg);
+    if (!form.isConnected) toast(msg, { kind: 'err', title: `${t} order`, ms: 9000 }); // the ticket was closed meanwhile
+  };
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const n = q(); if (!n) return;
-    go.disabled = true;
+    const n = q(); if (!n || inFlight) return;
+    inFlight = true; go.disabled = true;
+    orderSeq = ++seq;
     try {
       const r = await post('trade', { t, side, q: n }, token('team'));
+      orderSeq = ++seq; // and drop every check that left while the order was on its way
       if (r.status === 401) { close(); leave('Your desk was signed out. Join again with your team code.'); return; }
-      if (!r.ok) { err.dataset.server = '1'; set(err, r.error || 'The order did not go through.'); return; }
+      if (!r.ok) { fail(r.error || 'The order did not go through.'); return; }
       close();
       const f = r.fill;
       toast(`${f.side === 'buy' ? 'Bought' : 'Sold'} ${qty(f.q)} ${f.t} at ${rs(f.p)}: ${rs(f.value)} in all.`, { title: 'Order filled' });
       apply({ mk: r.mk, me: r.me, now: r.now, game: r.game });
-    } catch { err.dataset.server = '1'; set(err, 'Could not reach the server. Your order was not placed; please try again.'); } finally { if (form.isConnected) draw(); }
+    } catch {
+      fail('No answer from the server. The order may or may not have gone through: check Orders in Portfolio before trying again.');
+      poller?.now();
+    } finally { inFlight = false; if (form.isConnected) draw(); }
   });
   const close = sheet(`${t} · ${st.name}`, form, { sub: st.sector });
+  closeTicket = close;
   subs.add(draw);
-  const obs = new MutationObserver(() => { if (!form.isConnected) { subs.delete(draw); obs.disconnect(); } });
+  const obs = new MutationObserver(() => { if (!form.isConnected) { subs.delete(draw); obs.disconnect(); if (closeTicket === close) closeTicket = null; } });
   obs.observe(document.body, { childList: true });
   drawQuick(); draw();
   input.select();
@@ -542,7 +563,7 @@ function loanRow(L) {
 
 // ======================= updates =======================
 
-const seenKey = () => `seenUpdate:${S.me?.id}:${S.me?.member?.id}`;
+const seenKey = () => `seenUpdate:${S.mk?.g}:${S.me?.id}:${S.me?.member?.id}`;
 function unseenUpdates() { const seen = store(seenKey()) || 0; return S.updates.filter((u) => u.n > seen).length; }
 
 function UpdatesView(el) {
@@ -591,11 +612,16 @@ function noticesFrom(loans) {
       if (!lent && L.short) text += ` Your team’s cash is ${rs(L.short)} below zero: sell shares to cover it.`;
       out.push({ id: `${L.id}-back`, at: L.settledAt, title: `Loan ${L.id} repaid`, text });
     }
-    if (L.status === 'cancelled') out.push({ id: `${L.id}-x`, at: L.cancelledAt, title: `Loan ${L.id} cancelled`, text: lent ? `The host cancelled the loan; your team’s ${rs(L.amount)} was returned.` : `The host cancelled the loan; ${rs(L.amount)} went back to ${L.other}.` });
+    if (L.status === 'cancelled') {
+      let text = lent ? `The host cancelled the loan; your team’s ${rs(L.amount)} was returned.` : `The host cancelled the loan; ${rs(L.amount)} went back to ${L.other}.`;
+      if (!lent && L.sold.length) text += ` To cover it, these shares were sold: ${L.sold.map(([t, q, p]) => `${qty(q)} ${t} at ${rs(p)}`).join(', ')}.`;
+      if (!lent && L.short) text += ` Your team’s cash is ${rs(L.short)} below zero: sell shares to cover it.`;
+      out.push({ id: `${L.id}-x`, at: L.cancelledAt, title: `Loan ${L.id} cancelled`, text });
+    }
   }
   return out.sort((a, b) => b.at - a.at);
 }
-const nKey = () => `seenNotices:${S.me?.id}:${S.me?.member?.id}`;
+const nKey = () => `seenNotices:${S.mk?.g}:${S.me?.id}:${S.me?.member?.id}`;
 const allNotices = () => (S.me ? noticesFrom(S.me.loans) : []);
 function unreadNotices() { const seen = new Set(store(nKey()) || []); return allNotices().filter((n) => !seen.has(n.id)); }
 const noticeToasts = new Map();
