@@ -25,7 +25,7 @@ export default function learn(app) {
           h('tbody', {}, STOCKS.map((s) => h('tr', {}, h('td', {}, h('span', { class: 'tk', text: s.t })), h('td', { text: s.name }), h('td', { class: 'muted', text: s.sector }), h('td', { class: 'num', text: rs(s.base) })))))),
         P('Prices move every second while the market is open, and stand still while it is closed. Each stock wanders around its listed price; news and events can push it up or down from there. Prices move in steps of ₹0.05.')),
       S('trading', 'Trading',
-        P('Choose a stock in the watchlist and press Buy or Sell. Orders are market orders: they fill at the live price the moment they reach the market, in whole shares. There is no brokerage.'),
+        P('Choose a stock in the watchlist and press Buy or Sell. Orders are market orders: they fill at the live price the moment they reach the market, in whole shares. There is no brokerage. If the connection is slow and no answer comes, pressing the same button again is safe: the same order is never placed twice.'),
         P('You can only spend the cash you have, and only sell shares your team holds (no short selling). Orders are accepted only while the market is open.'),
         h('div', { class: 'example' }, h('p', { class: 'eyebrow', text: 'Example' }), P('NEXO is at ₹271.35. Buying 100 shares costs ₹27,135.00. If NEXO rises to ₹280.00, those shares are worth ₹28,000.00: ₹865.00 of profit, though you only lock it in when you sell.'))),
       S('money', 'Your money',

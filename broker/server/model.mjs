@@ -5,13 +5,14 @@
 //
 //  - m is "market time" in milliseconds: it runs while the market is open and stands
 //    still while it is closed, so prices freeze when trading is closed.
-//  - wiggle(m) is the automatic movement: six layers of random drift, from a few seconds
-//    to several minutes long. Each layer is pulled back towards zero all the time, so the
-//    price keeps returning to the listed price and averages to it. The randomness comes
-//    from a secret seed chosen when the game starts (through SHA-256), so every device
-//    sees the same price at the same moment, but the next steps are new random numbers
-//    that past prices do not reveal: there is no repeating pattern to fit. It eases in
-//    over the first 90 seconds, so the game opens at exactly the listed prices.
+//  - wiggle(m) is the automatic movement: six layers of random steps, from a second to
+//    nearly two minutes apart. Each layer holds its value until its next step, and each
+//    step is pulled back towards zero, so the price keeps returning to the listed price
+//    and averages to it. The randomness comes from a secret seed chosen when the game is
+//    created (through SHA-256), so every device sees the same price at the same moment,
+//    but each step is a new random number that past prices do not reveal: no repeating
+//    pattern to fit, and no glide between steps that a quick eye could follow. Every layer
+//    starts from zero at the opening bell, so the game opens at exactly the listed prices.
 //  - host level(m) is 1 until the host moves the stock. A move takes the level from
 //    where it is now to a new value, at once or over a chosen time.
 // Every function here is pure: it takes the time it should use and never reads a clock.
@@ -25,11 +26,11 @@ export const VOL = { AURI: 0.8, NEXO: 1.35, VANT: 1.25, MERB: 0.75, HELX: 0.9, C
 // The layers: [how long a swing lasts, in seconds; its typical size as a fraction of the
 // price]. Most of the movement is in swings of one to three minutes; the longest layer is
 // small, so a session's average stays close to the listed price (in testing, a one-hour
-// average is typically within about 0.1% of it, and rarely more than 0.5% away).
-const LAYERS = [[4, 0.0004], [12, 0.0012], [30, 0.0026], [75, 0.0038], [180, 0.0030], [420, 0.0010]];
-// Each layer is a chain of random points SPLIT to a swing, joined smoothly. Each point is
-// the last one times RHO plus a new random number, so the chain keeps drifting back to
-// zero; N points of the past are enough (RHO^N is under 0.1%).
+// average is typically within about 0.06% of it, and rarely more than 0.3% away).
+const LAYERS = [[4, 0.00028], [12, 0.00084], [30, 0.00182], [75, 0.00266], [180, 0.0021], [420, 0.0007]];
+// Each layer is a chain of random points, SPLIT to a swing. Each point is the last one
+// times RHO plus a new random number, so the chain keeps drifting back to zero; N points
+// of the past are enough (RHO^N is under 0.1%).
 const SPLIT = 4;
 const RHO = Math.exp(-1 / SPLIT);
 const N = 28;
@@ -56,25 +57,29 @@ function knot(key, k) {
   return ((x >>> 0) / 4294967296) * 2 - 1;
 }
 
+/** Point k of a layer's chain: 0 at the opening bell (k = 0); going away from it in either
+ * direction, each point is the one before times RHO plus a new random number. */
+function chain(key, k) {
+  let p = 0; let r = 1;
+  if (k > 0) for (let j = k; j >= 1 && j > k - N; j--) { p += r * knot(key, j); r *= RHO; }
+  else for (let j = k; j <= -1 && j < k + N; j++) { p += r * knot(key, j); r *= RHO; }
+  return p;
+}
+
 const cache = new Map();
 function wiggleFor(seed, t) {
   const key = `${seed}:${t}`;
   let f = cache.get(key);
   if (f) return f;
   const vol = VOL[t] ?? 1;
-  const layers = LAYERS.map(([swing, a], i) => ({ dt: (swing * 1000) / SPLIT, a: a * vol * NORM, key: words(`${key}:layer:${i}`).slice(0, 4), k: NaN, p0: 0, p1: 0 }));
+  const layers = LAYERS.map(([swing, a], i) => ({ dt: (swing * 1000) / SPLIT, a: a * vol * NORM, key: words(`${key}:layer:${i}`).slice(0, 4), k: NaN, v: 0 }));
   f = (m) => {
     let v = 0;
     for (const L of layers) {
-      const x = m / L.dt;
-      const k = Math.floor(x);
-      if (k !== L.k) { // the chain's points k and k+1 (kept for the next call)
-        let p = 0; let r = 1;
-        for (let j = 0; j < N; j++) { p += r * knot(L.key, k - j); r *= RHO; }
-        L.k = k; L.p0 = p; L.p1 = knot(L.key, k + 1) + RHO * p - RHO_N * knot(L.key, k + 1 - N);
-      }
-      const u = (1 - Math.cos(Math.PI * (x - k))) / 2;
-      v += L.a * (L.p0 + (L.p1 - L.p0) * u);
+      // the point in force at m (held until the next one)
+      const k = m >= 0 ? Math.floor(m / L.dt) : -Math.floor(-m / L.dt);
+      if (k !== L.k) { L.k = k; L.v = chain(L.key, k); }
+      v += L.a * L.v;
     }
     return v;
   };
@@ -103,16 +108,9 @@ export function levelAt(moves, m) {
   return 1;
 }
 
-const OPEN_EASE_MS = 90000;
-/** 0 at the opening bell (market time 0), 1 from 90 seconds either side of it. */
-function openEase(m) {
-  const x = Math.min(1, Math.abs(m) / OPEN_EASE_MS);
-  return x * x * (3 - 2 * x);
-}
-
 /** The price of stock t, in paise, at market time m. */
 export function priceAt(state, t, m) {
-  const raw = BY_T[t].base * levelAt(state.moves[t], m) * (1 + wiggle(state.seed, t, m) * openEase(m));
+  const raw = BY_T[t].base * levelAt(state.moves[t], m) * (1 + wiggle(state.seed, t, m));
   return Math.max(TICK_PAISE, Math.round(raw / TICK_PAISE) * TICK_PAISE);
 }
 

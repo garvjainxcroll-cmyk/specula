@@ -57,10 +57,12 @@ test('creating the game: a name, the teams and a private code for each', async (
   const codes = r.teams.map((t) => t.code);
   assert.equal(new Set(codes).size, 5, 'every code is different');
   for (const c of codes) assert.match(c, /^[A-HJ-NP-Z2-9]{6}$/, 'six letters and numbers, none easily confused');
-  // line i renames team i and keeps its code; fewer lines remove the last teams
-  const r2 = await w.post('host/teams', { names: ['Alpha Capital', 'Bravo', 'Charlie'] }, h);
+  // a line keeps the team with that name; fewer lines remove the teams left out
+  const r2 = await w.post('host/teams', { names: ['Alpha', 'Bravo', 'Charlie'] }, h);
   assert.deepEqual(r2.teams.map((t) => t.code), codes.slice(0, 3));
-  assert.equal(r2.teams[0].name, 'Alpha Capital');
+  // Rename keeps the code
+  assert.ok((await w.post('host/team/rename', { id: r2.teams[0].id, name: 'Alpha Capital' }, h)).ok);
+  assert.equal((await w.get('host/poll', h)).teams[0].code, codes[0]);
   assert.equal((await w.post('host/teams', { names: ['Same', 'same'] }, h)).ok, false, 'names must differ');
   assert.equal((await w.post('host/teams', { names: [] }, h)).ok, false);
   const hp = await w.get('host/poll', h);
@@ -403,7 +405,7 @@ test('the host password: first visit chooses it, then it is needed', async () =>
   assert.equal((await w.get('host/poll', r.token)).ok, true);
 });
 
-test('ten wrong host passwords lock the console for five minutes, even when sent all at once', async () => {
+test('ten wrong host passwords lock the console for ten minutes, even when sent all at once', async () => {
   const w = world();
   await w.game(['Alpha']);
   const before = (await w.store.getMeta('state')).etag;
@@ -412,8 +414,10 @@ test('ten wrong host passwords lock the console for five minutes, even when sent
   assert.deepEqual(said.map((e) => (e.startsWith('Too many') ? 'L' : 'W')).join(''), 'WWWWWWWWWWL');
   assert.equal((await w.post('host/login', { password: 'hostpass' })).ok, false, 'locked even for the right password');
   assert.equal((await w.store.getMeta('state')).etag, before, 'wrong passwords never touch the game');
-  w.tick(5 * 60000 + 1);
-  assert.ok((await w.post('host/login', { password: 'hostpass' })).ok, 'open again after five minutes');
+  w.tick(9 * 60000);
+  assert.match((await w.post('host/login', { password: 'hostpass' })).error, /Try again in 1 minute\./, 'ten tries in any ten minutes');
+  w.tick(60000 + 1);
+  assert.ok((await w.post('host/login', { password: 'hostpass' })).ok, 'open again ten minutes after the first of them');
   // 200 guesses at the same moment, the right one last: only ten are ever checked
   const burst = await Promise.all([...Array(200).keys()].map((i) => w.post('host/login', { password: i === 199 ? 'hostpass' : `x${i}` })));
   assert.equal(burst.filter((r) => r.error === 'Wrong host password.').length, 10);
@@ -421,7 +425,7 @@ test('ten wrong host passwords lock the console for five minutes, even when sent
   assert.equal((await w.store.getMeta('state')).etag, before);
 });
 
-test('the lock counts each connection apart, and forgets tries after fifteen minutes', async () => {
+test('the lock counts each connection apart (an IPv6 /64 is one), and forgets tries after ten minutes', async () => {
   const store = memoryStore();
   let now = Date.UTC(2026, 9, 14, 9, 0, 0);
   const login = async (password, ip) => (await handle(new Request('http://x/api/host/login', {
@@ -431,11 +435,35 @@ test('the lock counts each connection apart, and forgets tries after fifteen min
   for (let i = 0; i < 10; i++) await login(`guess${i}`, '10.0.0.66');
   assert.match((await login('hostpass', '10.0.0.66')).error, /Too many/, 'the guesser is locked out');
   assert.ok((await login('hostpass', '10.0.0.7')).ok, 'the host on another connection is not');
+  for (let i = 0; i < 10; i++) await login(`v6${i}`, `2001:db8:1:2::${i + 1}`);
+  assert.match((await login('hostpass', '2001:db8:1:2:ffff::9')).error, /Too many/, 'new addresses in the same /64 share the count');
+  // a table full of other connections never wipes a count: newcomers share one instead
+  for (let i = 0; i < 520; i++) await login(`flood${i}`, `198.51.${i >> 8}.${i & 255}`);
+  const after = (await store.getMeta('hostlock')).data.c;
+  assert.ok(Object.keys(after).length <= 501);
   // nine typos, then a quarter of an hour later more tries: the old ones no longer count
   for (let i = 0; i < 9; i++) await login(`typo${i}`, '10.0.0.8');
-  now += 16 * 60000;
+  now += 11 * 60000;
   for (let i = 0; i < 9; i++) assert.equal((await login(`typo${i}`, '10.0.0.8')).error, 'Wrong host password.');
   assert.ok((await login('hostpass', '10.0.0.8')).ok);
+});
+
+test('pressing Buy, Send or Post again after a lost answer is not a second order, loan or update', async () => {
+  const w = world();
+  const { h, teams } = await w.game(['Alpha', 'Bravo']);
+  const a = await w.join(teams[0].code, 'Asha');
+  const o1 = await w.post('trade', { t: 'NEXO', side: 'buy', q: 100, rid: 'press-0001' }, a);
+  const o2 = await w.post('trade', { t: 'NEXO', side: 'buy', q: 100, rid: 'press-0001' }, a);
+  assert.ok(o1.ok && o2.ok && o2.again && !o1.again);
+  assert.equal(o2.me.h.find((x) => x.t === 'NEXO').q, 100, 'bought once');
+  assert.ok((await w.post('trade', { t: 'NEXO', side: 'buy', q: 100, rid: 'press-0002' }, a)).me.h.find((x) => x.t === 'NEXO').q === 200, 'a new press is a new order');
+  const L = { lender: teams[0].id, borrower: teams[1].id, amount: '1000', rate: 10, mins: 5, rid: 'loan-0001' };
+  assert.equal((await w.post('host/loan', L, h)).loan.id, 'L1');
+  assert.equal((await w.post('host/loan', L, h)).loan.id, 'L1');
+  assert.equal((await w.get('host/poll', h)).loans.length, 1);
+  const U = { text: 'Rates rise', rid: 'upd-00001' };
+  await w.post('host/update', U, h); await w.post('host/update', U, h);
+  assert.equal((await w.get('host/poll', h)).updates.length, 1);
 });
 
 test('HOST_PASSWORD on the server replaces a password someone else chose, and signs them out', async () => {
@@ -452,6 +480,10 @@ test('HOST_PASSWORD on the server replaces a password someone else chose, and si
   assert.equal((await call('host/login', { password: 'grabbed' }, null, env)).ok, false);
   const mine = (await call('host/login', { password: 'the-real-host' }, null, env)).token;
   assert.ok((await call('host/poll', null, mine, env)).ok);
+  // for good: with HOST_PASSWORD removed later, the grabbed password and its sessions do not come back
+  assert.equal((await call('host/poll', null, theirs)).ok, false);
+  assert.equal((await call('host/login', { password: 'grabbed' })).ok, false);
+  assert.ok((await call('host/login', { password: 'the-real-host' })).ok);
 });
 
 test('a team’s value over time is rebuilt from its trades', async () => {
@@ -511,7 +543,7 @@ test('a crafted stock name or range is refused and changes nothing', async () =>
   assert.ok((await w.get('me/history?r=__proto__', a)).nw.every(Number.isFinite));
 });
 
-test('the team list keeps teams by name: deleting a line removes that team only, never one with members', async () => {
+test('the team list keeps teams by name: a deleted line removes that team, a new line adds one, never moving a code', async () => {
   const w = world();
   const h = await w.host();
   const r = await w.post('host/teams', { names: ['A', 'B', 'C', 'D'] }, h);
@@ -521,24 +553,27 @@ test('the team list keeps teams by name: deleting a line removes that team only,
   const r2 = await w.post('host/teams', { names: ['A', 'C', 'D'] }, h);
   assert.deepEqual(r2.teams.map((t) => [t.name, t.code]), [['A', code.A], ['C', code.C], ['D', code.D]]);
   assert.equal((await w.get('poll', d)).me.name, 'D', 'D’s member is still on D');
-  // editing one line renames that team and keeps its code
+  // a changed line is a new team with a new code; the old one is removed
   const r3 = await w.post('host/teams', { names: ['A', 'Cee', 'D'] }, h);
-  assert.deepEqual(r3.teams.map((t) => [t.name, t.code]), [['A', code.A], ['Cee', code.C], ['D', code.D]]);
-  // a team with members is never dropped by the list
-  assert.equal((await w.post('host/teams', { names: ['A', 'Cee'] }, h)).ok, false);
-  // deleting one line and renaming another in the same save: each team keeps its own code
-  const r4 = await w.post('host/teams', { names: ['A', 'Cee', 'D', 'E', 'F'] }, h);
-  code.E = r4.teams[3].code; code.F = r4.teams[4].code;
-  assert.notEqual(code.E, code.F);
-  const r5 = await w.post('host/teams', { names: ['Cee', 'D', 'Echo', 'F'] }, h);
-  assert.ok(r5.ok, r5.error);
-  assert.deepEqual(r5.teams.map((t) => [t.name, t.code]), [['Cee', code.C], ['D', code.D], ['Echo', code.E], ['F', code.F]]);
-  const r6 = await w.post('host/teams', { names: ['Cee', 'D', 'Echo', 'Fox', 'G', 'H'] }, h);
-  assert.equal(r6.teams[3].code, code.F, 'an edited line is a rename');
-  // a rename next to a deletion is not guessed: the host is asked to do one, then the other
-  const r7 = await w.post('host/teams', { names: ['Cee', 'D', 'Echo', 'Fox', 'Gee'] }, h);
-  assert.equal(r7.ok, false, 'G or H renamed to Gee and the other deleted: not clear which');
-  assert.match(r7.error, /not clear/);
+  assert.equal(r3.teams[1].name, 'Cee'); assert.notEqual(r3.teams[1].code, code.C);
+  assert.equal((await w.post('join', { code: code.C, name: 'Late' })).ok, false, 'C’s code no longer works');
+  // only the capitals changed: the same team
+  const r4 = await w.post('host/teams', { names: ['a', 'Cee', 'D'] }, h);
+  assert.deepEqual(r4.teams.map((t) => t.code), r3.teams.map((t) => t.code));
+  // inserting a line, moving lines, deleting one: every kept team keeps its code
+  const r5 = await w.post('host/teams', { names: ['New', 'D', 'a'] }, h);
+  assert.deepEqual(r5.teams.slice(1).map((t) => [t.name, t.code]), [['D', code.D], ['a', code.A]]);
+  // a team with members signed in is never dropped by the list
+  const r6 = await w.post('host/teams', { names: ['New', 'a'] }, h);
+  assert.equal(r6.ok, false); assert.match(r6.error, /members signed in/);
+  // after a new code nobody is signed in, so the team can go; its people stay in the Dataset
+  assert.ok((await w.post('host/team/code', { id: r5.teams[1].id }, h)).ok);
+  const hp = await w.get('host/poll', h);
+  assert.equal(hp.teams[1].members[0].out > 0, true, 'Dev is listed as signed out');
+  assert.equal((await w.get('board')).teams[1].members, 0, 'the Big Screen counts nobody');
+  assert.ok((await w.post('host/teams', { names: ['New', 'a'] }, h)).ok);
+  const hp2 = await w.get('host/poll', h);
+  assert.deepEqual(hp2.gone.map((m) => [m.name, m.team]), [['Dev', 'D']]);
 });
 
 test('two people with the same name and different phones stay two people', async () => {
@@ -557,6 +592,11 @@ test('two people with the same name and different phones stay two people', async
   const spy = (await w.get('host/poll', h)).teams[0].members.find((x) => x.name === 'Spy');
   assert.ok((await w.post('host/member/remove', { team: teams[0].id, member: spy.id }, h)).ok);
   assert.equal((await w.get('poll', me)).status, 401);
+  const kept = (await w.get('host/poll', h)).teams[0].members.find((x) => x.name === 'Spy');
+  assert.equal(kept.why, 'host', 'still in the Dataset, marked signed out');
+  const again = await w.join(teams[0].code, 'Spy');
+  assert.equal((await w.get('poll', again)).ok, true, 'they can join again with the code');
+  assert.equal((await w.get('poll', me)).status, 401, 'but the old sign-in stays ended');
 });
 
 test('after the end prices are final; while closed, a move happens at the opening bell', async () => {
@@ -577,6 +617,21 @@ test('after the end prices are final; while closed, a move happens at the openin
   w.tick(3000);
   const lv = (await w.get('host/poll', h)).mk.lv;
   assert.ok(Math.abs(lv.NEXO - 1.21) < 1e-9 && Math.abs(lv.VANT - 1) < 1e-9, `${lv.NEXO} ${lv.VANT}`);
+  // an instant move queued while closed is complete the moment the market opens
+  await w.post('host/market', { open: false }, h);
+  await w.post('host/move', { t: 'TCOR', mode: 'pct', value: 20, secs: 0 }, h);
+  await w.post('host/market', { open: true }, h);
+  w.tick(250);
+  assert.ok(Math.abs((await w.get('host/poll', h)).mk.lv.TCOR - 1.2) < 1e-9, 'no ramp to buy into');
+  // a gradual move the market closed in the middle of: a −5% made while closed is −5% from where it stands
+  await w.post('host/move', { t: 'HELX', mode: 'pct', value: 10, secs: 1800 }, h);
+  w.tick(300000);
+  await w.post('host/market', { open: false }, h);
+  const mid = (await w.get('host/poll', h)).mk.lv.HELX;
+  await w.post('host/move', { t: 'HELX', mode: 'pct', value: -5, secs: 0 }, h);
+  await w.post('host/market', { open: true }, h);
+  w.tick(1000);
+  assert.ok(Math.abs((await w.get('host/poll', h)).mk.lv.HELX - mid * 0.95) < 1e-9);
   await w.post('host/end', {}, h);
   const r2 = await w.post('host/move', { t: 'SKYF', mode: 'pct', value: 50, secs: 0 }, h);
   assert.equal(r2.ok, false);

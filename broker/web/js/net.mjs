@@ -32,17 +32,30 @@ export async function api(method, path, body, tok = '') {
 export const get = (path, tok) => api('GET', path, null, tok);
 export const post = (path, body, tok) => api('POST', path, body || {}, tok);
 
-/** Run fn every `every` ms (slower when the tab is hidden), and once at once. */
+/** Run fn every `every` ms (slower when the tab is hidden), and once at once. now() asks for
+ * a run straight away; there is only ever one chain of runs, however often now() is called. */
 export function loop(fn, every = 1500, hiddenEvery = 8000) {
-  let t = null; let stopped = false; let busy = false;
+  let t = null; let stopped = false; let busy = false; let again = false;
+  const schedule = () => { clearTimeout(t); if (!stopped) t = setTimeout(run, document.hidden ? hiddenEvery : net.online ? every : 4000); };
   const run = async () => {
     if (stopped) return;
-    if (!busy) { busy = true; try { await fn(); } catch { /* shown by the offline bar */ } busy = false; }
-    if (!stopped) t = setTimeout(run, document.hidden ? hiddenEvery : net.online ? every : 4000);
+    if (busy) { again = true; return; } // the run in progress goes again when it ends
+    clearTimeout(t);
+    busy = true;
+    try { await fn(); } catch { /* shown by the offline bar */ }
+    busy = false;
+    if (again && !stopped) { again = false; run(); return; }
+    schedule();
   };
-  const wake = () => { if (!document.hidden && !stopped) { clearTimeout(t); run(); } };
+  const wake = () => { if (!document.hidden && !stopped) run(); };
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('online', wake);
   run();
   return { stop() { stopped = true; clearTimeout(t); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake); }, now: wake };
+}
+
+/** An id for one press of a button, sent again if the same press is retried. */
+export function newRid() {
+  const b = new Uint8Array(12); crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(36).padStart(2, '0')).join('');
 }

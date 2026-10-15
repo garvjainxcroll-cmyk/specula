@@ -70,18 +70,25 @@ export function toast(msg, { title = '', kind = '', sticky = false, ms = 4200 } 
 }
 
 // ---------------- sheets (dialogs) ----------------
+const openSheets = new Set();
+/** Close every open window (when the page behind them is replaced). */
+export function closeAllSheets() { for (const close of [...openSheets]) close(); }
+
 export function sheet(title, body, { wide = false, sub = '', autofocus = true } = {}) {
   const prev = document.activeElement;
-  const close = () => { scrim.remove(); document.removeEventListener('keydown', onKey); prev?.focus?.(); };
+  const opened = performance.now();
+  const close = () => { openSheets.delete(close); scrim.remove(); document.removeEventListener('keydown', onKey); prev?.focus?.(); };
   // Escape closes only the sheet on top (a confirmation can sit on another sheet)
   const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && scrim === [...document.querySelectorAll('.scrim')].at(-1)) { e.preventDefault(); close(); } };
-  const scrim = h('div', { class: 'scrim', onclick: (e) => { if (e.target === scrim) close(); } },
+  // a click landing in the first moments is the end of the tap that opened the window
+  const scrim = h('div', { class: 'scrim', onclick: (e) => { if (e.target === scrim && performance.now() - opened > 400) close(); } },
     h('div', { class: `sheet${wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       h('div', { class: 'sheet-head' },
         h('div', {}, h('h2', { text: title }), sub ? h('p', { class: 'muted small', text: sub, style: { margin: '4px 0 0' } }) : null),
         h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', onclick: close }, icon('x'))),
       body));
   document.body.append(scrim);
+  openSheets.add(close);
   document.addEventListener('keydown', onKey);
   const target = (autofocus && scrim.querySelector('input, select, textarea')) || scrim.querySelector('button');
   target?.focus({ preventScroll: true });

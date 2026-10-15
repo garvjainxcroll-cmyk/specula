@@ -1,9 +1,9 @@
 // The Team Desk (#/desk): join with the team code, then the broker desk — watchlist,
 // stock pages with buy and sell, the team's portfolio, the host's updates and notices
 // about loans. A desk only ever receives its own team's account from the server.
-import { h, set, swap, tickText, icon, toast, sheet } from '../dom.mjs';
+import { h, set, swap, tickText, icon, toast, sheet, closeAllSheets } from '../dom.mjs';
 import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, when, ago, mins, initials } from '../fmt.mjs';
-import { get, post, net, token, setToken, loop, onNet } from '../net.mjs';
+import { get, post, net, token, setToken, loop, onNet, newRid } from '../net.mjs';
 import { STOCKS, BY_T, START_CASH } from '../../src/stocks.mjs';
 import { ensure, series, tick } from '../series.mjs';
 import { lineChart, spark } from '../chart.mjs';
@@ -68,7 +68,8 @@ function renderJoin(msg = '') {
 
 function leave(msg = '') {
   setToken('team', '');
-  closeTicket?.(); closeTicket = null; pop?.remove(); pop = null;
+  gen += 1; orderSeq = ++seq; // answers already on their way are for the desk being left
+  closeAllSheets(); closeTicket = null; pop?.remove(); pop = null; clearNoticeToasts();
   poller?.stop(); poller = null;
   pane?.destroy?.(); pane = null; subs.clear(); shown = null;
   Object.assign(S, { mk: null, me: null, game: null, place: null, updates: [], uv: -1, now: 0, first: true, prev: null });
@@ -146,18 +147,19 @@ function drawBanner() {
 }
 
 let seq = 0; let orderSeq = 0;
+let gen = 0; // goes up each time the desk is left
 let closeTicket = null; // the open order ticket, if any
 async function poll() {
   const my = ++seq;
   const r = await get(`poll?uv=${S.uv}`, token('team'));
-  if (my < orderSeq) return; // this answer left before an order's result arrived: it is older
+  if (my < orderSeq) return; // this answer left before an order's result arrived (or before the desk was left)
   if (r.status === 401) { leave('Your desk was signed out: the host gave your team a new code, signed you out, or removed the team. Join again with your team’s code (ask the host if it changed).'); return; }
   if (!r.ok) return;
   apply(r);
 }
 
 function apply(r) {
-  if (S.mk && r.mk.g !== S.mk.g) { shown = null; S.updates = []; S.uv = -1; S.first = true; }
+  if (S.mk && r.mk.g !== S.mk.g) { shown = null; S.updates = []; S.uv = -1; S.first = true; clearNoticeToasts(); }
   const prev = S.mk;
   S.mk = r.mk; S.me = r.me; S.now = r.now;
   if (r.game) { S.game = r.game; setGame(r.game); }
@@ -349,7 +351,7 @@ function StockView(el, t) {
 // ======================= order ticket =======================
 
 function openTicket(t, side0) {
-  if (!S.mk || !S.me) return;
+  if (!S.mk || !S.me || closeTicket) return; // one ticket at a time
   let side = side0;
   const st = BY_T[t];
   const sideSeg = h('div', { class: 'seg full', role: 'radiogroup', 'aria-label': 'Buy or sell' },
@@ -375,6 +377,10 @@ function openTicket(t, side0) {
     h('p', { class: 'tiny muted', style: { margin: '10px 0 0' }, text: 'A market order for your team: it fills at the live price the moment it reaches the market. No brokerage is charged.' }));
   const q = () => Math.max(0, Math.floor(Number(input.value) || 0));
   let inFlight = false;
+  // Buy stays off for a moment, so the second tap of a double tap cannot place an order
+  let settling = true; setTimeout(() => { settling = false; if (form.isConnected) draw(); }, 500);
+  // the same order pressed again (after a lost answer) keeps its id, so it is never placed twice
+  let rid = ''; let ridFor = '';
   function maxQ() {
     if (!S.mk || !S.me) return 0;
     const p = S.mk.p[t];
@@ -399,7 +405,7 @@ function openTicket(t, side0) {
     go.className = `btn block lg${side === 'sell' ? ' sell solid' : ''}`;
     set(go, `${side === 'buy' ? 'Buy' : 'Sell'} ${n ? qty(n) : ''} ${t}`.replace(/\s+/g, ' '));
     const bad = !n || (side === 'buy' ? n * p > S.me.cash : n > held);
-    go.disabled = inFlight || bad || !canTrade();
+    go.disabled = settling || inFlight || bad || !canTrade();
     if (S.game?.phase === 'lobby') set(err, 'The game has not started yet. Orders open when the host starts it.');
     else if (S.game?.phase === 'ended') set(err, 'The game is over. No more orders.');
     else if (!S.mk.open) set(err, 'The market is closed. Orders open when the host opens it.');
@@ -418,19 +424,27 @@ function openTicket(t, side0) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const n = q(); if (!n || inFlight) return;
+    if (settling) return;
+    if (ridFor !== `${side}:${n}`) { ridFor = `${side}:${n}`; rid = newRid(); }
     inFlight = true; go.disabled = true;
     orderSeq = ++seq;
+    const myGen = gen;
     try {
-      const r = await post('trade', { t, side, q: n }, token('team'));
+      const r = await post('trade', { t, side, q: n, rid }, token('team'));
+      if (myGen !== gen) { // the desk was signed out while this order was on its way
+        toast(r.ok ? `${r.fill.side === 'buy' ? 'Bought' : 'Sold'} ${qty(r.fill.q)} ${r.fill.t} at ${rs(r.fill.p)} before your desk was signed out.` : `Your order for ${qty(n)} ${t} was not placed: your desk was signed out.`, { kind: r.ok ? '' : 'err', title: `${t} order`, ms: 9000 });
+        return;
+      }
       orderSeq = ++seq; // and drop every check that left while the order was on its way
       if (r.status === 401) { close(); leave('Your desk was signed out. Join again with your team code.'); return; }
       if (!r.ok) { fail(r.error || 'The order did not go through.'); return; }
       close();
       const f = r.fill;
-      toast(`${f.side === 'buy' ? 'Bought' : 'Sold'} ${qty(f.q)} ${f.t} at ${rs(f.p)}: ${rs(f.value)} in all.`, { title: 'Order filled' });
+      toast(`${r.again ? 'Your first press went through: ' : ''}${f.side === 'buy' ? 'bought' : 'sold'} ${qty(f.q)} ${f.t} at ${rs(f.p)}: ${rs(f.value)} in all.`.replace(/^./, (c) => c.toUpperCase()), { title: 'Order filled' });
       apply({ mk: r.mk, me: r.me, now: r.now, game: r.game });
     } catch {
-      fail('No answer from the server. The order may or may not have gone through: check Orders in Portfolio before trying again.');
+      if (myGen !== gen) return;
+      fail('No answer from the server. The order may or may not have gone through. Press the button again to make sure: the same order is never placed twice.');
       poller?.now();
     } finally { inFlight = false; if (form.isConnected) draw(); }
   });
@@ -625,10 +639,10 @@ const nKey = () => `seenNotices:${S.mk?.g}:${S.me?.id}:${S.me?.member?.id}`;
 const allNotices = () => (S.me ? noticesFrom(S.me.loans) : []);
 function unreadNotices() { const seen = new Set(store(nKey()) || []); return allNotices().filter((n) => !seen.has(n.id)); }
 const noticeToasts = new Map();
+function clearNoticeToasts() { for (const close of noticeToasts.values()) close(); noticeToasts.clear(); }
 function markNoticesRead() {
   store(nKey(), allNotices().map((n) => n.id).slice(0, 400));
-  for (const close of noticeToasts.values()) close();
-  noticeToasts.clear();
+  clearNoticeToasts();
   publishSoon();
 }
 let shown = null;

@@ -13,7 +13,7 @@ export const START_STATS = [
 ];
 export const GAME_STEPS = [
   ['Join Your Team', 'The host gives each team a private code. Open Team Desk, type the code and your name. Every member can sign in on their own device.'],
-  ['Watch the Market', 'Ten companies, prices moving every second. Charts, the day’s high and low, and how far each stock is from the open.'],
+  ['Watch the Market', 'Ten companies, prices moving every second. Charts with the high and low over the time you choose, and how far each stock is from the open.'],
   ['Buy and Sell', 'Market orders in whole shares at the live price. Any member’s order is the team’s order. No brokerage.'],
   ['Read the Updates', 'The host posts news in the Updates tab, numbered in order. News can move the market.'],
   ['Mind the Loans', 'The host may move money between teams as a loan. It comes back with interest at a deadline, automatically.'],

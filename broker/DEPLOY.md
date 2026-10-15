@@ -64,16 +64,16 @@ Never share the host password. Give each team only its own code.
 
 ## On the day
 
-- **Before people arrive:** create the game and the teams, print the codes (Game → **Print**), and put the Big Screen on the projector. Teams can join while the game waits in the lobby; prices are paused and orders wait.
+- **Before people arrive:** create the game and the teams, print the codes (Game → **Print**), and put the Big Screen on the projector. Teams can join while the game waits in the lobby; prices are paused and no orders can be placed until you start the game.
 - Hand each team its code privately. Members join at Team Desk with the code and their name.
 - Press **Start the game**. **Close the market** pauses everything; **Open the market** carries on (with a new session length if you like).
-- If a code leaks: Game → **New code** for that team. Everyone signed in to that team is signed out at once and joins again with the new code. To sign out just one person: Dataset → click the team → **Sign out** next to their name.
-- If your laptop crashes: open `/#/host` on any device and sign in. Nothing is lost; everything is stored online.
+- If a code leaks: Game → **New code** for that team. Everyone signed in to that team is signed out at once and joins again with the new code. To sign out just one person: Dataset → click the team → **Sign out** next to their name. Signed-out people stay in the Dataset and its CSV, marked as signed out.
+- If your laptop crashes: open `/#/host` on any device and sign in. Nothing is lost; everything is stored online. Every device on the hall Wi-Fi shares one count of wrong host passwords (ten in any ten minutes), so if a player has used them up, sign in over mobile data or wait a few minutes. Keeping the console signed in on a second device avoids this.
 - At the end: **End the game**, then **Reveal the results**. Dataset → **Download CSV** keeps a copy of every team, everyone who signed in and every loan.
 
 ## Running it without Netlify (one Wi-Fi network)
 
-On a laptop with Node.js 20 or later installed: open a terminal in the unzipped folder and run `npm install`, then `npm run dev`. The market runs at `http://localhost:8888`. Others on the same Wi-Fi open `http://<this laptop's address>:8888`. Everything is saved in the `.data` folder.
+On a laptop with Node.js 20 or later installed: open a terminal in the unzipped folder and run `npm install`, then `npm run dev`. The market runs at `http://localhost:8888`. Others on the same Wi-Fi open `http://<this laptop's address>:8888`. Everything is saved in the `.data` folder. Forgot the host password? Stop the server (Ctrl+C) and start it again with `HOST_PASSWORD=yournewpassword npm run dev` (on Windows: `set HOST_PASSWORD=yournewpassword` then `npm run dev`).
 
 ## Updating the site later
 

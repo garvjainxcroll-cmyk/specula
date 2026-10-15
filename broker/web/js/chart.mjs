@@ -72,13 +72,14 @@ export function lineChart(box, { fmtY, fmtX, fmtTip = fmtX } = {}) {
     // x labels
     ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';
     const n = Math.max(2, Math.min(6, Math.floor(pw / 110)));
-    let lastRight = -Infinity;
+    let lastRight = -Infinity; let lastTxt = '';
     for (let k = 0; k <= n; k++) {
       const i = Math.round((k / n) * (d.xs.length - 1));
       const txt = fmtX(d.ws[i]); const tw = ctx.measureText(txt).width;
+      if (txt === lastTxt) continue; // a short chart can have two labels in the same minute
       let x = X(d.xs[i]); x = Math.min(Math.max(x, padL + tw / 2), padL + pw - tw / 2);
       if (x - tw / 2 < lastRight + 12) continue;
-      ctx.fillText(txt, x, H - 6); lastRight = x + tw / 2;
+      ctx.fillText(txt, x, H - 6); lastRight = x + tw / 2; lastTxt = txt;
     }
     // reference line (open price / starting money)
     if (d.ref != null && d.ref >= lo && d.ref <= hi) {
