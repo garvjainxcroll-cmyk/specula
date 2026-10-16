@@ -3,7 +3,7 @@
 // Market: move any stock up or down. Dataset: every team, every member who signed in,
 // every loan. Loans, Updates and Tools. Only the host's password unlocks it.
 import { h, set, swap, tickText, icon, toast, sheet, confirmBox, download, csvCell, closeAllSheets } from '../dom.mjs';
-import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, when, ago, mins, compact } from '../fmt.mjs';
+import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, axisTime, when, ago, mins, compact } from '../fmt.mjs';
 import { get, post, net, token, setToken, loop, onNet, newRid } from '../net.mjs';
 import { STOCKS, START_CASH } from '../../src/stocks.mjs';
 import { ensure, series, tick } from '../series.mjs';
@@ -30,15 +30,15 @@ export default function host(app) {
 
 // members signed in now (people signed out stay in the record, marked with when and why)
 const inNow = (t) => t.members.filter((m) => !m.out);
-const OUT_WHY = { code: 'Signed out (new code)', host: 'Signed out by you', removed: 'Team removed' };
+const OUT_WHY = { code: 'Signed out (new code)', host: 'Signed out by you', left: 'Left the desk', removed: 'Team removed' };
 
 async function renderAuth() {
   closeAllSheets(); // a team window must not stay open over the sign-in page
   poller?.stop(); poller = null; shell = null;
   view?.destroy?.(); view = null; subs.clear();
   swap(root, band(null), h('p', { class: 'boot', text: 'Loading the host console…' }));
-  let setup = true;
-  try { const r = await get('host/status'); setup = r.setup; } catch (e) {
+  let setup = true; let online = true;
+  try { const r = await get('host/status'); setup = r.setup; online = r.online !== false; } catch (e) {
     swap(root, band(null), h('main', { class: 'narrow join-page' }, h('div', { class: 'card' },
       h('h2', { text: 'The live server is not running' }),
       h('p', { class: 'muted', style: { marginTop: '10px' }, text: e.message === 'no-server' ? 'This copy of the website was published without its server function. Follow DEPLOY.md (the GitHub way) to put it online with the server.' : 'Could not reach the server. Check the internet connection and reload.' }))));
@@ -66,7 +66,9 @@ async function renderAuth() {
     h('p', { class: 'eyebrow', text: 'Host' }), h('h1', { text: setup ? 'Host console' : 'Set your password', style: { margin: '6px 0 10px' } }),
     h('p', { class: 'lead', text: setup ? 'Sign in to run the game.' : 'First visit after deploying: choose the host password. Only someone with it can run the game, so do this before you share the link. Write it down.' }),
     h('div', { class: 'card' }, form),
-    setup ? h('p', { class: 'muted small', style: { marginTop: '14px' }, text: 'Forgot the password, or someone else chose it before you? In Netlify, add HOST_PASSWORD with a new password and redeploy (DEPLOY.md, Step 3); on the local server, start it again with HOST_PASSWORD set. That password then replaces the old one for good and signs everyone else out of the console. Locked out after wrong tries? Every device on one Wi-Fi shares the count: use mobile data or wait.' }) : null));
+    setup ? h('p', { class: 'muted small', style: { marginTop: '14px' }, text: online
+      ? 'Forgot the password, or someone else chose it before you? In Netlify, add HOST_PASSWORD with a new password and redeploy (DEPLOY.md, Step 3), then sign in once with it: from then on it replaces the old password for good and signs everyone else out of the console. Locked out after wrong tries? Every device on one Wi-Fi shares the count: use mobile data or wait.'
+      : 'Forgot the password, or someone else chose it before you? Stop the local server and start it again with HOST_PASSWORD set to a new password (DEPLOY.md, “Running it without Netlify”), then sign in once with it: from then on it replaces the old password for good.' }) : null));
   pass.focus();
 }
 
@@ -193,7 +195,8 @@ function GameView(el) {
   const count = h('input', { type: 'number', id: 'team-count', min: '1', max: '120', value: '8', inputmode: 'numeric', 'aria-label': 'Number of teams' });
   const names = h('textarea', { id: 'team-names', rows: '8', placeholder: 'One team name per line, e.g.\nAlpha Capital\nBull Run Partners' });
   let dirty = false;
-  const lines = () => names.value.split('\n').map((x) => x.trim()).filter(Boolean);
+  // the same cleaning as the server: no control characters, single spaces, at most 40 letters
+  const lines = () => names.value.split('\n').map((x) => x.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean);
   function fitLines() {
     const n = Math.max(1, Math.min(120, Math.floor(Number(count.value) || 1)));
     const cur = lines();
@@ -416,11 +419,12 @@ function MarketView(el) {
       set(c.ch, `${arrow(chg)} ${pct(chg)} since open`); c.ch.className = `ch num ${dir(chg)}`;
       const lv = (d.mk.lv[s.t] - 1) * 100;
       const last = d.moves.find((m) => m.t === s.t);
-      const waiting = last && last.atOpen && d.mk.m <= last.m; // made while closed: happens at the opening bell
+      // made while closed and not started yet: it waits for the opening bell (or for the moves before it)
+      const waiting = last && last.queued && d.mk.m <= last.m;
       const ramp = !waiting && last && last.dur > 0 && d.mk.m < last.m + last.dur ? Math.ceil((last.m + last.dur - d.mk.m) / 1000) : 0;
       swap(c.lvl,
         Math.abs(lv) < 0.005 ? (ramp || waiting ? null : h('span', { class: 'pill', text: 'No move: automatic only' })) : h('span', { class: `pill ${dir(lv)}`, text: `Your level ${arrow(lv)} ${pct(lv, 1)}` }),
-        waiting ? h('span', { class: 'pill gold', text: `To ${pct((last.to - 1) * 100, 1)} at the opening bell` })
+        waiting ? h('span', { class: 'pill gold', text: `To ${pct((last.to - 1) * 100, 1)} ${last.dur ? `over ${ago(last.dur)} ` : ''}from the opening bell` })
           : ramp ? h('span', { class: 'pill gold', text: `Moving to ${pct((last.to - 1) * 100, 1)} · ${ramp}s${d.mk.open ? '' : ' (paused: market closed)'}` }) : null);
       const e = exposure[s.t];
       set(c.exp, e ? `${e.n} team${e.n > 1 ? 's' : ''} hold it · ${qty(e.q)} shares · ${compact(e.q * p)} at stake` : 'No team holds it yet.');
@@ -445,7 +449,8 @@ function MarketView(el) {
 async function move(t, mode, value, secs) {
   const r = await act('host/move', { t, mode, value, secs });
   if (!r) return false;
-  const when = r.move.atOpen ? (secs ? `over ${ago(secs * 1000)} once the market opens` : 'at the opening bell (the market is closed)') : (secs ? `over ${ago(secs * 1000)}` : 'instantly');
+  const after = r.move.after ? `, after the ${r.move.after} move${r.move.after > 1 ? 's' : ''} already waiting` : '';
+  const when = r.move.atOpen ? (secs ? `over ${ago(secs * 1000)} from the opening bell${after}` : `at the opening bell${after} (the market is closed)`) : (secs ? `over ${ago(secs * 1000)}` : 'instantly');
   toast(`${t}: ${r.move.label}, ${when}. Level ${pct((r.move.to - 1) * 100, 1)} from the listed price.`, { title: 'Move applied' });
   return true;
 }
@@ -472,7 +477,7 @@ function DataView(el) {
         h('div', { class: 'toolbar' }, q, h('button', { class: 'btn ghost sm', type: 'button', onclick: csvTeams, text: 'Download CSV' }))),
       wrap),
     h('section', { class: 'card quiet host-sec' },
-      h('div', { class: 'card-head' }, h('div', { class: 'row' }, h('h2', { text: 'Everyone signed in' }), pcount),
+      h('div', { class: 'card-head' }, h('div', { class: 'row' }, h('h2', { text: 'Everyone who joined' }), pcount),
         h('button', { class: 'btn ghost sm', type: 'button', onclick: csvPeople, text: 'Download CSV' })),
       peopleWrap),
     h('section', { class: 'card quiet host-sec' },
@@ -518,7 +523,7 @@ function DataView(el) {
     if (force || ps !== psig) {
       psig = ps;
       const shown = people.filter((p) => !needle || `${p.name} ${p.phone} ${p.team}`.toLowerCase().includes(needle));
-      set(pcount, `${people.length} ${people.length === 1 ? 'person' : 'people'}`);
+      set(pcount, `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${people.filter((p) => !p.out).length} signed in now`);
       swap(peopleWrap, people.length ? h('table', { class: 'tbl nowrap' },
         h('thead', {}, h('tr', {}, ['#', 'Name', 'Phone', 'Team', 'Team’s total liquidable money', 'First signed in', 'Last signed in', 'Now'].map((x, i) => h('th', { class: i === 4 ? 'num' : '', text: x })))),
         h('tbody', {}, shown.map((p, i) => h('tr', p.tid ? { class: 'click', tabindex: '0', onclick: () => openTeam(p.tid) } : {},
@@ -575,7 +580,7 @@ function csvPeople() {
   const status = (m) => (m.out ? `${OUT_WHY[m.why] || 'Signed out'} ${dt(m.out)}` : 'Signed in');
   const rows = [...d.teams.flatMap((t) => t.members.map((m) => [m.name, m.phone || '', t.name, dt(m.joined), dt(m.last || m.joined), t.sum.liq / 100, status(m)])),
     ...(d.gone || []).map((m) => [m.name, m.phone || '', m.team, dt(m.joined), dt(m.last || m.joined), '', status(m)])];
-  download(`signed-in-${stamp()}.csv`, csv([['Name', 'Phone', 'Team', 'First signed in', 'Last signed in', 'Team’s total liquidable money (₹)', 'Now'], ...rows]));
+  download(`people-${stamp()}.csv`, csv([['Name', 'Phone', 'Team', 'First signed in', 'Last signed in', 'Team’s total liquidable money (₹)', 'Now'], ...rows]));
 }
 function csvLoans() {
   const d = H.data; if (!d) return;
@@ -637,7 +642,7 @@ function openTeam(id) {
     if (scrollTop) body.closest('.sheet').scrollTop = scrollTop;
     if (listTop && body.querySelector('.list-plain')) body.querySelector('.list-plain').scrollTop = listTop;
     chart?.destroy();
-    chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compact(v).replace('₹', '')), fmtX: hm, fmtTip: clock });
+    chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compact(v).replace('₹', '')), fmtX: axisTime, fmtTip: clock });
     chart.set({ xs: r.hist.ws, ws: r.hist.ws, ys: r.hist.nw, ref: START_CASH, refFit: true, refLabel: 'Started with ₹10,00,000', tone: dir(t.sum.nw - START_CASH), label: `${t.name}: net worth` });
     first = false;
   };
@@ -688,14 +693,15 @@ function LoansView(el) {
     const d = H.data;
     const l = d?.teams.find((t) => t.id === lender.value); const b = d?.teams.find((t) => t.id === borrower.value);
     if (!l || !b) { set(err, 'Choose both the lending and the borrowing team.'); return; }
-    if (!(await confirmBox('Send this loan?', preview.textContent, 'Send the loan'))) return;
     const body = { lender: l.id, borrower: b.id, amount: amount.value, rate: rate.value, mins: minutes() };
     const key = JSON.stringify(body);
+    const retry = key === loanKey;
+    if (!(await confirmBox(retry ? 'Send this loan again?' : 'Send this loan?', retry ? 'No answer came for this loan. If the first press went through, nothing more is sent: the server recognises the same loan.' : preview.textContent, retry ? 'Send again (safe)' : 'Send the loan'))) return;
     if (key !== loanKey) { loanKey = key; loanRid = newRid(); } // the same loan sent again is never sent twice
     go.disabled = true;
     try {
       const r = await post('host/loan', { ...body, rid: loanRid }, tokenH());
-      if (!r.ok) { set(err, r.error); return; }
+      if (!r.ok) { set(err, r.error); loanKey = ''; return; } // refused: nothing was sent
       toast(`${r.again ? 'Your first press went through. ' : ''}${rs(r.loan.amount)} sent from ${r.loan.lenderName} to ${r.loan.borrowerName}. ${rs(r.loan.final)} comes back at ${hm(r.loan.due)}.`, { title: `Loan ${r.loan.id} sent` });
       amount.value = ''; loanKey = '';
       refresh();
@@ -742,7 +748,7 @@ function UpdatesView(el) {
     try {
       if (text.value !== updKey) { updKey = text.value; updRid = newRid(); } // the same update posted again is never posted twice
       const r = await post('host/update', { text: text.value, rid: updRid }, tokenH());
-      if (!r.ok) { set(err, r.error); return; }
+      if (!r.ok) { set(err, r.error); updKey = ''; return; } // refused: nothing was posted
       text.value = ''; updKey = ''; toast(`${r.again ? 'Your first press went through. ' : ''}Update ${pad(r.update.n)} is live for every team.`, { title: 'Posted' }); refresh();
     } catch { set(err, 'No answer from the server. The update may already be posted. Press Post again to make sure: the same update is never posted twice.'); refresh(); } finally { go.disabled = false; }
   });
@@ -752,7 +758,7 @@ function UpdatesView(el) {
     const s = JSON.stringify(d.updates);
     if (s === sig) return;
     sig = s;
-    set(go, `Post update ${pad((d.updates.reduce((m, u) => Math.max(m, u.n), 0) || 0) + 1)}`);
+    set(go, updKey && updKey === text.value ? 'Post again (safe)' : `Post update ${pad((d.updates.reduce((m, u) => Math.max(m, u.n), 0) || 0) + 1)}`);
     if (!d.updates.length) { swap(list, h('li', { class: 'empty' }, h('p', { style: { margin: 0 }, text: 'Nothing posted yet.' }))); return; }
     swap(list, d.updates.map((u) => h('li', { class: 'up-item' },
       h('span', { class: 'up-n', 'aria-hidden': 'true', text: pad(u.n) }),

@@ -425,7 +425,7 @@ test('ten wrong host passwords lock the console for ten minutes, even when sent 
   assert.equal((await w.store.getMeta('state')).etag, before);
 });
 
-test('the lock counts each connection apart (an IPv6 /64 is one), and forgets tries after ten minutes', async () => {
+test('the lock counts each connection apart (an IPv6 /48 is one), and forgets tries after ten minutes', async () => {
   const store = memoryStore();
   let now = Date.UTC(2026, 9, 14, 9, 0, 0);
   const login = async (password, ip) => (await handle(new Request('http://x/api/host/login', {
@@ -435,12 +435,19 @@ test('the lock counts each connection apart (an IPv6 /64 is one), and forgets tr
   for (let i = 0; i < 10; i++) await login(`guess${i}`, '10.0.0.66');
   assert.match((await login('hostpass', '10.0.0.66')).error, /Too many/, 'the guesser is locked out');
   assert.ok((await login('hostpass', '10.0.0.7')).ok, 'the host on another connection is not');
-  for (let i = 0; i < 10; i++) await login(`v6${i}`, `2001:db8:1:2::${i + 1}`);
-  assert.match((await login('hostpass', '2001:db8:1:2:ffff::9')).error, /Too many/, 'new addresses in the same /64 share the count');
+  for (let i = 0; i < 10; i++) await login(`v6${i}`, `2001:db8:1:${i}::1`);
+  assert.match((await login('hostpass', '2001:db8:1:ffff::9')).error, /Too many/, 'new addresses in the same /48 share the count');
   // a table full of other connections never wipes a count: newcomers share one instead
-  for (let i = 0; i < 520; i++) await login(`flood${i}`, `198.51.${i >> 8}.${i & 255}`);
+  const full = { c: Object.fromEntries([...Array(2000).keys()].map((i) => [`k${i}`, [now]])), id: 'seed0000' };
+  full.c.any = [now, now, now];
+  await store.set('hostlock', full);
+  assert.equal((await login('nope', '203.0.113.50')).error, 'Wrong host password.');
   const after = (await store.getMeta('hostlock')).data.c;
-  assert.ok(Object.keys(after).length <= 501);
+  assert.equal(after.any.length, 3, 'a live count is never dropped');
+  assert.equal(after['*'].length, 1, 'the newcomer was counted in the shared count');
+  // a record saved by the previous version does not break the sign-in
+  await store.set('hostlock', { c: { old1: { t: [now], until: 0 }, old2: { t: [], until: now + 60000 } }, id: 'oldform0' });
+  assert.ok((await login('hostpass', '10.0.0.9')).ok);
   // nine typos, then a quarter of an hour later more tries: the old ones no longer count
   for (let i = 0; i < 9; i++) await login(`typo${i}`, '10.0.0.8');
   now += 11 * 60000;
@@ -464,6 +471,75 @@ test('pressing Buy, Send or Post again after a lost answer is not a second order
   const U = { text: 'Rates rise', rid: 'upd-00001' };
   await w.post('host/update', U, h); await w.post('host/update', U, h);
   assert.equal((await w.get('host/poll', h)).updates.length, 1);
+});
+
+test('moves made while closed line up from the opening bell; a gradual move changes only at whole seconds', async () => {
+  const w = world();
+  const { h } = await w.game(['Alpha']);
+  w.tick(4321);
+  const lv = async (t) => (await w.get('host/poll', h)).mk.lv[t];
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  await w.post('host/market', { open: false }, h);
+  await w.post('host/move', { t: 'AURI', mode: 'pct', value: -10, secs: 0 }, h);
+  await w.post('host/move', { t: 'AURI', mode: 'pct', value: 5, secs: 600 }, h);
+  await w.post('host/move', { t: 'NEXO', mode: 'pct', value: 10, secs: 600 }, h);
+  await w.post('host/move', { t: 'NEXO', mode: 'pct', value: 5, secs: 0 }, h);
+  await w.post('host/market', { open: true }, h);
+  w.tick(1);
+  assert.ok(near(await lv('AURI'), 0.9), 'the crash happens at the bell');
+  assert.ok(near(await lv('NEXO'), 1), 'the glide starts at the bell');
+  w.tick(300000);
+  assert.ok(Math.abs((await lv('AURI')) - 0.9225) < 1e-3 && Math.abs((await lv('NEXO')) - 1.05) < 1e-3, 'both glide');
+  w.tick(301000);
+  assert.ok(near(await lv('AURI'), 0.945) && near(await lv('NEXO'), 1.155), 'and the +5% comes after the glide');
+  // two quick clicks add up even before the first is in effect
+  await w.post('host/move', { t: 'HELX', mode: 'pct', value: 2, secs: 0 }, h);
+  w.tick(300);
+  await w.post('host/move', { t: 'HELX', mode: 'pct', value: 2, secs: 0 }, h);
+  w.tick(1000);
+  assert.ok(near(await lv('HELX'), 1.0404));
+  // a gradual move: the price is the same all through each second
+  await w.post('host/move', { t: 'GRVT', mode: 'pct', value: 10, secs: 60 }, h);
+  w.tick(10000 - (w.now() % 1000));
+  const seen = new Set(); for (let i = 0; i < 8; i++) { seen.add((await w.get('market')).mk.p.GRVT); w.tick(110); }
+  assert.ok(seen.size <= 2, 'at most one change in 0.9 s');
+});
+
+test('a repeated press is recognised however many other orders came between; Leave this desk signs the person out', async () => {
+  const w = world();
+  const names = [...Array(12).keys()].map((i) => `T${i}`);
+  const { h, teams } = await w.game(names);
+  const a = await w.join(teams[0].code, 'Asha');
+  const others = await Promise.all(teams.slice(1).map((t, i) => w.join(t.code, `P${i}`)));
+  assert.ok((await w.post('trade', { t: 'NEXO', side: 'buy', q: 5, rid: 'mine-0001' }, a)).ok);
+  for (let k = 0; k < 25; k++) for (const o of others) await w.post('trade', { t: 'MERB', side: 'buy', q: 1, rid: `o${k}-${o.slice(-6)}` }, o);
+  const again = await w.post('trade', { t: 'NEXO', side: 'buy', q: 5, rid: 'mine-0001' }, a);
+  assert.ok(again.again); assert.equal(again.me.h.find((x) => x.t === 'NEXO').q, 5);
+  // leaving: signed out on the server, kept in the Dataset; the name is free for someone else
+  assert.ok((await w.post('leave', {}, a)).ok);
+  assert.equal((await w.get('poll', a)).status, 401);
+  const m = (await w.get('host/poll', h)).teams[0].members;
+  assert.deepEqual(m.map((x) => [x.name, x.why]), [['Asha', 'left']]);
+  assert.equal((await w.get('board')).teams[0].members, 0);
+  const r1 = await w.post('join', { code: teams[0].code, name: 'Rahul', phone: '9811111111' });
+  const rid1 = (await w.get('host/poll', h)).teams[0].members.find((x) => x.name === 'Rahul').id;
+  await w.post('host/member/remove', { team: teams[0].id, member: rid1 }, h);
+  assert.ok((await w.post('join', { code: teams[0].code, name: 'Rahul', phone: '9822222222' })).ok, 'a different Rahul can join');
+  assert.equal((await w.get('poll', r1.token)).status, 401);
+  assert.equal((await w.get('host/poll', h)).teams[0].members.filter((x) => x.name === 'Rahul').length, 2);
+});
+
+test('two sign-ins with HOST_PASSWORD at the same moment both stay signed in', async () => {
+  const store = memoryStore();
+  const now = Date.UTC(2026, 9, 14, 9, 0, 0);
+  const env = { now: () => now, HOST_PASSWORD: 'the-real-host' };
+  const call = async (path, body, token) => (await handle(new Request(`http://x/api/${path}`, {
+    method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', ...(token ? { 'x-token': token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  }), store, env)).json();
+  const early = (await call('host/login', { password: 'the-real-host' })).token;
+  const [x, y] = await Promise.all([call('host/login', { password: 'the-real-host' }), call('host/login', { password: 'the-real-host' })]);
+  for (const t of [early, x.token, y.token]) assert.ok((await call('host/poll', null, t)).ok);
 });
 
 test('HOST_PASSWORD on the server replaces a password someone else chose, and signs them out', async () => {

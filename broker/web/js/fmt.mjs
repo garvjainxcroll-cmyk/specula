@@ -29,6 +29,8 @@ const tm = new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit'
 const df = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
 export const clock = (w) => tf.format(new Date(w));
 export const hm = (w) => tm.format(new Date(w));
+/** A chart's time label: the clock time, with the date when it is not today. */
+export const axisTime = (w) => (new Date(w).toDateString() === new Date().toDateString() ? hm(w) : df.format(new Date(w)));
 export const when = (w) => df.format(new Date(w));
 export function ago(ms) {
   const s = Math.max(0, Math.round(ms / 1000));

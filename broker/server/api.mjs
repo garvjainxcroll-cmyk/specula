@@ -17,7 +17,7 @@
 //    read a future price from the website.
 
 import { STOCKS, TICKERS, BY_T, START_CASH } from '../src/stocks.mjs';
-import { priceAt, pricesAt, levelsAt, levelAt, marketTime, isRunning, setRunning, wallTimeOf, LEVEL_MIN, LEVEL_MAX } from './model.mjs';
+import { priceAt, pricesAt, levelsAt, levelAt, moveStart, moveEnd, marketTime, isRunning, setRunning, wallTimeOf, LEVEL_MIN, LEVEL_MAX } from './model.mjs';
 
 const KEY = 'state';
 const TOKEN_MS = 30 * 864e5;
@@ -95,7 +95,7 @@ function freshState(now, keep = {}) {
   };
 }
 function freshFund(t, now) {
-  t.cash = START_CASH; t.h = {}; t.rz = 0; t.tr = []; t.ntr = 0; t.base = null; t.reset = now;
+  t.cash = START_CASH; t.h = {}; t.rz = 0; t.tr = []; t.ntr = 0; t.base = null; t.reset = now; t.done = [];
   return t;
 }
 /** A code no team has: neither the saved teams nor `more` (teams made in the same save). */
@@ -170,23 +170,24 @@ const NOCHANGE = Symbol('nochange');
 
 // ---------------- a repeated press is not a second action ----------------
 // The desk and the console send an id with each order, loan and update, and the same id
-// again when someone presses the button again after an answer was lost. The state keeps
-// the last DONE_KEEP ids with their result, so a repeat gets the first result back.
-const DONE_KEEP = 200;
-const ridOf = (body, scope) => (typeof body.rid === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(body.rid) ? `${scope}:${body.rid}` : '');
-const doneBefore = (s, rid) => (rid ? (s.done || []).find((x) => x[0] === rid)?.[1] : undefined);
-function remember(s, rid, out) { if (rid) s.done = [...(s.done || []), [rid, out]].slice(-DONE_KEEP); }
+// again when someone presses the button again after an answer was lost. Each team keeps
+// the ids of its last DONE_KEEP orders (and the host of its last loans and updates), with
+// their result, so a repeat gets the first result back however busy the game is.
+const DONE_KEEP = 40;
+const ridOf = (body) => (typeof body.rid === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(body.rid) ? body.rid : '');
+const doneBefore = (list, rid) => (rid ? (list || []).find((x) => x[0] === rid)?.[1] : undefined);
+const remember = (list, rid, out) => (rid ? [...(list || []), [rid, out]].slice(-DONE_KEEP) : list || []);
 
 // ---------------- the host login lock ----------------
 // Kept apart from the game, so wrong passwords never slow down trades. Each internet
-// connection has its own count (an IPv6 connection is its whole /64 block), so a player
+// connection has its own count (an IPv6 connection is its whole /48 block), so a player
 // on another network cannot lock the host out; every device on one Wi-Fi shares a count.
 // Every try is counted before its password is checked, so guesses sent at the same moment
 // cannot slip past: at most ten tries in any ten minutes. A right password clears the count.
 const LOCK_KEY = 'hostlock';
 const LOCK_TRIES = 10;
 const LOCK_WINDOW_MS = 10 * 60000;
-const LOCK_CLIENTS = 500;
+const LOCK_CLIENTS = 2000;
 const OVERFLOW = '*'; // shared by new connections while the table is full
 
 /** The part of an internet address that names one connection. */
@@ -198,7 +199,7 @@ export function connectionOf(ip) {
   const [head, tail = ''] = a.split('::');
   const hs = head ? head.split(':') : []; const ts = tail ? tail.split(':') : [];
   const groups = a.includes('::') ? [...hs, ...Array(Math.max(0, 8 - hs.length - ts.length)).fill('0'), ...ts] : hs;
-  return groups.slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64';
+  return groups.slice(0, 3).map((g) => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/48';
 }
 
 /** Change the lock record safely when tries arrive together (a conditional write). */
@@ -218,7 +219,12 @@ async function editLock(store, fn) {
 }
 async function takeTry(store, now, who) {
   await editLock(store, (c) => {
-    const live = (k) => (c[k] || []).filter((x) => x > now - LOCK_WINDOW_MS);
+    const live = (k) => {
+      const e = c[k];
+      // an entry saved by the previous version is { t: [...], until }
+      const t = Array.isArray(e) ? e : e && e.until > now ? Array(LOCK_TRIES).fill(e.until - LOCK_WINDOW_MS) : Array.isArray(e?.t) ? e.t : [];
+      return t.filter((x) => typeof x === 'number' && x > now - LOCK_WINDOW_MS);
+    };
     for (const k of Object.keys(c)) { const t = live(k); if (t.length) c[k] = t; else delete c[k]; }
     // a full table never forgets a live count: new connections share one count instead
     const key = c[who] || Object.keys(c).length < LOCK_CLIENTS ? who : OVERFLOW;
@@ -394,7 +400,7 @@ function hostTeamRow(s, t, now, prices) {
 
 function moveLog(s, limit = 150) {
   const out = [];
-  for (const [t, list] of Object.entries(s.moves)) for (const x of list) out.push({ t, m: x[0], from: x[7] ?? x[1], to: x[2], dur: x[6] ? 0 : x[3], w: x[4], label: x[5] || '', atOpen: !!x[6] });
+  for (const [t, list] of Object.entries(s.moves)) for (const x of list) out.push({ t, m: x[0], from: x[7] ?? x[1], to: x[2], dur: x[6] ? 0 : x[3], w: x[4], label: x[5] || '', atOpen: !!x[6], queued: !!x[8] });
   return out.sort((a, b) => b.w - a.w).slice(0, limit);
 }
 
@@ -550,8 +556,12 @@ async function route(c) {
       if (!t) no('That code does not match any team. Check it with the host.');
       // the same name on the same team is the same person, unless the phone numbers differ
       const digits = (x) => String(x || '').replace(/\D/g, '');
-      let m = t.members.find((x) => x.name.toLowerCase() === name.toLowerCase());
-      if (m && phone && m.phone && digits(m.phone).slice(-10) !== digits(phone).slice(-10)) no(`Someone called ${m.name} is already on this team. Add your surname or an initial to your name.`);
+      const same = t.members.filter((x) => x.name.toLowerCase() === name.toLowerCase());
+      const samePhone = (x) => !phone || !x.phone || digits(x.phone).slice(-10) === digits(phone).slice(-10);
+      let m = same.find((x) => !x.out) || null;
+      if (m && !samePhone(m)) no(`Someone called ${m.name} is already on this team. Add your surname or an initial to your name.`);
+      // a signed-out record of the same person comes back; a different person gets their own
+      if (!m) m = same.findLast((x) => samePhone(x)) || null;
       if (!m || m.out) { if (active(t).length >= 50) no('This team already has 50 members signed in.'); }
       if (m) { m.last = now; m.out = null; m.why = null; if (phone && !m.phone) m.phone = phone; } else {
         if (t.members.length >= 200) no('This team has too many members. Ask the host.');
@@ -577,6 +587,14 @@ async function route(c) {
   const member = found && !found.out && sv === String(found.sv || 0) ? found : null;
   if (!team || !member) return denied();
 
+  if (path === 'leave' && POST) {
+    await mutate(store, now, (s) => {
+      const m = teamById(s, team.id)?.members.find((x) => x.id === member.id);
+      if (!m || m.out) return NOCHANGE;
+      m.out = now; m.why = 'left'; m.sv = (m.sv || 0) + 1;
+    });
+    return ok();
+  }
   if (path === 'poll' && !POST) {
     const mk = market(s, now);
     const uv = Number(url.searchParams.get('uv'));
@@ -597,10 +615,10 @@ async function route(c) {
     if (!isTicker(k)) no('Unknown stock.');
     if (!side) no('Choose Buy or Sell.');
     if (!Number.isInteger(q) || q < 1 || q > 10000000) no('Quantity must be a whole number of shares, at least 1.');
-    const rid = ridOf(body, team.id);
+    const rid = ridOf(body);
     let again = null;
     const { s: s2, out } = await mutate(store, now, (s) => {
-      again = doneBefore(s, rid) || null;
+      again = doneBefore(teamById(s, team.id)?.done, rid) || null;
       if (again) return NOCHANGE;
       if (s.game.phase === 'lobby') no('The game has not started yet. Orders open when the host starts it.');
       if (s.game.phase === 'ended') no('The game is over. No more orders.');
@@ -611,7 +629,7 @@ async function route(c) {
       const p = priceAt(s, k, m);
       if (side === 'buy') buy(t, k, q, p, now, m); else sell(t, k, q, p, now, m);
       const fill = { t: k, side, q, p, value: q * p, at: now, by: member.name };
-      remember(s, rid, fill);
+      t.done = remember(t.done, rid, fill);
       return fill;
     });
     const mk = market(s2, now);
@@ -630,7 +648,7 @@ async function hostRoute(c) {
 
   if (path === 'host/status' && !POST) {
     const s = await readState(store, now);
-    return ok({ setup: !!(s.host || envPass) });
+    return ok({ setup: !!(s.host || envPass), online: store.kind === 'blobs' });
   }
   if (path === 'host/setup' && POST) {
     if (envPass) no('The host password is set on the server. Use it to sign in.');
@@ -658,7 +676,12 @@ async function hostRoute(c) {
       // HOST_PASSWORD replaces a stored password for good: if HOST_PASSWORD is removed later,
       // this password still works and the old one (and its sessions) do not come back
       const salt = randomId(16); const hash = await pbkdf2(envPass, salt);
-      s2 = (await mutate(store, now, (x) => { x.host = { salt, hash, hv: (x.host?.hv || 0) + 1 }; })).s;
+      s2 = (await mutate(store, now, async (x) => {
+        if (x.host && safeEqual(await pbkdf2(envPass, x.host.salt), x.host.hash)) return NOCHANGE; // stored a moment ago
+        // a different stored password: its sessions end; none stored: sessions made under
+        // HOST_PASSWORD (host:0) carry on
+        x.host = { salt, hash, hv: x.host ? (x.host.hv || 0) + 1 : 0 };
+      })).s;
     }
     return ok({ token: await makeToken(s2, await hostSub(s2), now) });
   }
@@ -716,8 +739,8 @@ async function hostRoute(c) {
       }
       for (const t of s.teams) {
         if (next.includes(t)) continue;
-        if (active(t).length) no(`“${t.name}” has members signed in, so it is not removed. Keep its line; to rename it, use Rename in the list of codes.`);
-        if (hasHistory(s, t)) no(`“${t.name}” has already traded or has a loan, so it cannot be removed.`);
+        if (active(t).length) no(`Nothing was saved: “${t.name}” has members signed in, so the list does not remove it. Keep its line, or remove it with Remove in the list of codes. (To rename a team and keep its code, use Rename.)`);
+        if (hasHistory(s, t)) no(`Nothing was saved: “${t.name}” has already traded or has a loan, so it cannot be removed. Keep its line.`);
         keepPeople(s, t, now);
       }
       s.teams = next;
@@ -854,24 +877,36 @@ async function hostRoute(c) {
     const { out } = await mutate(store, now, (s) => {
       if (s.game.phase === 'ended') no('The game is over and its prices are final. Take the game back (Game tab) to move prices again.');
       const m = marketTime(s.clock, now);
-      // while the market is closed prices stand still: an instant move happens 1 ms of market
-      // time after the frozen moment, so it is complete the instant the market opens
       const closed = !isRunning(s.clock);
-      const dur = closed && !secs ? 1 : secs * 1000;
       const list = (s.moves[t] ||= []);
-      const from = levelAt(list, m);
-      // a move still waiting for the opening bell has not happened yet: a second +10% made
-      // while closed builds on the first (but not on the unreached end of a gradual move
-      // the market closed in the middle of)
-      const last = list.at(-1);
-      const waiting = closed && last && last[0] === m;
-      const basis = waiting ? last[2] : from;
+      // while closed: the moves already queued for the bell and not yet complete; while open:
+      // moves not in effect yet (an instant move made less than a second ago, or the rest of
+      // a queue from the opening bell)
+      const waits = closed ? (x) => x[8] === 1 && moveEnd(x) > m : (x) => moveStart(x) > m;
+      const pending = []; for (let i = list.length - 1; i >= 0 && waits(list[i]); i--) pending.unshift(list[i]);
+      let start; let from;
+      if (closed) {
+        // Prices stand still while closed, and moves wait for the opening bell: they play one
+        // after another from the bell, each starting where the one before ends.
+        const last = pending.at(-1);
+        start = last ? moveEnd(last) : m;
+        from = last ? last[2] : levelAt(list, m);
+      } else {
+        // While open a move starts now and replaces anything still waiting; two quick clicks
+        // (the first not in effect yet) still add up.
+        start = m; from = levelAt(list, m);
+      }
+      const quick = !closed && pending.filter((x) => !x[8]).at(-1);
+      const basis = closed ? from : quick ? quick[2] : from;
       let to = mode === 'pct' ? basis * (1 + value / 100) : mode === 'price' ? (value * 100) / BY_T[t].base : 1;
       to = Math.min(LEVEL_MAX, Math.max(LEVEL_MIN, to));
       const label = mode === 'pct' ? `${value > 0 ? '+' : ''}${value}%` : mode === 'price' ? `to ₹${value}` : 'back to listed price';
-      // [market time, level from, level to, ms, wall time, label, 1 if instant at the opening bell, level it built on]
-      list.push([m, from, to, dur, now, label, closed && !secs ? 1 : 0, basis]);
-      return { t, from, to, secs, label, atOpen: closed };
+      // an instant move while closed takes effect 1 ms after its start (dur 1), at the bell
+      const dur = closed && !secs ? 1 : secs * 1000;
+      // [start (market time), level from, level to, ms, wall time, label, 1 if instant at the
+      //  opening bell, level it built on, 1 if made while closed]
+      list.push([start, from, to, dur, now, label, closed && !secs ? 1 : 0, basis, closed ? 1 : 0]);
+      return { t, from, to, secs, label, atOpen: closed, after: closed ? pending.length : 0 };
     });
     return ok({ move: out });
   }
@@ -884,10 +919,10 @@ async function hostRoute(c) {
     if (!Number.isFinite(amount) || amount < 100) no('Type a loan amount of at least ₹1.');
     if (!Number.isFinite(rate) || rate < 0 || rate > 1000) no('Type an interest rate between 0% and 1000%.');
     if (!Number.isFinite(mins) || mins < 0.1 || mins > 30 * 24 * 60) no('Choose a deadline between 6 seconds (0.1 min) and 30 days.');
-    const rid = ridOf(body, 'host');
+    const rid = ridOf(body);
     let again = null;
     const { out } = await mutate(store, now, (s) => {
-      const id = doneBefore(s, rid);
+      const id = doneBefore(s.hostDone, rid);
       again = id ? s.loans.find((x) => x.id === id) || null : null;
       if (again) return NOCHANGE;
       if (s.game.phase === 'ended') no('The game is over.');
@@ -903,7 +938,7 @@ async function hostRoute(c) {
       };
       l.cash -= amount; b.cash += amount;
       s.loans.push(L);
-      remember(s, rid, L.id);
+      s.hostDone = remember(s.hostDone, rid, L.id);
       return L;
     });
     return ok({ loan: again || out, again: !!again });
@@ -928,16 +963,16 @@ async function hostRoute(c) {
   if (path === 'host/update') {
     const text = cleanText(body.text, 4000);
     if (!text) no('Type the update first.');
-    const rid = ridOf(body, 'host');
+    const rid = ridOf(body);
     let again = null;
     const { out } = await mutate(store, now, (s) => {
-      const id = doneBefore(s, rid);
+      const id = doneBefore(s.hostDone, rid);
       again = id ? s.updates.find((x) => x.id === id) || null : null;
       if (again) return NOCHANGE;
       s.n.update += 1;
       const x = { id: `U${s.n.update}`, n: s.n.update, text, at: now };
       s.updates.push(x); s.uv += 1;
-      remember(s, rid, x.id);
+      s.hostDone = remember(s.hostDone, rid, x.id);
       return x;
     });
     return ok({ update: again || out, again: !!again });

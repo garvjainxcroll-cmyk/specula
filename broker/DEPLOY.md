@@ -34,7 +34,7 @@ If you see a page saying **"The website is online, but its server did not start"
 1. Open `https://YOUR-SITE.netlify.app/api/health`. You should see `{"ok":true,"storage":"blobs",...}`.
 2. Open `https://YOUR-SITE.netlify.app/#/host`. The first time, it asks you to **choose the host password** (at least 6 characters). **Do this before you share the link**, because the first person to open this page chooses the password. Write it down.
    - Alternative: in Netlify → **Project configuration → Environment variables**, add `HOST_PASSWORD` with your password, then redeploy (Way 1: drag the zip onto the **Deploys** page again; Way 2: **Deploys → Trigger deploy**). That password then always works.
-   - **If the console asks you to sign in with a password you never chose**, someone opened it before you, or you forgot yours. Set `HOST_PASSWORD` as above and redeploy: it replaces the old password and signs everyone else out of the console.
+   - **If the console asks you to sign in with a password you never chose**, someone opened it before you, or you forgot yours. Set `HOST_PASSWORD` as above, redeploy, and sign in once with it: it then replaces the old password for good and signs everyone else out of the console.
 3. Open `https://YOUR-SITE.netlify.app/` on a phone: you see the Home page. **Team Desk** asks for a team code.
 
 ## The links
@@ -69,11 +69,14 @@ Never share the host password. Give each team only its own code.
 - Press **Start the game**. **Close the market** pauses everything; **Open the market** carries on (with a new session length if you like).
 - If a code leaks: Game → **New code** for that team. Everyone signed in to that team is signed out at once and joins again with the new code. To sign out just one person: Dataset → click the team → **Sign out** next to their name. Signed-out people stay in the Dataset and its CSV, marked as signed out.
 - If your laptop crashes: open `/#/host` on any device and sign in. Nothing is lost; everything is stored online. Every device on the hall Wi-Fi shares one count of wrong host passwords (ten in any ten minutes), so if a player has used them up, sign in over mobile data or wait a few minutes. Keeping the console signed in on a second device avoids this.
-- At the end: **End the game**, then **Reveal the results**. Dataset → **Download CSV** keeps a copy of every team, everyone who signed in and every loan.
+- At the end: **End the game**, then **Reveal the results**. In Dataset, press **Download CSV** in each of its three lists (teams, everyone who joined, loans) to keep a copy of everything.
 
 ## Running it without Netlify (one Wi-Fi network)
 
-On a laptop with Node.js 20 or later installed: open a terminal in the unzipped folder and run `npm install`, then `npm run dev`. The market runs at `http://localhost:8888`. Others on the same Wi-Fi open `http://<this laptop's address>:8888`. Everything is saved in the `.data` folder. Forgot the host password? Stop the server (Ctrl+C) and start it again with `HOST_PASSWORD=yournewpassword npm run dev` (on Windows: `set HOST_PASSWORD=yournewpassword` then `npm run dev`).
+On a laptop with Node.js 20 or later installed: open a terminal in the unzipped folder and run `npm install`, then `npm run dev`. The market runs at `http://localhost:8888`. Others on the same Wi-Fi open `http://<this laptop's address>:8888`. Everything is saved in the `.data` folder. Forgot the host password? Stop the server (Ctrl+C) and start it again with the new password, then sign in once with it (after that, plain `npm run dev` keeps it):
+  - Mac or Linux: `HOST_PASSWORD=yournewpassword npm run dev`
+  - Windows PowerShell (the usual Windows terminal): `$env:HOST_PASSWORD="yournewpassword"; npm run dev`
+  - Windows Command Prompt: `set HOST_PASSWORD=yournewpassword` and then `npm run dev`
 
 ## Updating the site later
 

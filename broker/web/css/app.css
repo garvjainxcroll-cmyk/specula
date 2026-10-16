@@ -423,6 +423,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 16px; }
 .toasts { position: fixed; z-index: 80; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom)); display: grid; gap: 8px; width: min(460px, calc(100vw - 24px)); }
 /* on a phone stock page, notices sit above the Buy and Sell bar, never on it */
 @media (max-width: 999px) { body:has(.trade-bar.sticky) .toasts { bottom: calc(150px + env(safe-area-inset-bottom)); } }
+/* never over the open order ticket: notices wait behind it, dimmed, until it closes */
+body:has(.scrim form.ticket) .toasts { z-index: 50; }
+.toasts { max-height: calc(100vh - 24px); overflow-y: auto; }
 @media (min-width: 1000px) { .toasts { bottom: 24px; left: auto; right: 24px; transform: none; } }
 .toast { background: var(--surface-raised); border: 1px solid var(--gold); border-radius: var(--radius-md); padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; animation: rise 0.25s ease-out; }
 .toast.err { border-color: var(--down); }

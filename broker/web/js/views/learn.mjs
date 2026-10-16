@@ -25,7 +25,7 @@ export default function learn(app) {
           h('tbody', {}, STOCKS.map((s) => h('tr', {}, h('td', {}, h('span', { class: 'tk', text: s.t })), h('td', { text: s.name }), h('td', { class: 'muted', text: s.sector }), h('td', { class: 'num', text: rs(s.base) })))))),
         P('Prices move every second while the market is open, and stand still while it is closed. Each stock wanders around its listed price; news and events can push it up or down from there. Prices move in steps of ₹0.05.')),
       S('trading', 'Trading',
-        P('Choose a stock in the watchlist and press Buy or Sell. Orders are market orders: they fill at the live price the moment they reach the market, in whole shares. There is no brokerage. If the connection is slow and no answer comes, pressing the same button again is safe: the same order is never placed twice.'),
+        P('Choose a stock in the watchlist and press Buy or Sell. Orders are market orders: they fill at the live price the moment they reach the market, in whole shares. There is no brokerage. If the connection is slow and no answer comes, pressing the same order again (same stock, Buy or Sell, same number of shares) is safe: it is never placed twice.'),
         P('You can only spend the cash you have, and only sell shares your team holds (no short selling). Orders are accepted only while the market is open.'),
         h('div', { class: 'example' }, h('p', { class: 'eyebrow', text: 'Example' }), P('NEXO is at ₹271.35. Buying 100 shares costs ₹27,135.00. If NEXO rises to ₹280.00, those shares are worth ₹28,000.00: ₹865.00 of profit, though you only lock it in when you sell.'))),
       S('money', 'Your money',
@@ -42,7 +42,7 @@ export default function learn(app) {
         P('At the deadline the website takes the loan plus interest from the borrowing team and pays it to the lender, automatically, and tells both teams. If the borrower does not have enough cash then, its shares are sold at that moment’s price to cover it.'),
         h('div', { class: 'example' }, h('p', { class: 'eyebrow', text: 'Example' }), P('₹50,000 at 10% for 30 minutes: the borrower gets ₹50,000 now and repays ₹55,000 thirty minutes later.'))),
       S('end', 'The end',
-        P('When the host ends the game, the market closes for good and every loan still running is repaid with its full interest. The team with the highest net worth wins.'),
-        P('Standings stay sealed during the game. The host reveals them at the end, on the Big Screen and on every desk.')),
+        P('When the host ends the game, the market closes and every loan still running is repaid with its full interest. The team with the highest net worth wins.'),
+        P('Standings stay sealed during the game. The host reveals them at the end: the Big Screen shows the standings, and your desk shows your team’s place.')),
       h('div', { class: 'row', style: { marginTop: '32px' } }, h('a', { class: 'btn lg', href: '#/desk', text: 'Join your team' }))));
 }

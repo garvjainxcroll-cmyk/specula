@@ -95,7 +95,7 @@ test('create the game, teams join with codes, trade, loans, updates, end and rev
   const teamsTable = host.locator('table.tbl').first();
   await expect(teamsTable).toContainText('Total liquidable money');
   await expect(teamsTable).toContainText(codes[0]);
-  await expect(host.locator('section', { hasText: 'Everyone signed in' })).toContainText('Ravi');
+  await expect(host.locator('section', { hasText: 'Everyone who joined' })).toContainText('Ravi');
   const dl = host.waitForEvent('download');
   await host.click('text=Download CSV >> nth=0');
   expect((await dl).suggestedFilename()).toMatch(/^teams-.*\.csv$/);
