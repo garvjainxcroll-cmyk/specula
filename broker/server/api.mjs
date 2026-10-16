@@ -17,7 +17,7 @@
 //    read a future price from the website.
 
 import { STOCKS, TICKERS, BY_T, START_CASH } from '../src/stocks.mjs';
-import { priceAt, pricesAt, levelsAt, levelAt, moveStart, moveEnd, marketTime, isRunning, setRunning, wallTimeOf, LEVEL_MIN, LEVEL_MAX } from './model.mjs';
+import { priceAt, pricesAt, levelsAt, levelAt, moveStart, moveEnd, movePlan, marketTime, isRunning, setRunning, wallTimeOf, LEVEL_MIN, LEVEL_MAX } from './model.mjs';
 
 const KEY = 'state';
 const TOKEN_MS = 30 * 864e5;
@@ -95,7 +95,7 @@ function freshState(now, keep = {}) {
   };
 }
 function freshFund(t, now) {
-  t.cash = START_CASH; t.h = {}; t.rz = 0; t.tr = []; t.ntr = 0; t.base = null; t.reset = now; t.done = [];
+  t.cash = START_CASH; t.h = {}; t.rz = 0; t.tr = []; t.ntr = 0; t.base = null; t.reset = now; delete t.done;
   return t;
 }
 /** A code no team has: neither the saved teams nor `more` (teams made in the same save). */
@@ -170,10 +170,24 @@ const NOCHANGE = Symbol('nochange');
 
 // ---------------- a repeated press is not a second action ----------------
 // The desk and the console send an id with each order, loan and update, and the same id
-// again when someone presses the button again after an answer was lost. Each team keeps
-// the ids of its last DONE_KEEP orders (and the host of its last loans and updates), with
-// their result, so a repeat gets the first result back however busy the game is.
+// again when someone presses the button again after an answer was lost. A team's order
+// keeps its id on its row in the trade log, so a repeat within ORDER_KEEP_MS gets the first
+// result back however many orders the team makes meanwhile (the desk offers the repeat for
+// 10 minutes). The host keeps the ids of its last DONE_KEEP loans and updates.
 const DONE_KEEP = 40;
+const ORDER_KEEP_MS = 15 * 60000;
+const ridTag = (rid) => rid.slice(-12);
+/** The fill of this team's order sent with this id, if it was placed in the last 15 minutes. */
+function orderBefore(t, rid, now) {
+  if (!rid || !t) return null;
+  const tag = ridTag(rid);
+  for (let i = t.tr.length - 1; i >= 0 && t.tr[i][0] > now - ORDER_KEEP_MS; i--) {
+    const r = t.tr[i];
+    if (r[6] === tag) return { t: TICKERS[r[2]], side: r[3] < 0 ? 'sell' : 'buy', q: Math.abs(r[3]), p: r[4], value: Math.abs(r[3]) * r[4], at: r[0] };
+  }
+  return (t.done || []).find((x) => x[0] === rid)?.[1] || null; // saved by the previous version
+}
+const SESSIONS = 10; // devices signed in to one member record at once (the oldest is signed out)
 const ridOf = (body) => (typeof body.rid === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(body.rid) ? body.rid : '');
 const doneBefore = (list, rid) => (rid ? (list || []).find((x) => x[0] === rid)?.[1] : undefined);
 const remember = (list, rid, out) => (rid ? [...(list || []), [rid, out]].slice(-DONE_KEEP) : list || []);
@@ -189,6 +203,10 @@ const LOCK_TRIES = 10;
 const LOCK_WINDOW_MS = 10 * 60000;
 const LOCK_CLIENTS = 2000;
 const OVERFLOW = '*'; // shared by new connections while the table is full
+// The shared count allows far more tries, so filling the table cannot lock the host out of
+// every new connection: someone would need thousands of addresses, and then a thousand
+// wrong passwords every ten minutes, to keep it full.
+const OVERFLOW_TRIES = 1000;
 
 /** The part of an internet address that names one connection. */
 export function connectionOf(ip) {
@@ -229,7 +247,7 @@ async function takeTry(store, now, who) {
     // a full table never forgets a live count: new connections share one count instead
     const key = c[who] || Object.keys(c).length < LOCK_CLIENTS ? who : OVERFLOW;
     const t = c[key] || [];
-    if (t.length >= LOCK_TRIES) {
+    if (t.length >= (key === OVERFLOW ? OVERFLOW_TRIES : LOCK_TRIES)) {
       const mins = Math.max(1, Math.ceil((t[0] + LOCK_WINDOW_MS - now) / 60000));
       no(`Too many wrong passwords. Try again in ${mins} minute${mins > 1 ? 's' : ''}.`);
     }
@@ -272,7 +290,7 @@ function summary(s, t, now, prices) {
   return { cash: t.cash, hv, inv, upl: hv - inv, rpl: t.rz, liq, rec, pay, nw, pnl, pct: Math.round((pnl / START_CASH) * 1e6) / 1e4 };
 }
 
-function buy(t, k, q, p, w, m) {
+function buy(t, k, q, p, w, m, tag) {
   const cost = q * p;
   if (cost > t.cash) {
     const max = Math.max(0, Math.floor(t.cash / p));
@@ -281,7 +299,7 @@ function buy(t, k, q, p, w, m) {
   t.cash -= cost;
   const h = (t.h[k] ||= [0, 0]);
   h[0] += q; h[1] += cost;
-  logTrade(t, [w, m, tIndex(k), q, p]);
+  logTrade(t, tag ? [w, m, tIndex(k), q, p, 0, tag] : [w, m, tIndex(k), q, p]);
 }
 
 /** Keep the last MAX_TRADES orders; older ones are folded into a starting point for the history. */
@@ -293,7 +311,7 @@ function logTrade(t, row) {
   for (const r of t.tr.splice(0, t.tr.length - MAX_TRADES)) { b.cash -= r[3] * r[4]; b.q[r[2]] += r[3]; b.at = r[0]; }
 }
 
-function sell(t, k, q, p, w, m, forced = 0) {
+function sell(t, k, q, p, w, m, forced = 0, tag = '') {
   const h = t.h[k];
   if (!h || h[0] < q) no(h ? `Your team holds only ${h[0]} ${k}.` : `Your team does not hold any ${k}.`);
   const costOut = Math.round((h[1] * q) / h[0]);
@@ -302,7 +320,7 @@ function sell(t, k, q, p, w, m, forced = 0) {
   const proceeds = q * p;
   t.cash += proceeds;
   t.rz += proceeds - costOut;
-  logTrade(t, forced ? [w, m, tIndex(k), -q, p, 1] : [w, m, tIndex(k), -q, p]);
+  logTrade(t, forced ? [w, m, tIndex(k), -q, p, 1] : tag ? [w, m, tIndex(k), -q, p, 0, tag] : [w, m, tIndex(k), -q, p]);
 }
 
 // ---------------- what falls due: loan deadlines and the session clock ----------------
@@ -390,18 +408,50 @@ function teamDoc(s, t, member, now, prices) {
   };
 }
 
+/** A member as the host sees it (without the ids of its devices' sessions). */
+const personDoc = ({ ss, ...m }) => m;
+
 function hostTeamRow(s, t, now, prices) {
   const last = t.tr.length ? t.tr[t.tr.length - 1][0] : null;
   return {
-    id: t.id, n: t.n, name: t.name, code: t.code, members: t.members, created: t.created,
+    id: t.id, n: t.n, name: t.name, code: t.code, members: t.members.map(personDoc), created: t.created,
     lastTrade: last, ntr: t.ntr ?? t.tr.length, h: holdingsDoc(t), sum: summary(s, t, now, prices),
   };
 }
 
 function moveLog(s, limit = 150) {
   const out = [];
-  for (const [t, list] of Object.entries(s.moves)) for (const x of list) out.push({ t, m: x[0], from: x[7] ?? x[1], to: x[2], dur: x[6] ? 0 : x[3], w: x[4], label: x[5] || '', atOpen: !!x[6], queued: !!x[8] });
-  return out.sort((a, b) => b.w - a.w).slice(0, limit);
+  for (const [t, list] of Object.entries(s.moves)) {
+    for (const x of list) {
+      // bell: for a move made while closed, how long after the opening bell it starts
+      out.push({ t, m: x[0], from: x[7] ?? x[1], to: x[2], dur: x[6] ? 0 : x[3], w: x[4], label: x[5] || '', atOpen: !!x[6], queued: !!x[8], bell: x[8] ? Math.max(0, moveStart(x) - marketTime(s.clock, x[4])) : 0 });
+    }
+  }
+  return out.reverse().sort((a, b) => b.w - a.w).slice(0, limit); // newest first
+}
+
+/** A move that has not started yet and was made while closed: the host can still cancel it. */
+function cancellable(s, x, m) {
+  if (x[8] !== 1) return false;
+  if (x[0] > m) return true;
+  return !isRunning(s.clock) && x[4] >= s.clock.at(-1)[0]; // made in this break
+}
+
+/** For the console: per stock, the gradual move playing now and the moves still to come. */
+function planDoc(s, m) {
+  const closed = !isRunning(s.clock);
+  const out = {};
+  for (const t of TICKERS) {
+    const list = s.moves[t] || [];
+    const { now: x, next } = movePlan(list, m);
+    const up = next.slice(); let glide = null;
+    if (x && x[3] > 1 && m < moveEnd(x)) {
+      // while closed, a gradual move that has not taken its first step waits for the bell
+      if (closed && Math.floor(m / 1000) * 1000 <= x[0]) up.unshift(x); else glide = { to: x[2], left: moveEnd(x) - m };
+    }
+    out[t] = { glide, next: up.map((y) => ({ to: y[2], in: Math.max(0, moveStart(y) - m), dur: y[3] > 1 ? y[3] : 0 })), cancel: up.filter((y) => cancellable(s, y, m)).length };
+  }
+  return out;
 }
 
 const RANGES = { '5m': [300e3, 2e3], '30m': [1800e3, 10e3], '1h': [3600e3, 20e3], '1d': [86400e3, 480e3] };
@@ -462,7 +512,7 @@ function teamHistory(s, t, now, range) {
 
 // ---------------- input checks ----------------
 
-const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max).trim();
 const cleanText = (v, max) => String(v ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
 const normCode = (c) => String(c ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
 function rupeesToPaise(v) {
@@ -484,7 +534,7 @@ function renameTeam(s, t, name) {
 const active = (t) => t.members.filter((m) => !m.out);
 /** Keep the people of a team that is being removed, for the Dataset. */
 function keepPeople(s, t, now) {
-  s.gone = (s.gone || []).concat(t.members.map((m) => ({ ...m, team: t.name, out: m.out || now, why: m.out ? m.why : 'removed' }))).slice(-1000);
+  s.gone = (s.gone || []).concat(t.members.map(({ ss, ...m }) => ({ ...m, team: t.name, out: m.out || now, why: m.out ? m.why : 'removed' }))).slice(-1000);
 }
 const hasHistory = (s, t) => t.tr.length > 0 || s.loans.some((L) => L.lender === t.id || L.borrower === t.id);
 
@@ -557,21 +607,32 @@ async function route(c) {
       // the same name on the same team is the same person, unless the phone numbers differ
       const digits = (x) => String(x || '').replace(/\D/g, '');
       const same = t.members.filter((x) => x.name.toLowerCase() === name.toLowerCase());
-      const samePhone = (x) => !phone || !x.phone || digits(x.phone).slice(-10) === digits(phone).slice(-10);
-      let m = same.find((x) => !x.out) || null;
-      if (m && !samePhone(m)) no(`Someone called ${m.name} is already on this team. Add your surname or an initial to your name.`);
-      // a signed-out record of the same person comes back; a different person gets their own
-      if (!m) m = same.findLast((x) => samePhone(x)) || null;
+      const phoneIs = (x) => !!x.phone && digits(x.phone).slice(-10) === digits(phone).slice(-10);
+      const samePhone = (x) => !phone || !x.phone || phoneIs(x);
+      // with a phone number, a person's own record comes first, signed in or not
+      let m = (phone && (same.find((x) => !x.out && phoneIs(x)) || same.findLast(phoneIs))) || null;
+      if (!m) {
+        m = same.find((x) => !x.out) || null;
+        if (m && !samePhone(m)) no(`Someone called ${m.name} is already on this team. Add your surname or an initial to your name.`);
+        // a signed-out record of the same person comes back; a different person gets their own
+        if (!m) m = same.findLast((x) => samePhone(x)) || null;
+      }
       if (!m || m.out) { if (active(t).length >= 50) no('This team already has 50 members signed in.'); }
-      if (m) { m.last = now; m.out = null; m.why = null; if (phone && !m.phone) m.phone = phone; } else {
+      if (m) {
+        if (m.out) m.ss = []; // its old devices were signed out
+        m.last = now; m.out = null; m.why = null; if (phone && !m.phone) m.phone = phone;
+      } else {
         if (t.members.length >= 200) no('This team has too many members. Ask the host.');
         s.n.member += 1;
-        m = { id: `m${s.n.member}${randomId(3)}`, name, phone, joined: now, last: now, out: null, sv: 0 };
+        m = { id: `m${s.n.member}${randomId(3)}`, name, phone, joined: now, last: now, out: null, sv: 0, ss: [] };
         t.members.push(m);
       }
-      return { tid: t.id, mid: m.id, cv: t.cv || 0, sv: m.sv || 0, team: t.name };
+      // each device signed in to the record has its own session, so one can leave alone
+      const sid = randomId(8);
+      m.ss = [...(m.ss || []), sid].slice(-SESSIONS);
+      return { tid: t.id, mid: m.id, cv: t.cv || 0, sv: m.sv || 0, sid, team: t.name };
     });
-    return ok({ token: await makeToken(s, `m:${out.tid}:${out.mid}:${out.cv}:${out.sv}`, now), team: out.team, game: gameDoc(s) });
+    return ok({ token: await makeToken(s, `m:${out.tid}:${out.mid}:${out.cv}:${out.sv}:${out.sid}`, now), team: out.team, game: gameDoc(s) });
   }
 
   // ---- the host ----
@@ -581,17 +642,20 @@ async function route(c) {
   const s = await readState(store, now);
   const sub = await readToken(s, token, now);
   // a member's sign-in lasts until the host makes a new code for the team or signs them out
-  const [kind, tid, mid, cv = '0', sv = '0'] = (sub || '').split(':');
+  const [kind, tid, mid, cv = '0', sv = '0', sid = ''] = (sub || '').split(':');
   const team = kind === 'm' ? teamById(s, tid) : null;
   const found = team && cv === String(team.cv || 0) ? team.members.find((x) => x.id === mid) : null;
-  const member = found && !found.out && sv === String(found.sv || 0) ? found : null;
+  // a sign-in from before sessions (no sid) lasts as it did
+  const member = found && !found.out && sv === String(found.sv || 0) && (!sid || (found.ss || []).includes(sid)) ? found : null;
   if (!team || !member) return denied();
 
   if (path === 'leave' && POST) {
+    // signs out this device only; the person is signed out when no device is left
     await mutate(store, now, (s) => {
       const m = teamById(s, team.id)?.members.find((x) => x.id === member.id);
       if (!m || m.out) return NOCHANGE;
-      m.out = now; m.why = 'left'; m.sv = (m.sv || 0) + 1;
+      m.ss = sid ? (m.ss || []).filter((x) => x !== sid) : [];
+      if (!m.ss.length) { m.out = now; m.why = 'left'; m.sv = (m.sv || 0) + 1; }
     });
     return ok();
   }
@@ -618,8 +682,8 @@ async function route(c) {
     const rid = ridOf(body);
     let again = null;
     const { s: s2, out } = await mutate(store, now, (s) => {
-      again = doneBefore(teamById(s, team.id)?.done, rid) || null;
-      if (again) return NOCHANGE;
+      again = orderBefore(teamById(s, team.id), rid, now);
+      if (again) { again = { by: member.name, ...again }; return NOCHANGE; }
       if (s.game.phase === 'lobby') no('The game has not started yet. Orders open when the host starts it.');
       if (s.game.phase === 'ended') no('The game is over. No more orders.');
       if (!isRunning(s.clock)) no('The market is closed. Orders open when the host opens the market.');
@@ -627,10 +691,11 @@ async function route(c) {
       if (!t) no('Your team no longer exists.');
       const m = marketTime(s.clock, now);
       const p = priceAt(s, k, m);
-      if (side === 'buy') buy(t, k, q, p, now, m); else sell(t, k, q, p, now, m);
-      const fill = { t: k, side, q, p, value: q * p, at: now, by: member.name };
-      t.done = remember(t.done, rid, fill);
-      return fill;
+      if (side === 'buy') buy(t, k, q, p, now, m, rid && ridTag(rid)); else sell(t, k, q, p, now, m, 0, rid && ridTag(rid));
+      // lists of ids saved by the previous version go once they are too old to matter
+      if (t.done) { t.done = t.done.filter((x) => x[1]?.at > now - ORDER_KEEP_MS); if (!t.done.length) delete t.done; }
+      delete s.done;
+      return { t: k, side, q, p, value: q * p, at: now, by: member.name };
     });
     const mk = market(s2, now);
     const t2 = teamById(s2, team.id);
@@ -694,7 +759,7 @@ async function hostRoute(c) {
   if (path === 'host/poll' && !POST) {
     const mk = market(s, now);
     return ok({
-      now, game: gameDoc(s), mk: { ...mk, lv: levelsAt(s, mk.m), base: Object.fromEntries(STOCKS.map((x) => [x.t, x.base])) },
+      now, game: gameDoc(s), mk: { ...mk, lv: levelsAt(s, mk.m), plan: planDoc(s, mk.m), base: Object.fromEntries(STOCKS.map((x) => [x.t, x.base])) },
       moves: moveLog(s),
       teams: s.teams.map((t) => hostTeamRow(s, t, now, mk.p)),
       standings: standings(s, now, mk.p),
@@ -777,7 +842,7 @@ async function hostRoute(c) {
       if (!t) no('That team was not found.');
       t.code = newCode(s);
       t.cv = (t.cv || 0) + 1; // everyone signed in with the old code is signed out
-      for (const m of active(t)) { m.out = now; m.why = 'code'; }
+      for (const m of active(t)) { m.out = now; m.why = 'code'; m.ss = []; }
       return t.code;
     });
     return ok({ code: out });
@@ -789,7 +854,7 @@ async function hostRoute(c) {
       const m = t.members.find((x) => x.id === body.member);
       if (!m) no('That member was not found.');
       if (m.out) return NOCHANGE;
-      m.out = now; m.why = 'host'; m.sv = (m.sv || 0) + 1;
+      m.out = now; m.why = 'host'; m.sv = (m.sv || 0) + 1; m.ss = [];
     });
     return ok();
   }
@@ -879,36 +944,60 @@ async function hostRoute(c) {
       const m = marketTime(s.clock, now);
       const closed = !isRunning(s.clock);
       const list = (s.moves[t] ||= []);
-      // while closed: the moves already queued for the bell and not yet complete; while open:
-      // moves not in effect yet (an instant move made less than a second ago, or the rest of
-      // a queue from the opening bell)
-      const waits = closed ? (x) => x[8] === 1 && moveEnd(x) > m : (x) => moveStart(x) > m;
-      const pending = []; for (let i = list.length - 1; i >= 0 && waits(list[i]); i--) pending.unshift(list[i]);
-      let start; let from;
+      let start; let from; let basis; let after = 0;
       if (closed) {
-        // Prices stand still while closed, and moves wait for the opening bell: they play one
-        // after another from the bell, each starting where the one before ends.
+        // Prices stand still while closed. The moves made in this break wait for the opening
+        // bell and play one after another from it, each starting where the one before ends
+        // (an instant move made just before the market closed, not in effect yet, waits too).
+        // Anything left from before the break, such as a gradual move still running or the
+        // rest of an earlier break's moves, is replaced, from where the stock stands.
+        const closedAt = s.clock.at(-1)[0];
+        const waits = (x) => (x[8] === 1 ? x[4] >= closedAt : moveStart(x) > m);
+        const pending = []; for (let i = list.length - 1; i >= 0 && waits(list[i]); i--) pending.unshift(list[i]);
         const last = pending.at(-1);
         start = last ? moveEnd(last) : m;
-        from = last ? last[2] : levelAt(list, m);
+        from = basis = last ? last[2] : levelAt(list, m);
+        after = pending.length;
       } else {
-        // While open a move starts now and replaces anything still waiting; two quick clicks
-        // (the first not in effect yet) still add up.
-        start = m; from = levelAt(list, m);
+        // While open a move starts now and replaces anything still waiting. If the move
+        // before it has not changed the price yet (made less than a second ago), the new one
+        // builds on it, so quick clicks add up: an instant move then still happens first, and
+        // a gradual one starts from it.
+        const prev = list.at(-1);
+        const fresh = prev && prev[8] !== 1 && (prev[3] === 0 ? moveStart(prev) > m : Math.floor(m / 1000) * 1000 <= prev[0]);
+        start = m; from = levelAt(list, m); basis = fresh ? prev[2] : from;
+        if (fresh && secs) {
+          if (prev[3] === 0) { start = moveStart(prev); from = prev[2]; } else { start = Math.max(m, prev[0]); from = prev[1]; }
+        }
       }
-      const quick = !closed && pending.filter((x) => !x[8]).at(-1);
-      const basis = closed ? from : quick ? quick[2] : from;
       let to = mode === 'pct' ? basis * (1 + value / 100) : mode === 'price' ? (value * 100) / BY_T[t].base : 1;
       to = Math.min(LEVEL_MAX, Math.max(LEVEL_MIN, to));
       const label = mode === 'pct' ? `${value > 0 ? '+' : ''}${value}%` : mode === 'price' ? `to ₹${value}` : 'back to listed price';
-      // an instant move while closed takes effect 1 ms after its start (dur 1), at the bell
+      // an instant move while closed takes effect 1 ms after its start (dur 1): at the bell,
+      // or right after the move before it
       const dur = closed && !secs ? 1 : secs * 1000;
-      // [start (market time), level from, level to, ms, wall time, label, 1 if instant at the
-      //  opening bell, level it built on, 1 if made while closed]
-      list.push([start, from, to, dur, now, label, closed && !secs ? 1 : 0, basis, closed ? 1 : 0]);
-      return { t, from, to, secs, label, atOpen: closed, after: closed ? pending.length : 0 };
+      // [start (market time), level from, level to, ms, wall time, label, 1 if instant and
+      //  made while closed, level it built on, 1 if made while closed]
+      const x = [start, from, to, dur, now, label, closed && !secs ? 1 : 0, basis, closed ? 1 : 0];
+      list.push(x);
+      // wait: how long after the opening bell (while closed) or after now (while open) it starts
+      return { t, from: basis, to, secs, label, atOpen: closed, after, wait: Math.max(0, moveStart(x) - m) };
     });
     return ok({ move: out });
+  }
+  if (path === 'host/move/cancel' && POST) {
+    const t = String(body.t || '');
+    if (!isTicker(t)) no('Unknown stock.');
+    const { out } = await mutate(store, now, (s) => {
+      if (s.game.phase === 'ended') no('The game is over and its prices are final.');
+      const m = marketTime(s.clock, now);
+      const list = s.moves[t] || [];
+      const keep = list.filter((x) => !cancellable(s, x, m));
+      if (keep.length === list.length) return NOCHANGE;
+      s.moves[t] = keep;
+      return { n: list.length - keep.length };
+    });
+    return ok({ t, n: out?.n || 0 });
   }
 
   // ---- loans between teams ----

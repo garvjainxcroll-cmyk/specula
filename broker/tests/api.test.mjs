@@ -445,6 +445,9 @@ test('the lock counts each connection apart (an IPv6 /48 is one), and forgets tr
   const after = (await store.getMeta('hostlock')).data.c;
   assert.equal(after.any.length, 3, 'a live count is never dropped');
   assert.equal(after['*'].length, 1, 'the newcomer was counted in the shared count');
+  // a full table with ten wrong tries in the shared count still lets the host in
+  await store.set('hostlock', { c: { ...full.c, '*': Array(10).fill(now) }, id: 'seed0001' });
+  assert.ok((await login('hostpass', '198.51.100.20')).ok, 'the host on a new connection can sign in');
   // a record saved by the previous version does not break the sign-in
   await store.set('hostlock', { c: { old1: { t: [now], until: 0 }, old2: { t: [], until: now + 60000 } }, id: 'oldform0' });
   assert.ok((await login('hostpass', '10.0.0.9')).ok);
@@ -760,4 +763,141 @@ test('a save whose reply was lost is not applied twice', async () => {
   const r = await call('POST', 'trade', { t: 'NEXO', side: 'buy', q: 10 }, a);
   assert.ok(r.ok, r.error);
   assert.equal((await call('GET', 'poll', null, a)).me.h[0].q, 10, 'bought once, not twice');
+});
+
+test('moves left from an earlier break are replaced; an instant clicked just before the close still happens', async () => {
+  const w = world();
+  const { h } = await w.game(['Alpha']);
+  const poll = () => w.get('host/poll', h);
+  const lv = async (t) => (await poll()).mk.lv[t];
+  const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
+  const toMs = async (ms) => { const m = (await poll()).mk.m; w.tick((((ms - m) % 1000) + 1000) % 1000 || 1000); }; // to the next moment whose market time ends in ms
+  // break 1: a slow rise; it plays for ten minutes; in break 2 a −5% is −5% from where it stands, at the bell
+  await w.post('host/market', { open: false }, h);
+  await w.post('host/move', { t: 'HELX', mode: 'pct', value: 10, secs: 1800 }, h);
+  await w.post('host/market', { open: true }, h);
+  w.tick(600000);
+  await w.post('host/market', { open: false }, h);
+  const mid = await lv('HELX');
+  assert.ok(mid > 1.02 && mid < 1.04, String(mid));
+  const r = await w.post('host/move', { t: 'HELX', mode: 'pct', value: -5, secs: 0 }, h);
+  assert.equal(r.move.after, 0, 'nothing from the earlier break is waited for');
+  assert.ok(r.move.wait < 1000, 'at the opening bell');
+  await w.post('host/market', { open: true }, h);
+  w.tick(1000);
+  assert.ok(near(await lv('HELX'), mid * 0.95));
+  w.tick(600000);
+  assert.ok(near(await lv('HELX'), mid * 0.95), 'and the old rise is over');
+  // an instant move clicked a moment before the market closes is not lost to a move made in the break
+  await toMs(300);
+  await w.post('host/move', { t: 'VANT', mode: 'pct', value: -10, secs: 0 }, h);
+  w.tick(100);
+  await w.post('host/market', { open: false }, h);
+  const plan = (await poll()).mk.plan.VANT;
+  assert.equal(plan.next.length, 1); assert.ok(plan.next[0].in < 1000 && near(plan.next[0].to, 0.9));
+  const r2 = await w.post('host/move', { t: 'VANT', mode: 'pct', value: 5, secs: 0 }, h);
+  assert.equal(r2.move.after, 1); assert.ok(near(r2.move.to, 0.945));
+  await w.post('host/market', { open: true }, h);
+  w.tick(2000);
+  assert.ok(near(await lv('VANT'), 0.945));
+  // quick clicks while open: an instant move, then a gradual one less than a second later
+  await toMs(300);
+  await w.post('host/move', { t: 'AURI', mode: 'pct', value: -10, secs: 0 }, h);
+  w.tick(300);
+  const g = await w.post('host/move', { t: 'AURI', mode: 'pct', value: 5, secs: 600 }, h);
+  assert.ok(near(g.move.from, 0.9));
+  w.tick(500);
+  assert.ok(near(await lv('AURI'), 0.9), 'the drop happens first');
+  w.tick(601000);
+  assert.ok(near(await lv('AURI'), 0.945), 'then the climb');
+  // a double click on a gradual quick button adds up, as it does for an instant one
+  await toMs(300);
+  await w.post('host/move', { t: 'GRVT', mode: 'pct', value: 10, secs: 300 }, h);
+  w.tick(200);
+  await w.post('host/move', { t: 'GRVT', mode: 'pct', value: 10, secs: 300 }, h);
+  w.tick(302000);
+  assert.ok(near(await lv('GRVT'), 1.21));
+});
+
+test('waiting moves can be cancelled, and the console says when each one plays', async () => {
+  const w = world();
+  const { h } = await w.game(['Alpha']);
+  const poll = () => w.get('host/poll', h);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  await w.post('host/market', { open: false }, h);
+  await w.post('host/move', { t: 'SKYF', mode: 'pct', value: 50, secs: 1800 }, h);
+  assert.equal((await poll()).mk.plan.SKYF.cancel, 1);
+  const c = await w.post('host/move/cancel', { t: 'SKYF' }, h);
+  assert.ok(c.ok && c.n === 1);
+  await w.post('host/market', { open: true }, h);
+  w.tick(900000);
+  assert.ok(near((await poll()).mk.lv.SKYF, 1), 'the mistaken rise never happens');
+  // three moves in a break: the console knows when each one plays
+  await w.post('host/market', { open: false }, h);
+  await w.post('host/move', { t: 'MERB', mode: 'pct', value: -10, secs: 0 }, h);
+  await w.post('host/move', { t: 'MERB', mode: 'pct', value: 5, secs: 300 }, h);
+  const r = await w.post('host/move', { t: 'MERB', mode: 'pct', value: 10, secs: 0 }, h);
+  assert.equal(r.move.after, 2); assert.ok(Math.abs(r.move.wait - 300000) <= 1001, String(r.move.wait)); // glides end on a whole second
+  const d = await poll();
+  const nx = d.mk.plan.MERB.next;
+  assert.deepEqual(nx.map((x) => x.dur), [0, 300000, 0]);
+  assert.ok(nx[0].in < 1000 && nx[1].in < 1000 && Math.abs(nx[2].in - 300000) <= 1001, 'two at the bell, one five minutes after it');
+  const log = d.moves.filter((x) => x.t === 'MERB').reverse();
+  assert.ok(log[0].bell < 1000 && log[1].bell < 1000 && Math.abs(log[2].bell - 300000) <= 1001);
+  // after the bell: the glide plays, the +10% is next and can still be cancelled
+  await w.post('host/market', { open: true }, h);
+  w.tick(60000);
+  const p = (await poll()).mk.plan.MERB;
+  assert.ok(p.glide && near(p.glide.to, 0.945) && Math.abs(p.glide.left - 240000) <= 1001);
+  assert.equal(p.next.length, 1); assert.equal(p.cancel, 1);
+  assert.ok((await w.post('host/move/cancel', { t: 'MERB' }, h)).n === 1);
+  w.tick(300000);
+  assert.ok(near((await poll()).mk.lv.MERB, 0.945), 'the glide finished; the +10% never came');
+});
+
+test('with a phone number a person gets their own record back; leaving signs out only that device', async () => {
+  const w = world();
+  const { h, teams } = await w.game(['Alpha'], { start: false });
+  const join = (name, phone) => w.post('join', { code: teams[0].code, name, phone });
+  const people = async () => (await w.get('host/poll', h)).teams[0].members.map((x) => [x.name, x.phone, !x.out]);
+  const phone = (await join('Meera', '9800000001')).token;
+  const laptop = (await join('Meera', '9800000001')).token;
+  assert.ok((await w.post('leave', {}, phone)).ok);
+  assert.equal((await w.get('poll', phone)).status, 401, 'the device that left is signed out');
+  assert.equal((await w.get('poll', laptop)).ok, true, 'the other one is not');
+  assert.deepEqual(await people(), [['Meera', '9800000001', true]]);
+  assert.ok((await w.post('leave', {}, laptop)).ok);
+  assert.deepEqual(await people(), [['Meera', '9800000001', false]], 'signed out when no device is left');
+  // Asha leaves; another Asha joins; the first Asha comes back to her own record
+  const a1 = (await join('Asha', '9800000222')).token;
+  await w.post('leave', {}, a1);
+  assert.ok((await join('Asha', '9800000111')).ok);
+  assert.ok((await join('Asha', '9800000222')).ok, 'she is not refused');
+  assert.deepEqual((await people()).filter((x) => x[0] === 'Asha'), [['Asha', '9800000222', true], ['Asha', '9800000111', true]]);
+  assert.ok(!(await w.get('host/poll', h)).teams[0].members.some((x) => 'ss' in x), 'session ids stay on the server');
+});
+
+test('a repeated order is recognised for 15 minutes however many orders the team makes', async () => {
+  const w = world();
+  const { teams } = await w.game(['Alpha']);
+  const a = await w.join(teams[0].code, 'Asha');
+  const r = (await w.post('join', { code: teams[0].code, name: 'Ravi' })).token;
+  assert.ok((await w.post('trade', { t: 'AURI', side: 'buy', q: 1, rid: 'lostorder01' }, a)).ok);
+  for (let i = 0; i < 60; i++) { w.tick(3000); assert.ok((await w.post('trade', { t: 'GRVT', side: 'buy', q: 1, rid: `ravi-${String(i).padStart(6, '0')}` }, r)).ok); }
+  w.tick(8 * 60000);
+  const again = await w.post('trade', { t: 'AURI', side: 'buy', q: 1, rid: 'lostorder01' }, a);
+  assert.ok(again.again, 'recognised'); assert.equal(again.me.h.find((x) => x.t === 'AURI').q, 1);
+  assert.equal(again.fill.q, 1); assert.equal(again.fill.t, 'AURI');
+  const st = (await w.store.getMeta('state')).data;
+  assert.ok(!('done' in st.teams[0]) && !('done' in st), 'no separate list of ids is kept');
+});
+
+test('a long team name cut at 40 letters keeps its code when the same list is saved again', async () => {
+  const w = world();
+  const h = await w.host();
+  const names = ['Extraordinarily Long Team Name Holdings Private Limited', 'Bravo'];
+  const r1 = await w.post('host/teams', { names }, h);
+  assert.equal(r1.teams[0].name, 'Extraordinarily Long Team Name Holdings');
+  const r2 = await w.post('host/teams', { names }, h);
+  assert.deepEqual(r2.teams.map((t) => t.code), r1.teams.map((t) => t.code));
 });

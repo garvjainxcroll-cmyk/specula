@@ -143,6 +143,18 @@ export function levelAt(moves, m) {
 export const moveStart = (x) => (x[3] === 0 ? Math.ceil(x[0] / 1000) * 1000 : x[3] === 1 ? x[0] + 1 : x[0]);
 export const moveEnd = (x) => (x[3] <= 1 ? moveStart(x) : Math.ceil((x[0] + x[3]) / 1000) * 1000);
 
+/**
+ * How one stock's moves play from market time m, as levelAt plays them: `now` is the move in
+ * effect (or null), `next` the moves still to come, in the order they will take over.
+ */
+export function movePlan(moves, m) {
+  const live = []; let cut = Infinity;
+  for (let i = (moves?.length || 0) - 1; i >= 0; i--) { const x = moves[i]; if (x[0] > cut) continue; cut = x[0]; live.unshift(x); }
+  let k = live.length - 1;
+  while (k >= 0 && moveStart(live[k]) > m) k--;
+  return { now: k >= 0 ? live[k] : null, next: live.slice(k + 1) };
+}
+
 /** The price of stock t, in paise, at market time m. */
 export function priceAt(state, t, m) {
   const raw = BY_T[t].base * levelAt(state.moves[t], m) * (1 + wiggle(state.seed, t, m));

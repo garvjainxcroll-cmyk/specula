@@ -2,7 +2,7 @@
 // stock pages with buy and sell, the team's portfolio, the host's updates and notices
 // about loans. A desk only ever receives its own team's account from the server.
 import { h, set, swap, tickText, icon, toast, sheet, closeAllSheets } from '../dom.mjs';
-import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, axisTime, when, ago, mins, initials } from '../fmt.mjs';
+import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, axisTime, tipTime, when, ago, mins, initials } from '../fmt.mjs';
 import { get, post, net, token, setToken, loop, onNet, newRid } from '../net.mjs';
 import { STOCKS, BY_T, START_CASH } from '../../src/stocks.mjs';
 import { ensure, series, tick } from '../series.mjs';
@@ -68,8 +68,8 @@ function renderJoin(msg = '') {
 
 function leave(msg = '') {
   setToken('team', '');
-  gen += 1; orderSeq = ++seq; lostOrders.clear(); // answers already on their way are for the desk being left
-  closeAllSheets(); closeTicket = null; pop?.remove(); pop = null; clearNoticeToasts();
+  gen += 1; orderSeq = ++seq; lostOrders.clear(); saveLost(); // answers already on their way are for the desk being left
+  closeAllSheets(); closeTicket = null; ticketNote = null; pop?.remove(); pop = null; clearNoticeToasts();
   poller?.stop(); poller = null;
   pane?.destroy?.(); pane = null; subs.clear(); shown = null;
   Object.assign(S, { mk: null, me: null, game: null, place: null, updates: [], uv: -1, now: 0, first: true, prev: null });
@@ -80,6 +80,7 @@ function leave(msg = '') {
 // ======================= the desk shell =======================
 
 function renderShell() {
+  loadLost();
   const nav = h('nav', { class: 'top-nav', 'aria-label': 'Desk' },
     navLink('#/desk', 'Watchlist', 'home'), navLink('#/desk/portfolio', 'Portfolio', 'portfolio'), navLink('#/desk/updates', 'Updates', 'updates'));
   const bell = h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Notices', onclick: () => toggleNotices() }, icon('bell'));
@@ -149,10 +150,49 @@ function drawBanner() {
 let seq = 0; let orderSeq = 0;
 let gen = 0; // goes up each time the desk is left
 let closeTicket = null; // the open order ticket, if any
-// Orders whose answer was lost, by stock, side and quantity: pressing the same order again
-// (in this ticket or a new one) sends the same id, so the server never places it twice.
-const lostOrders = new Map();
+// Orders on their way or whose answer was lost, by stock, side and quantity: pressing the
+// same order again (in this ticket or a new one, or after reloading the page) sends the same
+// id, so the server does not place it twice. The server remembers an order's id for 15
+// minutes; the desk offers the safe repeat for 10.
+const lostOrders = new Map(); // key -> { rid, at, lost }
 const LOST_KEEP_MS = 10 * 60000;
+const LOST_STORE = 'desk:lost';
+const lostEntry = (key) => {
+  const x = lostOrders.get(key);
+  if (x && Date.now() - x.at >= LOST_KEEP_MS) { lostOrders.delete(key); saveLost(); return null; }
+  return x || null;
+};
+function saveLost() {
+  try {
+    const list = [...lostOrders].filter(([, x]) => Date.now() - x.at < LOST_KEEP_MS).map(([k, x]) => [k, x.rid, x.at]);
+    if (list.length) sessionStorage.setItem(LOST_STORE, JSON.stringify({ tok: token('team'), list }));
+    else sessionStorage.removeItem(LOST_STORE);
+  } catch { /* private window: the safe repeat lasts until the page is reloaded */ }
+}
+function loadLost() {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(LOST_STORE) || 'null');
+    if (!d || d.tok !== token('team') || !Array.isArray(d.list)) return;
+    // an order that was on its way when the page was reloaded never got its answer here
+    for (const [k, rid, at] of d.list) if (typeof k === 'string' && typeof rid === 'string' && Date.now() - at < LOST_KEEP_MS && !lostOrders.has(k)) lostOrders.set(k, { rid, at, lost: true });
+  } catch { /* nothing saved */ }
+}
+/** The most recent lost order for a stock and side, if any: [quantity, entry]. */
+function lostOrderOf(t, side) {
+  let best = null;
+  for (const k of [...lostOrders.keys()]) {
+    const [kt, ks, kn] = k.split(':'); const x = lostEntry(k);
+    if (x && x.lost && kt === t && ks === side && (!best || x.at > best[1].at)) best = [Number(kn), x];
+  }
+  return best;
+}
+// An order's result that arrives after its ticket was closed: a pop-up, and a line in the
+// ticket open now (if any), since the pop-ups sit behind an open ticket.
+let ticketNote = null;
+function orderNote(msg, kind, title) {
+  toast(msg, { kind, title, ms: kind ? 12000 : 9000 });
+  ticketNote?.(msg, kind);
+}
 async function poll() {
   const my = ++seq;
   const r = await get(`poll?uv=${S.uv}`, token('team'));
@@ -307,7 +347,7 @@ function StockView(el, t) {
     h('dl', { class: 'stats' }, sOpen, sHi, sLo, sCh),
     h('section', { class: 'card quiet tight' }, h('h3', { text: 'Your team’s position', style: { marginBottom: '10px' } }), pos),
     h('div', { class: 'trade-bar sticky' }, buyB, sellB)));
-  const chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : amt(v)), fmtX: axisTime, fmtTip: clock });
+  const chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : amt(v)), fmtX: axisTime, fmtTip: tipTime });
   ranges.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     chartRange = b.dataset.r;
@@ -334,7 +374,7 @@ function StockView(el, t) {
       chart.set({ xs: s.xs, ws: s.ws, ys, ref: o, refLabel: `Open ${amt(o)}`, tone: dir(c), live: S.mk.open, label: `${st.name} price, last ${rs(p)}` });
     }
     const hd = S.me.h.find((x) => x.t === t);
-    sellB.disabled = !hd;
+    sellB.disabled = !hd && !lostOrderOf(t, 'sell'); // a sale whose answer was lost can be pressed again
     const sig = hd ? `${hd.q}:${hd.cost}:${p}` : `none:${S.me.cash}`;
     if (sig !== posSig) {
       posSig = sig;
@@ -368,6 +408,7 @@ function openTicket(t, side0) {
   const dValue = h('dd'); const dAvail = h('dd'); const dAfter = h('dd'); const dHeld = h('dd');
   const tAvail = h('dt'); const tAfter = h('dt');
   const err = h('p', { class: 'form-error', role: 'alert' });
+  const note = h('p', { class: 'ticket-note', role: 'status', hidden: true });
   const go = h('button', { class: 'btn block lg', type: 'submit' });
   const form = h('form', { class: 'ticket', novalidate: true },
     sideSeg,
@@ -377,14 +418,18 @@ function openTicket(t, side0) {
     h('dl', { class: 'lines' },
       h('div', { class: 'total' }, h('dt', { text: 'Order value' }), dValue),
       h('div', {}, tAvail, dAvail), h('div', {}, tAfter, dAfter), h('div', {}, h('dt', { text: `${t} your team holds` }), dHeld)),
-    err, go,
+    note, err, go,
     h('p', { class: 'tiny muted', style: { margin: '10px 0 0' }, text: 'A market order for your team: it fills at the live price the moment it reaches the market. No brokerage is charged.' }));
   const q = () => Math.max(0, Math.floor(Number(input.value) || 0));
   let inFlight = false;
   // Buy stays off for a moment, so the second tap of a double tap cannot place an order
   let settling = true; setTimeout(() => { settling = false; if (form.isConnected) draw(); }, 500);
-  const lostFor = (n) => { const x = lostOrders.get(`${t}:${side}:${n}`); return x && Date.now() - x.at < LOST_KEEP_MS ? x : null; };
+  const lostFor = (n) => lostEntry(`${t}:${side}:${n}`);
   const LOST_MSG = 'No answer came for this order. Press the button again to make sure: if the first press went through, it is not placed twice.';
+  const WAIT_MSG = 'This order is still on its way from your earlier press. Wait a moment for its answer.';
+  // after a lost answer, a new ticket for the same stock and side starts with that order
+  const lost0 = lostOrderOf(t, side);
+  if (lost0) input.value = String(lost0[0]);
   function maxQ() {
     if (!S.mk || !S.me) return 0;
     const p = S.mk.p[t];
@@ -408,10 +453,13 @@ function openTicket(t, side0) {
     set(dHeld, `${qty(held)} → ${qty(side === 'buy' ? held + n : held - n)}`);
     go.className = `btn block lg${side === 'sell' ? ' sell solid' : ''}`;
     set(go, `${side === 'buy' ? 'Buy' : 'Sell'} ${n ? qty(n) : ''} ${t}`.replace(/\s+/g, ' '));
-    const lost = n && lostFor(n); // after a lost answer the cash and shares may already include it
+    const x = n ? lostFor(n) : null;
+    const lost = x?.lost; // after a lost answer the cash and shares may already include it
+    const waiting = x && !x.lost && !inFlight; // sent from an earlier ticket, answer not back yet
     const bad = !n || (!lost && (side === 'buy' ? n * p > S.me.cash : n > held));
-    go.disabled = settling || inFlight || bad || !canTrade();
-    if (lost && canTrade()) set(err, LOST_MSG);
+    go.disabled = settling || inFlight || waiting || bad || !canTrade();
+    if (waiting && canTrade()) set(err, WAIT_MSG);
+    else if (lost && canTrade()) set(err, LOST_MSG);
     else if (S.game?.phase === 'lobby') set(err, 'The game has not started yet. Orders open when the host starts it.');
     else if (S.game?.phase === 'ended') set(err, 'The game is over. No more orders.');
     else if (!S.mk.open) set(err, 'The market is closed. Orders open when the host opens it.');
@@ -419,49 +467,56 @@ function openTicket(t, side0) {
     else if (n && side === 'sell' && n > held) set(err, held ? `Your team holds only ${qty(held)}.` : `Your team does not hold any ${t}.`);
     else if (!err.dataset.server) set(err, '');
   }
-  sideSeg.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { side = b.dataset.side; err.dataset.server = ''; drawQuick(); draw(); } });
-  minus.addEventListener('click', () => { input.value = String(Math.max(1, q() - 1)); draw(); });
-  plus.addEventListener('click', () => { input.value = String(q() + 1); draw(); });
-  input.addEventListener('input', () => { err.dataset.server = ''; draw(); });
+  // a refusal from the server stays until the order is changed
+  const edited = () => { err.dataset.server = ''; note.hidden = true; };
+  sideSeg.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { side = b.dataset.side; edited(); drawQuick(); draw(); } });
+  minus.addEventListener('click', () => { input.value = String(Math.max(1, q() - 1)); edited(); draw(); });
+  plus.addEventListener('click', () => { input.value = String(q() + 1); edited(); draw(); });
+  quick.addEventListener('click', edited, true);
+  input.addEventListener('input', () => { edited(); draw(); });
   const fail = (msg) => {
-    err.dataset.server = '1'; set(err, msg);
-    if (!form.isConnected) toast(msg, { kind: 'err', title: `${t} order`, ms: 9000 }); // the ticket was closed meanwhile
+    if (form.isConnected) { err.dataset.server = '1'; set(err, msg); } else orderNote(msg, 'err', `${t} order`); // the ticket was closed meanwhile
   };
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const n = q(); if (!n || inFlight) return;
     if (settling) return;
     const key = `${t}:${side}:${n}`;
-    const rid = lostFor(n)?.rid || newRid();
-    lostOrders.set(key, { rid, at: Date.now() }); // until an answer comes
-    inFlight = true; go.disabled = true;
+    const was = lostFor(n);
+    if (was && !was.lost) return; // still on its way from an earlier ticket
+    const rid = was?.rid || newRid();
+    lostOrders.set(key, { rid, at: was?.at || Date.now(), lost: false }); saveLost(); // until an answer comes
+    inFlight = true; go.disabled = true; err.dataset.server = ''; note.hidden = true;
     orderSeq = ++seq;
     const myGen = gen;
     try {
       const r = await post('trade', { t, side, q: n, rid }, token('team'));
-      lostOrders.delete(key); // an answer came
+      if (lostOrders.get(key)?.rid === rid) { lostOrders.delete(key); saveLost(); } // an answer came
       if (myGen !== gen) { // the desk was signed out while this order was on its way
         toast(r.ok ? `${r.fill.side === 'buy' ? 'Bought' : 'Sold'} ${qty(r.fill.q)} ${r.fill.t} at ${rs(r.fill.p)} before your desk was signed out.` : `Your order for ${qty(n)} ${t} was not placed: your desk was signed out.`, { kind: r.ok ? '' : 'err', title: `${t} order`, ms: 9000 });
         return;
       }
       orderSeq = ++seq; // and drop every check that left while the order was on its way
-      if (r.status === 401) { close(); leave('Your desk was signed out. Join again with your team code.'); return; }
+      if (r.status === 401) { if (form.isConnected) close(); leave('Your desk was signed out. Join again with your team code.'); return; }
       if (!r.ok) { fail(r.error || 'The order did not go through.'); return; }
-      close();
       const f = r.fill;
-      toast(`${r.again ? 'Your first press went through: ' : ''}${f.side === 'buy' ? 'bought' : 'sold'} ${qty(f.q)} ${f.t} at ${rs(f.p)}: ${rs(f.value)} in all.`.replace(/^./, (c) => c.toUpperCase()), { title: 'Order filled' });
+      const msg = `${r.again ? 'Your first press went through: ' : ''}${f.side === 'buy' ? 'bought' : 'sold'} ${qty(f.q)} ${f.t} at ${rs(f.p)}: ${rs(f.value)} in all.`.replace(/^./, (c) => c.toUpperCase());
+      if (form.isConnected) { close(); toast(msg, { title: 'Order filled' }); } else orderNote(msg, '', 'Order filled'); // the ticket was closed meanwhile
       apply({ mk: r.mk, me: r.me, now: r.now, game: r.game });
     } catch {
       if (myGen !== gen) return;
-      if (form.isConnected) fail(LOST_MSG);
-      else toast(`No answer came for your order of ${qty(n)} ${t}. Open ${t} again and press ${side === 'buy' ? 'Buy' : 'Sell'} ${qty(n)} to make sure: if the first press went through, it is not placed twice.`, { kind: 'err', title: `${t} order`, ms: 12000 });
+      const x = lostOrders.get(key);
+      if (x?.rid === rid) { x.lost = true; saveLost(); }
+      if (!form.isConnected) orderNote(`No answer came for your order of ${qty(n)} ${t}. Open ${t} again and press ${side === 'buy' ? 'Buy' : 'Sell'} ${qty(n)} to make sure: if the first press went through, it is not placed twice.`, 'err', `${t} order`);
       poller?.now();
     } finally { inFlight = false; if (form.isConnected) draw(); }
   });
   const close = sheet(`${t} · ${st.name}`, form, { sub: st.sector });
   closeTicket = close;
+  const myNote = (msg, kind) => { note.hidden = false; note.className = `ticket-note${kind ? ` ${kind}` : ''}`; set(note, msg); draw(); };
+  ticketNote = myNote;
   subs.add(draw);
-  const obs = new MutationObserver(() => { if (!form.isConnected) { subs.delete(draw); obs.disconnect(); if (closeTicket === close) closeTicket = null; } });
+  const obs = new MutationObserver(() => { if (!form.isConnected) { subs.delete(draw); obs.disconnect(); if (closeTicket === close) closeTicket = null; if (ticketNote === myNote) ticketNote = null; } });
   obs.observe(document.body, { childList: true });
   drawQuick(); draw();
   input.select();
@@ -493,7 +548,7 @@ function PortfolioView(el) {
     h('section', { class: 'card quiet' }, h('div', { class: 'card-head' }, h('h3', { text: 'Holdings' }), nH), holdings),
     loansCard,
     h('section', { class: 'card quiet' }, h('div', { class: 'card-head' }, h('h3', { text: 'Orders' }), nO), orders)));
-  const chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compactRs(v)), fmtX: axisTime, fmtTip: clock });
+  const chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compactRs(v)), fmtX: axisTime, fmtTip: tipTime });
   let hist = null; let fetched = 0;
   const load = async () => {
     fetched = Date.now();

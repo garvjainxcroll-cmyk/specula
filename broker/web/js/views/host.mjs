@@ -3,7 +3,7 @@
 // Market: move any stock up or down. Dataset: every team, every member who signed in,
 // every loan. Loans, Updates and Tools. Only the host's password unlocks it.
 import { h, set, swap, tickText, icon, toast, sheet, confirmBox, download, csvCell, closeAllSheets } from '../dom.mjs';
-import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, axisTime, when, ago, mins, compact } from '../fmt.mjs';
+import { rs, amt, signedRs, pct, qty, dir, arrow, clock, hm, axisTime, tipTime, when, ago, mins, compact } from '../fmt.mjs';
 import { get, post, net, token, setToken, loop, onNet, newRid } from '../net.mjs';
 import { STOCKS, START_CASH } from '../../src/stocks.mjs';
 import { ensure, series, tick } from '../series.mjs';
@@ -196,7 +196,7 @@ function GameView(el) {
   const names = h('textarea', { id: 'team-names', rows: '8', placeholder: 'One team name per line, e.g.\nAlpha Capital\nBull Run Partners' });
   let dirty = false;
   // the same cleaning as the server: no control characters, single spaces, at most 40 letters
-  const lines = () => names.value.split('\n').map((x) => x.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean);
+  const lines = () => names.value.split('\n').map((x) => x.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).trim()).filter(Boolean);
   function fitLines() {
     const n = Math.max(1, Math.min(120, Math.floor(Number(count.value) || 1)));
     const cur = lines();
@@ -322,7 +322,7 @@ function nowControls(d) {
         h('div', { class: 'btn-row' }, len, h('button', { class: 'btn', type: 'button', id: 'btn-open', text: 'Open the market', onclick: () => { const secs = Number(len.value); act('host/market', { open: true, secs }, secs ? `Market open for ${fmtLeft(secs * 1000)}.` : 'Market open.'); } })));
     }
     out.push(h('hr'), h('div', { class: 'btn-row' }, h('button', { class: 'btn danger', type: 'button', id: 'btn-end', text: 'End the game', onclick: async () => {
-      if (await confirmBox('End the game?', 'The market closes for good, every loan still running is repaid now with its full interest, and the standings are calculated. Results stay sealed until you reveal them.', 'End the game', true)) act('host/end', {}, 'The game is over. Reveal the results when you are ready.');
+      if (await confirmBox('End the game?', 'The market closes, every loan still running is repaid now with its full interest, and the standings are calculated. Results stay sealed until you reveal them. (If you end it by mistake, use Take the game back on this tab.)', 'End the game', true)) act('host/end', {}, 'The game is over. Reveal the results when you are ready.');
     } }), h('a', { class: 'btn ghost', href: '#/display', target: '_blank', text: 'Open the Big Screen' })));
   } else if (g.phase === 'ended') {
     out.push(h('p', { class: 'small', text: g.revealed ? 'The Big Screen shows the standings, last place first and the winner last, and each desk shows its own place.' : 'The market is closed and every score is calculated, but the results are sealed. Each desk sees only its own money; the Big Screen is waiting.' }),
@@ -385,10 +385,11 @@ function MarketView(el) {
     const form = h('form', { class: 'mc-custom', novalidate: true }, mode, val, dur, h('button', { class: 'btn sm', type: 'submit', text: 'Apply' }));
     form.addEventListener('submit', (e) => { e.preventDefault(); if (val.value.trim() === '') { val.focus(); return; } move(s.t, mode.value, Number(val.value), Number(dur.value)).then((ok) => { if (ok) val.value = ''; }); });
     const base = h('button', { class: 'linkbtn', type: 'button', text: 'Back to listed price', onclick: () => move(s.t, 'base', 0, Number(dur.value)) });
-    cards[s.t] = { px, ch, lvl, exp, c };
+    const cancel = h('button', { class: 'linkbtn', type: 'button', hidden: true, style: { color: 'var(--down)' }, onclick: () => cancelMoves(s.t) });
+    cards[s.t] = { px, ch, lvl, exp, c, cancel };
     grid.append(h('article', { class: 'card quiet mc' },
       h('header', {}, h('div', {}, h('span', { class: 'tk', text: s.t }), h('span', { class: 'nm', text: s.name })), h('div', {}, px, ch)),
-      lvl, c, exp, quick, form, h('div', { class: 'mc-foot' }, h('span', { class: 'tiny muted', text: `Listed ${rs(s.base)} · ${s.sector}` }), base)));
+      lvl, c, exp, quick, form, h('div', { class: 'mc-foot' }, h('span', { class: 'tiny muted', text: `Listed ${rs(s.base)} · ${s.sector}` }), h('div', { class: 'row' }, cancel, base))));
   }
   const log = h('div');
   const note = h('p', { class: 'bar closed', hidden: true, style: { borderRadius: '8px', marginBottom: '16px' } });
@@ -408,7 +409,7 @@ function MarketView(el) {
       const ended = d.game.phase === 'ended';
       for (const b of grid.querySelectorAll('button, input, select')) b.disabled = ended;
       note.hidden = d.mk.open && !ended;
-      set(note, ended ? 'The game is over and its prices are final. Take the game back (Game tab) to move prices again.' : 'The market is closed: prices stand still, and a move you make now happens when it opens.');
+      set(note, ended ? 'The game is over and its prices are final. Take the game back (Game tab) to move prices again.' : 'The market is closed: prices stand still. Moves you make now wait for the opening bell and then play in the order you made them; a waiting move can be cancelled on its card.');
     }
     const exposure = {};
     for (const t of d.teams) for (const x of t.h) { const e = (exposure[x.t] ||= { n: 0, q: 0 }); e.n++; e.q += x.q; }
@@ -418,14 +419,21 @@ function MarketView(el) {
       const chg = ((p - o) / o) * 100;
       set(c.ch, `${arrow(chg)} ${pct(chg)} since open`); c.ch.className = `ch num ${dir(chg)}`;
       const lv = (d.mk.lv[s.t] - 1) * 100;
-      const last = d.moves.find((m) => m.t === s.t);
-      // made while closed and not started yet: it waits for the opening bell (or for the moves before it)
-      const waiting = last && last.queued && d.mk.m <= last.m;
-      const ramp = !waiting && last && last.dur > 0 && d.mk.m < last.m + last.dur ? Math.ceil((last.m + last.dur - d.mk.m) / 1000) : 0;
-      swap(c.lvl,
-        Math.abs(lv) < 0.005 ? (ramp || waiting ? null : h('span', { class: 'pill', text: 'No move: automatic only' })) : h('span', { class: `pill ${dir(lv)}`, text: `Your level ${arrow(lv)} ${pct(lv, 1)}` }),
-        waiting ? h('span', { class: 'pill gold', text: `To ${pct((last.to - 1) * 100, 1)} ${last.dur ? `over ${ago(last.dur)} ` : ''}from the opening bell` })
-          : ramp ? h('span', { class: 'pill gold', text: `Moving to ${pct((last.to - 1) * 100, 1)} · ${ramp}s${d.mk.open ? '' : ' (paused: market closed)'}` }) : null);
+      // the gradual move playing now, and the moves still to come (in the order they play)
+      const pl = d.mk.plan?.[s.t] || { glide: null, next: [], cancel: 0 };
+      const g = pl.glide; const nx = pl.next[0]; const end = pl.next.at(-1);
+      const lvlText = (x) => pct((x - 1) * 100, 1);
+      const whenNext = (x) => (d.mk.open ? (x.in < 1000 ? 'in a moment' : `in ${ago(x.in)}`) : x.in < 1000 ? 'at the opening bell' : `${ago(x.in)} after the opening bell`);
+      const pills = [
+        Math.abs(lv) < 0.005 ? (g || nx ? null : h('span', { class: 'pill', text: 'No move: automatic only' })) : h('span', { class: `pill ${dir(lv)}`, text: `Your level ${arrow(lv)} ${pct(lv, 1)}` }),
+        g ? h('span', { class: 'pill gold', text: `Moving to ${lvlText(g.to)} · ${ago(g.left)} left${d.mk.open ? '' : ' (paused: market closed)'}` }) : null,
+        nx ? h('span', { class: 'pill gold', text: `Next: to ${lvlText(nx.to)}${nx.dur ? ` over ${ago(nx.dur)}` : ''}, ${whenNext(nx)}` }) : null,
+        pl.next.length > 1 ? h('span', { class: 'pill gold', text: `Then ${pl.next.length - 1} more, ending at ${lvlText(end.to)}` }) : null,
+      ];
+      const ps = JSON.stringify(pills.map((x) => x && [x.className, x.textContent]));
+      if (ps !== c.ps) { c.ps = ps; swap(c.lvl, pills); }
+      c.cancel.hidden = !pl.cancel || d.game.phase === 'ended';
+      set(c.cancel, pl.cancel > 1 ? `Cancel ${pl.cancel} waiting moves` : 'Cancel waiting move');
       const e = exposure[s.t];
       set(c.exp, e ? `${e.n} team${e.n > 1 ? 's' : ''} hold it · ${qty(e.q)} shares · ${compact(e.q * p)} at stake` : 'No team holds it yet.');
       if (sp) spark(c.c, sp.p[s.t], dir(sp.p[s.t].at(-1) - sp.p[s.t][0]), o);
@@ -438,7 +446,7 @@ function MarketView(el) {
         h('thead', {}, h('tr', {}, ['Time', 'Stock', 'Move', 'Speed', 'Level before', 'Level after'].map((x, i) => h('th', { class: i > 3 ? 'num' : '', text: x })))),
         h('tbody', {}, d.moves.slice(0, 60).map((m) => h('tr', {},
           h('td', { class: 'nowrap', text: clock(m.w) }), h('td', {}, h('span', { class: 'tk', text: m.t })), h('td', { text: m.label }),
-          h('td', { text: m.atOpen ? 'instant, at the opening bell' : m.dur ? `over ${ago(m.dur)}` : 'instant' }),
+          h('td', { text: speedOf(m) }),
           h('td', { class: 'num', text: pct((m.from - 1) * 100, 1) }), h('td', { class: `num ${dir(m.to - m.from)}`, text: pct((m.to - 1) * 100, 1) })))))));
     }
   }
@@ -446,13 +454,28 @@ function MarketView(el) {
   return {};
 }
 
+/** A move's speed in the log: for a move made while closed, when after the opening bell it starts. */
+function speedOf(m) {
+  const at = m.bell < 1000 ? 'the opening bell' : `${ago(m.bell)} after the opening bell`;
+  if (m.queued) return m.dur ? `over ${ago(m.dur)}, from ${at}` : `instant, at ${at}`;
+  return m.dur ? `over ${ago(m.dur)}` : 'instant';
+}
+
 async function move(t, mode, value, secs) {
   const r = await act('host/move', { t, mode, value, secs });
   if (!r) return false;
-  const after = r.move.after ? `, after the ${r.move.after} move${r.move.after > 1 ? 's' : ''} already waiting` : '';
-  const when = r.move.atOpen ? (secs ? `over ${ago(secs * 1000)} from the opening bell${after}` : `at the opening bell${after} (the market is closed)`) : (secs ? `over ${ago(secs * 1000)}` : 'instantly');
-  toast(`${t}: ${r.move.label}, ${when}. Level ${pct((r.move.to - 1) * 100, 1)} from the listed price.`, { title: 'Move applied' });
+  const x = r.move;
+  const after = x.after ? `, after the ${x.after} move${x.after > 1 ? 's' : ''} already waiting` : '';
+  const at = x.wait < 1000 ? 'the opening bell' : `${ago(x.wait)} after the opening bell`;
+  const when = x.atOpen ? `${secs ? `over ${ago(secs * 1000)}, from` : 'at'} ${at}${after} (the market is closed)` : (secs ? `over ${ago(secs * 1000)}` : 'instantly');
+  toast(`${t}: ${x.label}, ${when}. Level ${pct((x.to - 1) * 100, 1)} from the listed price.`, { title: 'Move applied' });
   return true;
+}
+
+async function cancelMoves(t) {
+  if (!(await confirmBox(`Cancel the waiting moves for ${t}?`, 'The moves that have not started yet are removed, so they never happen. A move already playing carries on; make a new move to change it.', 'Cancel them', true))) return;
+  const r = await act('host/move/cancel', { t });
+  if (r) toast(r.n ? `${t}: the waiting moves are cancelled.` : `${t}: nothing was waiting.`, { title: 'Moves cancelled' });
 }
 
 // ======================= dataset =======================
@@ -642,7 +665,7 @@ function openTeam(id) {
     if (scrollTop) body.closest('.sheet').scrollTop = scrollTop;
     if (listTop && body.querySelector('.list-plain')) body.querySelector('.list-plain').scrollTop = listTop;
     chart?.destroy();
-    chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compact(v).replace('₹', '')), fmtX: axisTime, fmtTip: clock });
+    chart = lineChart(box, { fmtY: (v, full) => (full ? rs(v) : compact(v).replace('₹', '')), fmtX: axisTime, fmtTip: tipTime });
     chart.set({ xs: r.hist.ws, ws: r.hist.ws, ys: r.hist.nw, ref: START_CASH, refFit: true, refLabel: 'Started with ₹10,00,000', tone: dir(t.sum.nw - START_CASH), label: `${t.name}: net worth` });
     first = false;
   };
@@ -750,15 +773,21 @@ function UpdatesView(el) {
       const r = await post('host/update', { text: text.value, rid: updRid }, tokenH());
       if (!r.ok) { set(err, r.error); updKey = ''; return; } // refused: nothing was posted
       text.value = ''; updKey = ''; toast(`${r.again ? 'Your first press went through. ' : ''}Update ${pad(r.update.n)} is live for every team.`, { title: 'Posted' }); refresh();
-    } catch { set(err, 'No answer from the server. The update may already be posted. Press Post again to make sure: the same update is never posted twice.'); refresh(); } finally { go.disabled = false; }
+    } catch { set(err, 'No answer from the server. The update may already be posted. Press Post again to make sure: the same update is never posted twice.'); refresh(); } finally { go.disabled = false; label(); }
   });
+  // "Post again" only while the box still holds the update whose answer was lost
+  function label() {
+    const n = (H.data?.updates || []).reduce((m, u) => Math.max(m, u.n), 0) + 1;
+    set(go, updKey && updKey === text.value ? 'Post again (safe)' : `Post update ${pad(n)}`);
+  }
+  text.addEventListener('input', label);
   let sig = '';
   function draw() {
     const d = H.data; if (!d) return;
+    label();
     const s = JSON.stringify(d.updates);
     if (s === sig) return;
     sig = s;
-    set(go, updKey && updKey === text.value ? 'Post again (safe)' : `Post update ${pad((d.updates.reduce((m, u) => Math.max(m, u.n), 0) || 0) + 1)}`);
     if (!d.updates.length) { swap(list, h('li', { class: 'empty' }, h('p', { style: { margin: 0 }, text: 'Nothing posted yet.' }))); return; }
     swap(list, d.updates.map((u) => h('li', { class: 'up-item' },
       h('span', { class: 'up-n', 'aria-hidden': 'true', text: pad(u.n) }),

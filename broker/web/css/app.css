@@ -334,6 +334,8 @@ canvas.spark { width: 76px; height: 30px; display: block; }
 .sheet.wide { max-width: 980px; }
 @media (min-width: 700px) { .scrim { align-items: center; padding: 24px; } .sheet { border-bottom: 2px solid var(--gold); border-radius: var(--radius-md); padding: var(--space-6); } }
 .sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: var(--space-4); }
+.ticket-note { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--gold); border-radius: var(--radius-md); font-size: 15px; }
+.ticket-note.err { border-color: var(--down); }
 .ticket-px { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--line-soft); margin-bottom: var(--space-4); }
 .ticket-px .px { font-size: 26px; }
 .qty { display: grid; grid-template-columns: 50px 1fr 50px; gap: 8px; }
@@ -422,11 +424,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 16px; }
 /* toasts and banners */
 .toasts { position: fixed; z-index: 80; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom)); display: grid; gap: 8px; width: min(460px, calc(100vw - 24px)); }
 /* on a phone stock page, notices sit above the Buy and Sell bar, never on it */
-@media (max-width: 999px) { body:has(.trade-bar.sticky) .toasts { bottom: calc(150px + env(safe-area-inset-bottom)); } }
+/* a tall stack scrolls instead of running off the top of the screen */
+.toasts { max-height: calc(100vh - 96px - env(safe-area-inset-bottom)); overflow-y: auto; }
+@media (max-width: 999px) { body:has(.trade-bar.sticky) .toasts { bottom: calc(150px + env(safe-area-inset-bottom)); max-height: calc(100vh - 162px - env(safe-area-inset-bottom)); } }
 /* never over the open order ticket: notices wait behind it, dimmed, until it closes */
 body:has(.scrim form.ticket) .toasts { z-index: 50; }
-.toasts { max-height: calc(100vh - 24px); overflow-y: auto; }
-@media (min-width: 1000px) { .toasts { bottom: 24px; left: auto; right: 24px; transform: none; } }
+@media (min-width: 1000px) { .toasts { bottom: 24px; left: auto; right: 24px; transform: none; max-height: calc(100vh - 48px); } }
 .toast { background: var(--surface-raised); border: 1px solid var(--gold); border-radius: var(--radius-md); padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; animation: rise 0.25s ease-out; }
 .toast.err { border-color: var(--down); }
 .toast .t-body { flex: 1; font-size: 16px; }
@@ -504,7 +507,7 @@ body:has(.scrim form.ticket) .toasts { z-index: 50; }
 .mc-custom { display: grid; grid-template-columns: 1.1fr 1fr 1fr auto; gap: 6px; }
 .mc-custom select, .mc-custom input { min-height: 38px; padding: 6px 8px; font-size: 15px; }
 .mc-custom select { padding-right: 26px; background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; }
-.mc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
+.mc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; flex-wrap: wrap; }
 .drawer-grid { display: grid; gap: var(--space-4); }
 @media (min-width: 900px) { .drawer-grid { grid-template-columns: 1fr 1fr; } }
 .form-grid { display: grid; gap: var(--space-4); grid-template-columns: 1fr; }

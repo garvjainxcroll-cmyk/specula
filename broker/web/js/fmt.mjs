@@ -32,6 +32,9 @@ export const hm = (w) => tm.format(new Date(w));
 /** A chart's time label: the clock time, with the date when it is not today. */
 export const axisTime = (w) => (new Date(w).toDateString() === new Date().toDateString() ? hm(w) : df.format(new Date(w)));
 export const when = (w) => df.format(new Date(w));
+const dsf = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+/** A chart point's time: the clock time to the second, with the date when it is not today. */
+export const tipTime = (w) => (new Date(w).toDateString() === new Date().toDateString() ? clock(w) : dsf.format(new Date(w)));
 export function ago(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
