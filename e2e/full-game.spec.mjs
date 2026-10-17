@@ -134,7 +134,7 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
       await expect(admin.locator(`[data-request="${FUNDS[4]}"]`)).toContainText('approved', { timeout: 20000 });
       await admin.click('[data-view="control"]');
       await expect(m.page.locator('[data-loan-status="approved"]')).toBeVisible({ timeout: 20000 });
-      await expect(m.page.locator('#loans')).toContainText('8% a year');
+      await expect(m.page.locator('#loans')).toContainText('8.00% a year');
     }
 
     if (q === AUCTION_Q) {
