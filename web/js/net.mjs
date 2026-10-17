@@ -67,7 +67,7 @@ export async function detect() {
 // ---------------- live data ----------------
 
 export const live = {
-  state: null, me: null, orders: null, docs: {}, docV: {}, team: null, teamQ: null, results: {}, error: null,
+  state: null, me: null, orders: null, docs: {}, docV: {}, team: null, teamQ: null, results: {}, error: null, journal: [], loanRequests: [],
 };
 
 // Public documents only. Standings are never public: a fund sees its own record, and the
@@ -77,6 +77,8 @@ let timer = null; let polling = false; let token = null; let fast = false;
 
 export function setToken(t) { token = t; live.me = null; live.orders = null; live.team = null; }
 export function getToken() { return token; }
+
+export function refreshMine() { live.docV.teamFor = -1; return pollOnce(); }
 
 export async function pollOnce() {
   if (polling) return;
@@ -105,7 +107,7 @@ async function fetchDoc(k, key, v) {
 async function fetchMine(v) {
   const q = live.state.docs?.result || 0;
   const r = await get(`mine?token=${encodeURIComponent(token)}${q ? `&q=${q}` : ''}`);
-  if (r.ok && r.data.ok !== false) { live.team = r.data.team; live.teamQ = live.state.q; live.docV.teamFor = v; if (r.data.result) live.myResults = { ...(live.myResults || {}), [q]: r.data.result }; }
+  if (r.ok && r.data.ok !== false) { live.team = r.data.team; live.journal = r.data.journal || []; live.loanRequests = r.data.loanRequests || []; live.teamQ = live.state.q; live.docV.teamFor = v; if (r.data.result) live.myResults = { ...(live.myResults || {}), [q]: r.data.result }; }
 }
 
 export async function fetchMyResult(q) {

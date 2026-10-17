@@ -1,6 +1,6 @@
 // The live Team Desk: join with the fund code, then trade.
 import { h, mount, toast, store } from '../ui.mjs';
-import { net, live, subscribe, startPolling, stopPolling, setToken, pollOnce, post, clockLeft, fetchMyResult } from '../net.mjs';
+import { net, live, subscribe, startPolling, stopPolling, setToken, pollOnce, post, clockLeft, fetchMyResult, refreshMine } from '../net.mjs';
 import { createDesk } from './deskcore.mjs';
 
 const KEY = 'specula-token';
@@ -55,12 +55,16 @@ export default function desk(app, { band }) {
           qdoc: q && q.q === s.q ? q : (q || null), team, teamId: live.me?.teamId, teamName: me?.name || saved.teamName, members: me?.members || [],
           orders: (live.orders?.orders || []).filter(() => q?.run?.q === s.q), forecastSaved: live.orders?.forecast?.value ?? null, bidSaved: live.orders?.bid || null,
           result, myResult: live.myResults?.[resQ] || null, final: s.revealed ? live.docs.final || null : null, history: live.docs.history || [],
+          journal: live.journal || [], loanRequests: live.loanRequests || [],
         };
       },
       subscribe: (fn) => { adapter._emit = fn; return subscribe(() => { if (live.error === 'signed-out') { store(KEY, null); saved = null; showJoin('You have been signed out (the game may have been reset). Join again with your fund code.'); return; } fn(); }); },
       placeOrder: (o) => send('order', { ...o, q: live.state.q, epoch: live.state.epoch, id: uid() }),
       setForecast: (value) => send('forecast', { value, q: live.state.q }),
       setBid: (b) => send('bid', { ...b, q: live.state.q }),
+      requestLoan: async (b) => { const r = await send('loan', { action: 'request', ...b }); if (r.ok) await refreshMine(); return r; },
+      cancelLoan: async (id) => { const r = await send('loan', { action: 'cancel', id }); if (r.ok) await refreshMine(); return r; },
+      repayLoan: async (b) => { const r = await send('loan', { action: 'repay', ...b }); if (r.ok) await refreshMine(); return r; },
     };
     async function send(path, body) {
       for (let k = 0; k < 3; k++) {

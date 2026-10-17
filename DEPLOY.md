@@ -74,6 +74,7 @@ Work through these in order:
 4. **Start the game** → choose **2 min** next to **Open the window** (shorter for a rehearsal; the real game uses 10 min) → **Open the window** → trade on the phones → **Ring the bell now** → check the Results tab on a phone → **Next**.
 5. In Round 02: release a crisis from **Crisis control** and check the takeover appears on every screen. (Crises are optional — in the real game you choose which to release, and when.)
 6. Check that a phone's **My score** tab shows only its own fund, and that the Big Screen shows no standings.
+   Try a trade without a trading note (the button stays grey), then with one. On a phone, ask for a loan (Fund tab); approve it in console → **Funds**; add ₹100 Cr of capital to another fund. Open console → **Notes** to read the notes.
 7. Turn a phone’s Wi-Fi off for 20 seconds, then on again: the red bar appears, then the desk catches up.
 8. Console → **Tools** → **Reset everything** (type `RESET`). Tick “keep the same funds” only if you want to reuse the codes.
 9. Check **Usage** in Netlify after the rehearsal to see what one game uses. A full event needs a few tens of thousands of function calls; check this against your plan.

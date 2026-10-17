@@ -338,3 +338,8 @@ input::placeholder, textarea::placeholder { color: var(--ink-muted); opacity: 0.
 .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.8s ease, transform 0.8s ease; }
 .reveal.in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .reveal { transition: none; } }
+
+/* Trading notes */
+.note-line { padding: 8px 0; border-bottom: 1px solid var(--line, rgba(176,141,87,.25)); }
+.note-line:last-child { border-bottom: 0; }
+textarea[data-note] { min-height: 56px; }

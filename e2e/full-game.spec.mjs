@@ -5,7 +5,7 @@
 // Screen ever shows another fund's results, the scores stay sealed until the reveal, and
 // the revealed standings must equal an engine-only replay. Zero console errors.
 import { test, expect } from '@playwright/test';
-import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor } from '../src/engine/game.mjs';
+import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor, applyAdmin } from '../src/engine/game.mjs';
 import { SCRIPT } from '../server/script.mjs';
 import { fmtNum } from '../src/engine/num.mjs';
 
@@ -16,6 +16,7 @@ const LAPTOP = { width: 1366, height: 900 };
 const QUARTERS = Number(process.env.E2E_ROUNDS || 6);
 const RECONNECT_Q = 2; const LATE_Q = 3; const RELOAD_Q = 4; const AUCTION_Q = 6;
 const NO_CRISIS_Q = 3; // crises are optional: this round settles with none released
+const CAPITAL_Q = 2; const LOAN_Q = 5; // the Event Head adds capital, then a fund borrows
 const PICKS = ['AUREQ', 'AUR10Y', 'KESEQ', 'OIL', 'GOLD', 'AURFUT', 'DINAR', 'VER10Y', 'CALEQ', 'WHEAT', 'BANKCDS', 'FEAR', 'KESCDS', 'ORA', 'NORENERGY', 'AURHY', 'CROWN', 'SAR2Y', 'COPPER', 'AURIL10'];
 
 test.describe.configure({ mode: 'serial' });
@@ -98,6 +99,44 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
 
     if (q === RECONNECT_Q) await reconnect(members[2]);
 
+    // a trade without a note is impossible
+    if (q === 1) {
+      const m = primary[1];
+      await openTicket(m, 'COPPER');
+      await m.page.fill('[data-amount="COPPER"]', '30');
+      await expect(m.page.locator('[data-go="COPPER"]')).toBeDisabled();
+      await m.page.keyboard.press('Escape');
+    }
+    // the Event Head adds capital to one fund (the fund sees it, with the reason)
+    if (q === CAPITAL_Q) {
+      await admin.click('[data-view="funds"]');
+      await admin.fill(`[data-cap-amount="${FUNDS[6]}"]`, '250');
+      await admin.fill(`[data-cap-reason="${FUNDS[6]}"]`, 'Prize for the economics quiz');
+      await admin.click(`[data-cap-add="${FUNDS[6]}"]`);
+      await expect(admin.locator(`[data-capital-row="${FUNDS[6]}"]`)).toContainText('1,2', { timeout: 20000 });
+      await admin.click('[data-view="control"]');
+      const m = primary[6];
+      if (m.phone) await m.page.click('[data-tab="fund"]');
+      await expect(m.page.locator('#loans')).toContainText('Prize for the economics quiz', { timeout: 20000 });
+    }
+    // a fund asks for a loan; the Event Head approves it at 8%
+    if (q === LOAN_Q) {
+      const m = primary[4];
+      if (m.phone) await m.page.click('[data-tab="fund"]');
+      await m.page.locator('#loans summary').click();
+      await m.page.fill('#loan-amount', '300');
+      await m.page.fill('#loan-reason', 'More room under the 3x limit for Aurelian rate futures');
+      await m.page.click('[data-loan-request]');
+      await expect(m.page.locator('.toast').last()).toContainText('Request sent');
+      await admin.click('[data-view="funds"]');
+      await expect(admin.locator(`[data-approve="${FUNDS[4]}"]`)).toBeVisible({ timeout: 20000 });
+      await admin.click(`[data-approve="${FUNDS[4]}"]`);
+      await expect(admin.locator(`[data-request="${FUNDS[4]}"]`)).toContainText('approved', { timeout: 20000 });
+      await admin.click('[data-view="control"]');
+      await expect(m.page.locator('[data-loan-status="approved"]')).toBeVisible({ timeout: 20000 });
+      await expect(m.page.locator('#loans')).toContainText('8% a year');
+    }
+
     if (q === AUCTION_Q) {
       for (const [m, mult, amt] of [[primary[0], 0.98, 120], [primary[4], 1.03, 250], [primary[6], 0.9, 80]]) await bid(m, mult, amt);
     }
@@ -125,6 +164,7 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
       await expect(m.page.locator('.clock')).toHaveText(/BELL|SETTLED/, { timeout: 90000 });
       await m.page.waitForTimeout(2500);
       await m.page.fill('[data-amount="OIL"]', '25');
+      await m.page.fill('[data-note="OIL"]', 'Oil after the bell, should be refused');
       await m.page.click('[data-go="OIL"]', { force: true });
       await expect(m.page.locator('.toast').last()).toContainText(/Late orders are refused|window is closed/);
       await m.page.keyboard.press('Escape');
@@ -143,6 +183,20 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
     for (const m of primary) {
       if (m.phone) await m.page.click('[data-tab="results"]');
       await expect(m.page.locator(`text=Results · Round ${q}`)).toBeVisible({ timeout: 20000 });
+    }
+    if (q === LOAN_Q) {
+      const m = primary[4];
+      if (m.phone) await m.page.click('[data-tab="results"]');
+      await expect(m.page.locator('[data-loan-line]')).toBeVisible({ timeout: 20000 });
+      // the fund's journal keeps every note; the Event Head reads them all
+      if (m.phone) await m.page.click('[data-tab="trade"]');
+      await expect(m.page.locator('#trading-notes')).toContainText(`Round 0${q}`);
+      await admin.click('[data-view="notes"]');
+      await expect(admin.locator(`[data-notes-fund="${FUNDS[4]}"]`)).toBeVisible({ timeout: 20000 });
+      await admin.locator(`[data-notes-fund="${FUNDS[4]}"] summary`).click();
+      await expect(admin.locator(`[data-notes-fund="${FUNDS[4]}"]`)).toContainText('because the release and the rules point that way');
+      await admin.click('[data-view="control"]');
+      if (m.phone) await m.page.click('[data-tab="results"]');
     }
     // results are hidden: no desk and no Big Screen shows another fund
     await expect(big.locator('text=Results are sealed')).toBeVisible();
@@ -181,9 +235,12 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
     // ---- the Big Screen equals an engine-only replay ----
     const exp = await (await fetch(`${baseURL}/api/admin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASS, action: 'export' }) })).json();
     const state = exp.data.state;
-    let w = newGame(state.teams.map((t) => ({ id: t.id, name: t.name })), SCRIPT);
+    let w = newGame(state.teams.map((t) => ({ id: t.id, name: t.name, startCr: t.startCr || null })), SCRIPT);
+    const log = exp.data.world.adminLog || [];
+    expect(log.map((e) => e.kind)).toEqual(['capital', 'loan']);
     for (let q = 1; q <= QUARTERS; q++) {
       w = openQuarter(w, SCRIPT, q);
+      for (const e of log.filter((x) => x.q === q - 1)) w = applyAdmin(w, e); // the Event Head's capital and loans
       const fired = exp.data[`resultfull/${q}`].stages; // exactly the crises the Event Head released
       if (q === NO_CRISIS_Q) expect(fired).toEqual([]);
       for (const id of fired) w = fireStage(w, SCRIPT, id).world;
@@ -249,6 +306,7 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
     await openTicket(m, inst);
     if (side === 'sell') await p.click(`[data-ticket="${inst}"] .btn.sell`);
     await p.fill(`[data-amount="${inst}"]`, String(amt));
+    await p.fill(`[data-note="${inst}"]`, `${m.fund}: ${side} ${inst} because the release and the rules point that way`);
     const go = p.locator(`[data-go="${inst}"]`);
     if (await go.isDisabled()) { await p.keyboard.press('Escape'); return false; } // refused by the 3× limit before sending
     await go.click();
@@ -263,6 +321,8 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
     const first = p.locator('[data-pane="trade"] .inst').first();
     if (!(await first.count())) return;
     await first.click();
+    const ta = p.locator('textarea[data-note]');
+    if (await ta.count()) await ta.first().fill('Cutting risk after the crisis: Risk Used is too close to the limit');
     const btn = p.locator('[data-close]');
     if (await btn.count()) { await btn.first().click(); await expect(p.locator('.toast').last()).toContainText(/Closed|refused|Refused/); }
     if (await p.locator('.sheet').count()) await p.keyboard.press('Escape');
@@ -291,6 +351,7 @@ test(`8 funds play ${QUARTERS} rounds through the real screens`, async ({ browse
     await expect(p.locator('.offline')).toBeVisible({ timeout: 20000 });
     await openTicket(m, 'GOLD');
     await p.fill('[data-amount="GOLD"]', '15');
+    await p.fill('[data-note="GOLD"]', 'Gold as a hedge while the connection is shaky');
     await p.click('[data-go="GOLD"]');
     await expect(p.locator('.toast').last()).toContainText(/Connection lost/, { timeout: 30000 });
     if (await p.locator('.sheet').count()) await p.keyboard.press('Escape');

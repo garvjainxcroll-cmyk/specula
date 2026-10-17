@@ -26,6 +26,8 @@ test('guided practice: two rounds with tips, a practice crisis and a final score
       if (vp.width < 600) await p.click('[data-tab="market"]');
       await p.locator('.inst[data-inst="AUREQ"]').first().click();
       await p.fill('[data-amount="AUREQ"]', '200');
+      await expect(p.locator('[data-go="AUREQ"]')).toBeDisabled(); // a trading note is compulsory
+      await p.fill('[data-note="AUREQ"]', 'Aurelian growth beat what forecasters expected');
       await p.click('[data-go="AUREQ"]');
       await expect(p.locator('.toast').last()).toContainText('Bought');
       await tipOk();

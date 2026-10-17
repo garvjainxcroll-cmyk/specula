@@ -4,7 +4,7 @@ import { ECONOMIES, ECON_ORDER } from '../../src/config/economies.mjs';
 export const QUARTER_STEPS = [
   ['The Data Drops', 'The round’s figures for all six economies appear on every screen.'],
   ['The Window Opens', 'A ten-minute clock starts on every device and the desk unlocks.'],
-  ['Trade and Forecast', 'Buy, sell and enter the round’s forecast. Change it as often as you like.'],
+  ['Trade and Forecast', 'Buy, sell — with a trading note on why — and enter the round’s forecast.'],
   ['Stay Alert', 'A crisis may break at any moment. Prices react at once.'],
   ['The Market Settles', 'At zero the desk locks, central banks act and prices reset.'],
   ['Results', 'Your own profit and loss, and the reasons, appear on your desk. Standings stay sealed until the end.'],

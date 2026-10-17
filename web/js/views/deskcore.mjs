@@ -7,6 +7,7 @@ import { INSTRUMENTS, INST, FAMILIES } from '../../src/config/instruments.mjs';
 import { RULES, FORECAST_VARS, roundName } from '../../src/config/rules.mjs';
 import { deskNow, checkOrder } from '../../src/engine/game.mjs';
 import { riskUsed, grossExposure } from '../../src/engine/risk.mjs';
+import { navOf, debtOf } from '../../src/engine/portfolio.mjs';
 import { rupeePrice } from '../../src/engine/market.mjs';
 import { explainInstrument } from '../../src/config/explain.mjs';
 import { r2 } from '../../src/engine/num.mjs';
@@ -25,6 +26,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
   let seenResultQ = sstore('specula-seen-result') || 0;
   const seenStages = new Set(sstore('specula-seen-stages') || []);
   const openFams = new Set(sstore('specula-fams') || ['govt', 'futures', 'shares']);
+  let loanFormOpen = false;
 
   function world(v) {
     const q = v.qdoc;
@@ -36,11 +38,12 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     const w = world(v);
     if (!w) {
       // between quarters: the fund as it stands after settlement
-      const st = { cash: v.team.cash, pos: { ...v.team.pos }, open: { ...(v.team.open || {}) } };
-      const nav = st.cash + Object.entries(st.pos).filter(([id]) => INST[id].funded).reduce((a, [, x]) => a + x, 0);
+      const st = { cash: v.team.cash, pos: { ...v.team.pos }, open: { ...(v.team.open || {}) }, loans: v.team.loans || [] };
+      const nav = navOf(st);
+      const debt = debtOf(st);
       const gross = grossExposure(st.pos);
       const risk = riskUsed(st.pos, nav, v.qdoc.sigma, v.qdoc.round?.M || 1);
-      return { w: null, orders: [], st, led: null, nav, gross, exposure: nav > 0 ? r2(gross / nav) : null, risk, pnlSoFar: 0 };
+      return { w: null, orders: [], st, led: null, nav, debt, limitBase: nav + debt, gross, exposure: nav > 0 ? r2(gross / nav) : null, risk, pnlSoFar: 0 };
     }
     const orders = (v.orders || []).map((o) => ({ inst: o.inst, delta: o.delta, epoch: o.epoch }));
     return { w, orders, ...deskNow(w, v.teamId, orders) };
@@ -48,7 +51,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
 
   function render() {
     const v = adapter.view();
-    const key = JSON.stringify([v.phase, v.q, v.v, v.ordersRev, v.docKey, tab, v.forecastSaved, v.bidSaved, v.team?.navHist?.length, v.teamName, !!v.final]);
+    const key = JSON.stringify([v.phase, v.q, v.v, v.ordersRev, v.docKey, tab, v.forecastSaved, v.bidSaved, v.team?.navHist?.length, v.teamName, !!v.final, v.team?.cash, (v.journal || []).length, JSON.stringify(v.loanRequests || [])]);
     if (key === lastKey) return;
     lastKey = key;
     const keep = keepInputs(root);
@@ -103,7 +106,7 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
       n ? h('button', { class: 'kpi click', style: { padding: '4px 10px', minWidth: '130px' }, 'data-risk': String(ru), onclick: () => riskSheet(n.risk) },
         h('div', { class: 'k' }, 'Risk Used'), h('div', { class: `v num ${ru > 100 ? 'down' : ru > 85 ? 'warn' : ''}`, style: { fontSize: '19px' } }, `${fmtNum(ru, 0)}%`),
         h('div', { class: `meter ${ru > 100 ? 'over' : ru > 85 ? 'hot' : ''}`, style: { marginTop: '2px' } }, h('i', { style: { width: `${Math.min(100, ru / 1.2)}%` } }), h('span', { class: 'mark', style: { left: `${100 / 1.2}%` } }))) : null,
-      n ? h('div', { class: 'kpi hide-sm', style: { padding: '4px 10px' } }, h('div', { class: 'k' }, 'Exposure'), h('div', { class: `v num ${n.exposure > 2.8 ? 'warn' : ''}`, style: { fontSize: '19px' } }, `${fmtNum(n.exposure ?? 0, 2)}× / 3×`)) : null));
+      n ? h('div', { class: 'kpi hide-sm', style: { padding: '4px 10px' } }, h('div', { class: 'k' }, n.debt ? 'Exposure (with loans)' : 'Exposure'), h('div', { class: `v num ${n.gross > 2.8 * n.limitBase ? 'warn' : ''}`, style: { fontSize: '19px' } }, `${fmtNum(n.limitBase > 0 ? n.gross / n.limitBase : 0, 2)}× / 3×`)) : null));
   }
   function updateClock(v0) {
     const v = v0 || adapter.view();
@@ -238,24 +241,30 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     let side = 'buy';
     const amount = h('input', { type: 'number', inputmode: 'decimal', min: '0', step: '0.01', placeholder: 'Amount in ₹ Cr', 'aria-label': 'Amount in rupees crore', 'data-amount': id });
     const preview = h('div', { class: 'small' });
+    const note = h('textarea', { rows: 2, maxlength: '600', placeholder: 'Trading note (compulsory): why this trade, now? e.g. “Aurelia’s rule gives 5.50%, the future prices 4.50% — sell the future.”', 'aria-label': 'Trading note', 'data-note': id, 'data-keep': `note-${id}` });
+    const noteOk = () => note.value.replace(/\s+/g, ' ').trim().length >= 8;
+    const noteHint = h('div', { class: 'tiny muted', style: { marginTop: '4px' } }, 'Every trade needs a note: a sentence on your reason. Your fund and the Event Head can read it; no other fund can.');
     const btnBuy = h('button', { class: 'btn buy on', type: 'button', onclick: () => { side = 'buy'; btnBuy.classList.add('on'); btnSell.classList.remove('on'); upd(); } }, 'Buy');
     const btnSell = h('button', { class: 'btn sell', type: 'button', onclick: () => { side = 'sell'; btnSell.classList.add('on'); btnBuy.classList.remove('on'); upd(); } }, held > 0 ? 'Sell' : 'Sell short');
     const go = h('button', { class: 'btn block', type: 'button', 'data-go': id, onclick: async () => {
       const a = Number(amount.value);
+      if (!noteOk()) { toast('Write your trading note first: why this trade, now?', 'bad', 5000); note.focus(); return; }
       go.disabled = true;
-      const r = await adapter.placeOrder({ inst: id, side, amountCr: a });
+      const r = await adapter.placeOrder({ inst: id, side, amountCr: a, note: note.value });
       go.disabled = false;
       if (r.ok) { toast(`${side === 'buy' ? 'Bought' : 'Sold'} ${fmtCr(a * CR)} of ${x.short}.`, 'good'); close(); } else toast(r.reason, 'bad', 6000);
     } }, 'Place order');
     const closeBtn = held ? h('button', { class: 'btn ghost block', type: 'button', 'data-close': id, onclick: async () => {
+      if (!noteOk()) { toast('Write your trading note first: why close it, now?', 'bad', 5000); note.focus(); return; }
       closeBtn.disabled = true;
-      const r = await adapter.placeOrder({ inst: id, side: 'close' });
+      const r = await adapter.placeOrder({ inst: id, side: 'close', note: note.value });
       closeBtn.disabled = false;
       if (r.ok) { toast(`Closed your ${x.short} position.`, 'good'); close(); } else toast(r.reason, 'bad', 6000);
     } }, `Close the whole position (${fmtCr(Math.abs(held))})`) : null;
     const chips = h('div', { class: 'row' }, [10, 50, 100, 250, 500].map((c) => h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { amount.value = c; upd(); } }, `₹${c} Cr`)));
     function upd() {
       const a = Number(amount.value);
+      if (closeBtn) closeBtn.disabled = !noteOk();
       if (!(a > 0)) { mount(preview, h('span', { class: 'muted' }, 'Enter an amount to see the cost, your exposure and your Risk Used after the trade.')); go.disabled = true; return; }
       const chk = checkOrder(n.w, adapter.view().teamId, n.orders, { inst: id, side, amountCr: a });
       if (!chk.ok) { mount(preview, h('span', { class: 'down' }, chk.reason)); go.disabled = true; return; }
@@ -265,13 +274,17 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
       const ruAfter = riskUsed(after, navAfter, n.w.sigma, n.w.round.M).pct;
       mount(preview, calc(
         `Trading cost: ${fmtCr(Math.abs(chk.delta))} × ${fmtNum(n.w.run.spreads[id])}% = ${fmtRupees(chk.cost)}`,
-        `Exposure after: ${fmtNum(grossExposure(after) / navAfter, 2)}× of 3×   ·   Risk Used after: ${fmtNum(ruAfter, 0)}%${ruAfter > 100 ? ' — above the limit: forced liquidation at the bell unless you cut back' : ''}`));
-      go.disabled = false;
+        `Exposure after: ${fmtNum(grossExposure(after) / (navAfter + (n.debt || 0)), 2)}× of 3×${n.debt ? ' (fund value plus loans)' : ''}   ·   Risk Used after: ${fmtNum(ruAfter, 0)}%${ruAfter > 100 ? ' — above the limit: forced liquidation at the bell unless you cut back' : ''}`),
+        noteOk() ? null : h('div', { class: 'warn', style: { marginTop: '4px' } }, 'Write your trading note to place the order.'));
+      go.disabled = !noteOk();
     }
     amount.addEventListener('input', upd);
+    note.addEventListener('input', upd);
     upd();
     return h('div', { class: 'card tight', 'data-ticket': id }, h('div', { class: 'eyebrow' }, 'Trade'),
-      h('div', { class: 'row', style: { margin: '8px 0' } }, btnBuy, btnSell), amount, h('div', { style: { margin: '8px 0' } }, chips), preview, h('div', { style: { marginTop: '8px' } }, go), closeBtn ? h('div', { style: { marginTop: '8px' } }, closeBtn) : null);
+      h('div', { class: 'row', style: { margin: '8px 0' } }, btnBuy, btnSell), amount, h('div', { style: { margin: '8px 0' } }, chips),
+      h('label', { class: 'field' }, h('span', {}, 'Trading note · compulsory'), note), noteHint,
+      h('div', { style: { marginTop: '8px' } }, preview), h('div', { style: { marginTop: '8px' } }, go), closeBtn ? h('div', { style: { marginTop: '8px' } }, closeBtn) : null);
   }
 
   // ---------------- trade pane: forecast, auction, positions ----------------
@@ -287,12 +300,25 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
           h('div', { class: 'px' }, money(n.st.open[id] || 0)))))
           : h('p', { class: 'muted small' }, 'No positions yet. Tap any instrument on the Market tab to trade it.'),
         h('p', { class: 'tiny muted' }, 'The amount on the right is each position’s open profit or loss.')),
-      h('div', { class: 'card' }, h('div', { class: 'eyebrow' }, 'This round’s orders'),
-        (v.orders || []).length ? h('table', { class: 'tbl' }, h('tbody', {}, v.orders.slice().reverse().map((o) => h('tr', {},
-          h('td', {}, INST[o.inst].short), h('td', {}, o.side === 'close' ? 'close' : o.side), h('td', { class: 'r num' }, fmtCr(Math.abs(o.delta))),
-          h('td', { class: 'r tiny muted' }, o.epoch ? `after crisis ${o.epoch}` : '', v.memberName && o.by ? '' : ''))))) : h('p', { class: 'muted small' }, 'None yet.')));
+      notesCard(v));
   }
 
+  // ---------------- trading notes: why each trade was made ----------------
+  function notesCard(v) {
+    const cur = (v.orders || []).slice().reverse();
+    const past = (v.journal || []).filter((j) => j.q !== v.q || v.phase === 'results' || v.phase === 'final').slice().reverse();
+    const line = (o) => h('div', { class: 'note-line', 'data-note-line': o.id || '' },
+      h('div', { class: 'row between' },
+        h('b', { class: 'small' }, `${o.side === 'close' ? 'Close' : o.side === 'buy' ? 'Buy' : 'Sell'} ${INST[o.inst].short}${o.delta ? ` · ${fmtCr(Math.abs(o.delta))}` : ''}`),
+        h('span', { class: 'tiny muted' }, [o.epoch ? `after crisis ${o.epoch}` : '', o.at ? new Date(o.at).toTimeString().slice(0, 5) : '', (v.members || []).find((m) => m.id === o.by)?.name || (o.by && o.by.length < 25 ? o.by : '')].filter(Boolean).join(' · '))),
+      h('p', { class: 'small', style: { margin: '2px 0 0' } }, o.note ? `“${o.note}”` : h('span', { class: 'muted' }, 'no note')));
+    return h('div', { class: 'card', 'data-tip': 'notes', id: 'trading-notes' },
+      h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, 'Trading notes'), h('span', { class: 'badge' }, 'compulsory')),
+      h('p', { class: 'tiny muted' }, 'Every order carries your reason for it. Read them back after the bell: were you right, and for the right reason? Only your fund and the Event Head can see these.'),
+      h('div', { class: 'eyebrow', style: { marginTop: '8px' } }, v.q ? `This round · Round 0${v.q}` : 'This round'),
+      cur.length && (v.phase === 'open' || v.phase === 'data' || v.phase === 'settling') ? cur.map(line) : h('p', { class: 'muted small' }, 'No trades yet this round.'),
+      past.map((j) => h('details', { class: 'fam', open: false }, h('summary', {}, `Round 0${j.q}`, h('span', { class: 'tiny' }, `${j.orders.length}`)), j.orders.length ? j.orders.map(line) : h('p', { class: 'muted small' }, 'No trades in this round.'))));
+  }
   function forecastCard(v, isOpen) {
     const spec = v.qdoc.run.forecast;
     const rel = v.qdoc.release.econ[spec.econ];
@@ -334,17 +360,55 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
     if (!n) return h('div', { class: 'card' }, h('p', {}, 'Your fund appears here once the game starts.'));
     const longs = Object.entries(n.st.pos).filter(([id, x]) => INST[id].funded && x > 0).reduce((a, [, x]) => a + x, 0);
     const spare = n.nav - longs;
-    const start = v.team.navHist[0];
-    return h('div', { class: 'card', 'data-tip': 'fund' },
+    const flows = Object.values(v.team.flows || {}).reduce((a, x) => a + x, 0);
+    const putIn = v.team.navHist[0] + flows;
+    return h('div', { class: 'stack' }, h('div', { class: 'card', 'data-tip': 'fund' },
       h('div', { class: 'eyebrow' }, 'Your fund'),
       h('div', { class: 'kpis', style: { marginTop: '8px' } },
-        h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Fund value'), h('div', { class: 'v num', 'data-nav': String(n.nav) }, fmtCr(n.nav)), h('div', { class: 's' }, 'since the start ', pct((n.nav / start - 1) * 100, { dp: 1 }))),
+        h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Fund value'), h('div', { class: 'v num', 'data-nav': String(n.nav) }, fmtCr(n.nav)), h('div', { class: 's' }, flows ? `money put in ${fmtCr(putIn)} · profit ` : 'since the start ', flows ? money(n.nav - putIn) : pct((n.nav / putIn - 1) * 100, { dp: 1 }))),
         h('div', { class: 'kpi' }, h('div', { class: 'k' }, spare >= 0 ? 'Spare cash' : 'Borrowed'), h('div', { class: 'v num' }, fmtCr(Math.abs(spare))), h('div', { class: 's' }, spare >= 0 ? `earns ${fmtNum(RULES.cashRatePct)}% a year` : `costs ${fmtNum(RULES.cashRatePct + 1)}% a year`)),
         h('button', { class: 'kpi click', onclick: () => riskSheet(n.risk) }, h('div', { class: 'k' }, 'Risk Used'), h('div', { class: `v num ${n.risk.pct > 100 ? 'down' : n.risk.pct > 85 ? 'warn' : ''}` }, `${fmtNum(n.risk.pct)}%`), h('div', { class: 's' }, `limit 100% · multiplier ×${fmtNum(n.risk.M)} · show working`)),
         h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Exposure'), h('div', { class: 'v num' }, `${fmtNum(n.exposure ?? 0)}×`), h('div', { class: 's' }, `${fmtCr(n.gross)} of ${fmtCr(n.nav * 3)} allowed`))),
       n.risk.pct > 100 ? h('div', { class: 'crisis-banner', style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Above the risk limit'), 'If Risk Used is still above 100% at the bell, the system will close your largest positions until it falls to 80%, at a price 2% worse than the market, and record a forced liquidation (−5 points).') : null,
       n.pnlSoFar ? h('div', { class: 'panel', style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Moves so far this round'), h('p', { class: 'small' }, 'Crises and trading costs since the window opened: ', money(n.pnlSoFar)), pnlTable(n.led)) : null,
-      v.team.navHist.length > 1 ? h('div', { style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Fund value by round'), sparkline(v.team.navHist.map((x) => x / CR), { w: 320, h: 60 })) : null);
+      v.team.navHist.length > 1 ? h('div', { style: { marginTop: '12px' } }, h('div', { class: 'eyebrow' }, 'Fund value by round'), sparkline(v.team.navHist.map((x) => x / CR), { w: 320, h: 60 })) : null),
+    loansCard(v, n));
+  }
+
+  // ---------------- loans and capital from the Event Head ----------------
+  function loansCard(v, n) {
+    const loans = v.team.loans || [];
+    const log = (v.team.capitalLog || []).slice().reverse();
+    const reqs = (v.loanRequests || []).slice().reverse();
+    const canAsk = !practice && v.phase && !['lobby', 'setup', 'final', 'settling'].includes(v.phase);
+    const amt = h('input', { type: 'number', min: '0', step: '0.01', placeholder: 'Amount in ₹ Cr', 'data-keep': 'loan-amount', id: 'loan-amount' });
+    const why = h('textarea', { rows: 2, maxlength: '600', placeholder: 'Why does your fund need it? What will you do with it?', 'data-keep': 'loan-reason', id: 'loan-reason' });
+    const repayAmt = h('input', { type: 'number', min: '0', step: '0.01', placeholder: 'Repay ₹ Cr', 'data-keep': 'repay-amount', id: 'repay-amount' });
+    const interest = loans.reduce((a, l) => a + Math.round(l.principal * l.ratePct / 400), 0);
+    return h('div', { class: 'card', 'data-tip': 'loans', id: 'loans' },
+      h('div', { class: 'eyebrow' }, 'Loans and capital'),
+      h('p', { class: 'tiny muted' }, 'The Event Head can lend your fund money. A loan adds cash and an equal debt, so your fund value does not change; it adds room under the 3× limit (the limit counts fund value plus loans), and it costs interest every round. Risk Used is still measured against your own fund value.'),
+      loans.length ? h('table', { class: 'tbl' }, h('tbody', {}, loans.map((l) => h('tr', {}, h('td', {}, `Loan ${l.id}`), h('td', { class: 'r num' }, fmtCr(l.principal)), h('td', { class: 'r num' }, `${fmtNum(l.ratePct)}% a year`), h('td', { class: 'r num down' }, `−${fmtCr(Math.round(l.principal * l.ratePct / 400))} a round`)))))
+        : h('p', { class: 'small muted' }, 'No loans.'),
+      loans.length ? h('p', { class: 'small' }, `Loans outstanding ${fmtCr(n.debt)}. Interest at the bell: ${fmtCr(interest)} a round (each loan’s yearly rate ÷ 4).`) : null,
+      loans.length && canAsk ? h('div', { class: 'row', style: { marginTop: '6px', flexWrap: 'nowrap' } }, repayAmt,
+        h('button', { class: 'btn sm ghost', 'data-repay': '1', onclick: async () => { const r = await adapter.repayLoan({ amountCr: Number(repayAmt.value) }); toast(r.ok ? 'Repaid.' : r.reason, r.ok ? 'good' : 'bad', 6000); } }, 'Repay'),
+        h('button', { class: 'btn sm ghost', onclick: async () => { if (!confirm('Repay every loan now?')) return; const r = await adapter.repayLoan({ all: true }); toast(r.ok ? 'All loans repaid.' : r.reason, r.ok ? 'good' : 'bad', 6000); } }, 'Repay all')) : null,
+      canAsk ? h('details', { class: 'fam', style: { marginTop: '10px' }, open: loanFormOpen, ontoggle: (e) => { loanFormOpen = e.target.open; } }, h('summary', {}, 'Ask the Event Head for a loan'),
+        h('div', { class: 'stack', style: { padding: '8px 0' } }, amt, why,
+          h('button', { class: 'btn sm', 'data-loan-request': '1', onclick: async () => { const r = await adapter.requestLoan({ amountCr: Number(amt.value), reason: why.value }); if (r.ok) { amt.value = ''; why.value = ''; } toast(r.ok ? 'Request sent to the Event Head.' : r.reason, r.ok ? 'good' : 'bad', 6000); } }, 'Send the request'),
+          h('p', { class: 'tiny muted' }, 'The Event Head decides the amount and the interest rate. Decisions appear here.'))) : null,
+      reqs.length ? h('div', { style: { marginTop: '8px' } }, h('div', { class: 'eyebrow' }, 'Your requests'), reqs.map((r) => h('p', { class: 'small', 'data-loan-status': r.status },
+        `${fmtCr(r.amountCr * CR)} — `, h('b', {}, { pending: 'waiting for the Event Head', approved: `approved: ${fmtCr((r.grantedCr ?? r.amountCr) * CR)} at ${fmtNum(r.ratePct)}% a year`, declined: 'declined', withdrawn: 'withdrawn' }[r.status] || r.status),
+        r.reply ? ` (“${r.reply}”)` : '', r.status === 'pending' ? h('button', { class: 'linkish tiny', style: { marginLeft: '8px' }, onclick: async () => { const x = await adapter.cancelLoan(r.id); toast(x.ok ? 'Request withdrawn.' : x.reason); } }, 'withdraw') : null))) : null,
+      log.length ? h('div', { style: { marginTop: '8px' } }, h('div', { class: 'eyebrow' }, 'From the Event Head'), log.map((e) => h('p', { class: 'small', style: { margin: '4px 0' } },
+        `Round 0${e.q}: `, h('b', {}, { add: `capital added ${fmtCr(e.amount)}`, remove: `capital removed ${fmtCr(-e.amount)}`, loan: `loan ${e.id} of ${fmtCr(e.amount)} at ${fmtNum(e.ratePct)}%`, repay: `repaid ${fmtCr(-e.amount)}` }[e.kind] || e.kind),
+        e.note ? ` — ${e.note}` : ''))) : null,
+      flowsNote(v));
+  }
+  function flowsNote(v) {
+    const f = Object.values(v.team.flows || {}).some((x) => x);
+    return f ? h('p', { class: 'tiny muted', style: { marginTop: '6px' } }, 'Capital the Event Head adds or removes is not profit: your score measures your return round by round on the money in the fund at the start of each round.') : null;
   }
 
   // ---------------- results pane ----------------

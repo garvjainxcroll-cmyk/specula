@@ -6,7 +6,7 @@
 - **What was checked:** [HAND_CHECK.md](HAND_CHECK.md) (the maths to the paisa), [docs/08_BALANCE.md](docs/08_BALANCE.md) (who wins), [CHANGELOG.md](CHANGELOG.md) (every decision).
 - **Developers:** [docs/01_OVERVIEW.md](docs/01_OVERVIEW.md).
 
-Six rounds, one ten-minute trading window each. Every crisis is the Event Head’s choice. Results are sealed: each team sees only its own fund until the Event Head reveals the standings at the end.
+Six rounds, one ten-minute trading window each. Every crisis is the Event Head’s choice. Results are sealed: each team sees only its own fund until the Event Head reveals the standings at the end. Every trade needs a trading note. The Event Head can set and change each fund’s capital and lend money.
 
 Screens: Home `/`, How to Play `/#/learn`, Practice `/#/practice`, Team Desk `/#/desk`, Big Screen `/#/display`, Event Head `/#/admin`.
 

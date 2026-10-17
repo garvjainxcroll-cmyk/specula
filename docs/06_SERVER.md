@@ -7,7 +7,9 @@
 | `config` | Event Head password hash | server |
 | `secrets` | fund codes, token signing key | server (codes go to the Event Head) |
 | `state` | phase, round (`q`), timer, epoch, teams, document versions, `revealed` | everyone (poll) |
-| `world` | the full engine state | server |
+| `world/{v}-{id}` | the full engine state, a new copy each change; `state.worldKey` points to the current one | server |
+| `journal/{team}` | that fund's trading notes, round by round | the fund, the Event Head |
+| `loanreq` | loan requests and the Event Head's answers | each fund its own; the Event Head all |
 | `orders/{q}/{team}` | that fund's orders, forecast and bid | the fund, the server |
 | `pub/quarter`, `pub/history`, `pub/result/{q}` | public documents: the economy, prices, decisions and why prices moved — **never any fund's value, profit, forecast marks, bid or standing** | everyone |
 | `pub/final` | the final standings; written only after the Event Head presses **Reveal the results** | everyone, after the reveal |
@@ -15,7 +17,7 @@
 | `team/{id}`, `team/{id}/r/{q}` | a fund's positions, forecasts and its per-round ledger | that fund |
 | `resultfull/{q}` | the full settlement result (for recovery) | server |
 
-Endpoints: `GET health | poll | doc?key= | mine?token=`; `POST join | order | forecast | bid | admin`. Admin actions include `fire` (any available crisis, in any order, subject to stage order and `needs`), `settle` (never blocked by unreleased crises), `final`, `reveal` and `private`.
+Endpoints: `GET health | poll | doc?key= | mine?token=`; `POST join | order | forecast | bid | loan | admin`. Every `order` must carry a `note` (the trading note); `loan` lets a fund request, withdraw or repay. Admin actions include `startCapital`, `capital`, `loan`, `declineLoan`, `repay`, `notes`, and `fire` (any available crisis, in any order, subject to stage order and `needs`), `settle` (never blocked by unreleased crises), `final`, `reveal` and `private`.
 
 Results are hidden: the public auction result carries only the cut-off price, amount sold, cover and number of bidders; who bid what is only in the Event Head's status. `tests/api.test.mjs` plays six rounds and checks that nothing a participant can read — without a token or with another fund's token — contains a fund's value, forecast, rank or standings. Permission rules are listed at the top of `server/api.mjs` and tested in `tests/api.test.mjs`.
 

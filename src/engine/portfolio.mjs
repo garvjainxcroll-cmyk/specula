@@ -7,20 +7,24 @@ import { mulPct, mulRatioChange, mulPoints, r2 } from './num.mjs';
 
 export const isFunded = (id) => INST[id].funded;
 
+/** Money the fund owes on loans from the Event Head (paise). */
+export function debtOf(x) { return (x.loans || []).reduce((a, l) => a + l.principal, 0); }
+
+/** Fund value = cash + money in positions − loans outstanding. */
 export function navOf(st) {
-  let v = st.cash;
+  let v = st.cash - debtOf(st);
   for (const [id, x] of Object.entries(st.pos)) if (isFunded(id)) v += x;
   return v;
 }
 
 export function newLedger() {
-  return { byInst: {}, cashInterest: 0, cashInterestWork: null, auction: 0, auctionWork: null };
+  return { byInst: {}, cashInterest: 0, cashInterestWork: null, loanInterest: 0, loanInterestWork: null, auction: 0, auctionWork: null };
 }
 function L(led, id) {
   return (led.byInst[id] ||= { price: [], currency: [], carry: 0, carryWork: null, cost: 0, costWork: [], crowd: 0, crowdWork: null, forced: 0, forcedWork: null, payout: 0 });
 }
 export function ledgerTotal(led) {
-  let t = led.cashInterest + led.auction;
+  let t = led.cashInterest + led.auction + (led.loanInterest || 0);
   for (const l of Object.values(led.byInst)) {
     t += l.price.reduce((a, p) => a + p.amount, 0) + l.currency.reduce((a, p) => a + p.amount, 0) + l.carry - l.cost + l.crowd - l.forced;
   }
@@ -132,14 +136,32 @@ export function applyCashInterest(st, led) {
   let longs = 0;
   for (const [id, v] of Object.entries(st.pos)) if (isFunded(id) && v > 0) longs += v;
   const nav = navOf(st);
-  const base = nav - longs; // fund value not tied up in long positions
+  const debt = debtOf(st);
+  const base = nav + debt - longs; // cash not tied up in long positions (borrowed money included)
   const ratePa = base >= 0 ? RULES.cashRatePct : RULES.cashRatePct + RULES.borrowExtraPct;
   const rateQ = r2(ratePa / 4);
   const amount = mulPct(base, rateQ);
   st.cash += amount;
   led.cashInterest += amount;
-  led.cashInterestWork = { nav, longs, base, ratePa, rateQ, amount, borrowing: base < 0 };
+  led.cashInterestWork = { nav, longs, debt, base, ratePa, rateQ, amount, borrowing: base < 0 };
   return amount;
+}
+
+/** Interest on loans from the Event Head: each loan's yearly rate ÷ 4, every round. */
+export function applyLoanInterest(st, led) {
+  const lines = [];
+  let total = 0;
+  for (const l of st.loans || []) {
+    const rateQ = r2(l.ratePct / 4);
+    const amount = -mulPct(l.principal, rateQ);
+    lines.push({ id: l.id, principal: l.principal, ratePa: l.ratePct, rateQ, amount });
+    total += amount;
+  }
+  if (!lines.length) return 0;
+  st.cash += total;
+  led.loanInterest += total;
+  led.loanInterestWork = lines;
+  return total;
 }
 
 /** Crowd impact: everyone trading the same way this round pays for it. */
@@ -170,7 +192,7 @@ export function applyCrowd(st, led, impact) {
 }
 
 export function freshState(team) {
-  return { cash: team.cash, pos: { ...team.pos }, open: { ...(team.open || {}) }, flow: {} };
+  return { cash: team.cash, pos: { ...team.pos }, open: { ...(team.open || {}) }, flow: {}, loans: (team.loans || []).map((l) => ({ ...l })) };
 }
 
 export { INSTRUMENTS };

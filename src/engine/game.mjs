@@ -9,7 +9,7 @@ import { r1, r2, r4, crToPaise, mulRatioChange } from './num.mjs';
 import { startRelease, computeRelease, decideAll, figsFromRelease, reviseRelease } from './macro.mjs';
 import { initialMarket, settleMarket, crisisMarket, marketFigs, futuresFromExpectation, carryRates, rupeePrice } from './market.mjs';
 import { riskUsed, forcedLiquidation, grossExposure, updateSigma } from './risk.mjs';
-import { freshState, newLedger, applyOrder, revalue, applyForced, applyCarry, applyCashInterest, crowdImpacts, applyCrowd, navOf, ledgerTotal, isFunded } from './portfolio.mjs';
+import { freshState, newLedger, applyOrder, revalue, applyForced, applyCarry, applyCashInterest, applyLoanInterest, crowdImpacts, applyCrowd, navOf, debtOf, ledgerTotal, isFunded } from './portfolio.mjs';
 import { forecastPoints, specula } from './scoring.mjs';
 
 const clone = (x) => structuredClone(x);
@@ -33,15 +33,16 @@ export function newGame(teams, script) {
     v: 1, scriptId: script.id, q: 0, release, mkt, sigma,
     moves: { oil: 0, copper: 0, wheat: 0, fx: Object.fromEntries(ECON_ORDER.map((e) => [e, 0])), markPerCrownPct: 0, dinarPerCrownPct: 0 },
     round: { n: 1, mods: {}, spreadMult: { all: 1, econ: {} }, M: 1 },
-    teams: {}, history: [], run: null, final: null,
+    teams: {}, history: [], run: null, final: null, adminLog: [],
     lastPx: clone(mkt.px),
   };
-  for (const t of teams) world.teams[t.id] = newTeam(t, start);
+  // the Event Head may give a fund a different starting capital (startCr)
+  for (const t of teams) world.teams[t.id] = newTeam(t, t.startCr > 0 ? crToPaise(Math.round(t.startCr * 100) / 100) : start);
   return world;
 }
 
 export function newTeam(t, start = crToPaise(RULES.startFundCr)) {
-  return { id: t.id, name: t.name, cash: start, pos: {}, open: {}, navHist: [start], forecastPts: 0, forecasts: {}, forced: 0, forcedQs: [] };
+  return { id: t.id, name: t.name, cash: start, pos: {}, open: {}, navHist: [start], forecastPts: 0, forecasts: {}, forced: 0, forcedQs: [], flows: {}, loans: [], capitalLog: [] };
 }
 
 function spreadsFor(round) {
@@ -212,12 +213,15 @@ export function deskNow(world, teamId, orders) {
   const nav = navOf(st);
   const gross = grossExposure(st.pos);
   const risk = riskUsed(st.pos, nav, world.sigma, world.round.M);
-  return { st, led, nav, gross, exposure: nav > 0 ? r2(gross / nav) : null, risk, pnlSoFar: ledgerTotal(led) };
+  const debt = debtOf(st);
+  return { st, led, nav, debt, limitBase: nav + debt, gross, exposure: nav > 0 ? r2(gross / nav) : null, risk, pnlSoFar: ledgerTotal(led) };
 }
 
 /**
  * Check and resolve an order. order = { inst, side: 'buy'|'sell'|'close', amountCr }.
- * Returns { ok, delta, reason }. The desk refuses any order beyond 3× fund value.
+ * Returns { ok, delta, reason }. The desk refuses any order beyond 3× (fund value + loans):
+ * a loan from the Event Head adds trading room, but Risk Used is still measured against
+ * the fund's own value.
  */
 export function checkOrder(world, teamId, orders, order) {
   const run = world.run;
@@ -242,13 +246,90 @@ export function checkOrder(world, teamId, orders, order) {
   if (!after[order.inst]) delete after[order.inst];
   const cost = Math.round(Math.abs(delta) * run.spreads[order.inst] / 100);
   const navAfter = now.nav - cost;
+  const baseAfter = navAfter + now.debt;
   const grossAfter = grossExposure(after);
   const reducing = Math.abs(cur + delta) < Math.abs(cur) && Math.sign(cur + delta) !== -Math.sign(cur);
-  if (!reducing && grossAfter > RULES.leverageLimit * navAfter) {
-    const room = Math.max(0, RULES.leverageLimit * navAfter - (now.gross));
-    return { ok: false, reason: `Refused: all positions together would reach ${r2(grossAfter / Math.max(1, navAfter))}× your fund value. The limit is 3×. Room left: ₹${r2(room / 1e9)} Cr.` };
+  if (!reducing && grossAfter > RULES.leverageLimit * baseAfter) {
+    const room = Math.max(0, RULES.leverageLimit * baseAfter - (now.gross));
+    return { ok: false, reason: now.debt
+      ? `Refused: all positions together would reach ${r2(grossAfter / Math.max(1, baseAfter))}× your fund value plus loans. The limit is 3×. Room left: ₹${r2(room / 1e9)} Cr.`
+      : `Refused: all positions together would reach ${r2(grossAfter / Math.max(1, navAfter))}× your fund value. The limit is 3×. Room left: ₹${r2(room / 1e9)} Cr.` };
   }
   return { ok: true, delta, cost, epoch: run.epochs.length - 1 };
+}
+
+// ---------------- the Event Head: capital and loans ----------------
+// These can happen at any time except while a round is settling. Capital counts for the
+// round being played (or the next one, between rounds) and is never counted as profit.
+// A loan adds cash and an equal debt, so it does not change fund value; it costs its
+// yearly rate ÷ 4 every round and adds to the room under the 3× limit.
+
+function roundForFlows(world) { return world.run ? world.run.q : world.q + 1; }
+function teamNav(world, teamId) {
+  const t = world.teams[teamId];
+  return navOf({ cash: t.cash, pos: t.pos, loans: t.loans });
+}
+function logAdmin(world, entry) { (world.adminLog ||= []).push({ q: world.q, ...entry }); }
+
+/** Add (amountPaise > 0) or remove (< 0) capital. */
+export function adjustCapital(world0, teamId, amountPaise, note = '') {
+  const world = clone(world0);
+  const t = world.teams[teamId];
+  if (!t) throw new Error('Unknown fund');
+  if (!Number.isInteger(amountPaise) || !amountPaise) throw new Error('Enter an amount other than zero.');
+  if (world.final) throw new Error('The game is over.');
+  if (teamNav(world, teamId) + amountPaise <= 0) throw new Error('That would leave the fund with nothing. Remove less.');
+  const q = roundForFlows(world);
+  t.cash += amountPaise;
+  t.flows ||= {}; t.flows[q] = (t.flows[q] || 0) + amountPaise;
+  (t.capitalLog ||= []).push({ q, kind: amountPaise > 0 ? 'add' : 'remove', amount: amountPaise, note });
+  logAdmin(world, { kind: 'capital', teamId, amount: amountPaise, note });
+  return world;
+}
+
+/** Lend a fund money at a yearly rate. */
+export function grantLoan(world0, teamId, amountPaise, ratePct, note = '') {
+  const world = clone(world0);
+  const t = world.teams[teamId];
+  if (!t) throw new Error('Unknown fund');
+  if (!Number.isInteger(amountPaise) || amountPaise <= 0) throw new Error('Enter a loan amount above zero.');
+  if (!(ratePct >= 0 && ratePct <= 50)) throw new Error('Enter a yearly interest rate between 0% and 50%.');
+  if (world.final) throw new Error('The game is over.');
+  const q = roundForFlows(world);
+  t.loans ||= [];
+  const id = `L${(t.capitalLog || []).filter((x) => x.kind === 'loan').length + 1}`;
+  t.loans.push({ id, principal: amountPaise, ratePct: r2(ratePct), q, note });
+  t.cash += amountPaise;
+  (t.capitalLog ||= []).push({ q, kind: 'loan', id, amount: amountPaise, ratePct: r2(ratePct), note });
+  logAdmin(world, { kind: 'loan', teamId, amount: amountPaise, ratePct: r2(ratePct), note });
+  return world;
+}
+
+/** Repay loans, oldest first. amountPaise null = everything. */
+export function repayLoan(world0, teamId, amountPaise = null, note = '') {
+  const world = clone(world0);
+  const t = world.teams[teamId];
+  if (!t) throw new Error('Unknown fund');
+  const debt = debtOf(t);
+  if (!debt) throw new Error('This fund has no loan to repay.');
+  let left = amountPaise === null ? debt : Math.min(debt, amountPaise);
+  if (!(left > 0)) throw new Error('Enter an amount above zero.');
+  const paid = left;
+  for (const l of t.loans) { const x = Math.min(l.principal, left); l.principal -= x; left -= x; if (!left) break; }
+  t.loans = t.loans.filter((l) => l.principal > 0);
+  t.cash -= paid;
+  const q = roundForFlows(world);
+  (t.capitalLog ||= []).push({ q, kind: 'repay', amount: -paid, note });
+  logAdmin(world, { kind: 'repay', teamId, amount: paid, note });
+  return world;
+}
+
+/** Apply a logged Event Head action again (engine-only replays). */
+export function applyAdmin(world, e) {
+  if (e.kind === 'capital') return adjustCapital(world, e.teamId, e.amount, e.note);
+  if (e.kind === 'loan') return grantLoan(world, e.teamId, e.amount, e.ratePct, e.note);
+  if (e.kind === 'repay') return repayLoan(world, e.teamId, e.amount, e.note);
+  throw new Error(`Unknown action ${e.kind}`);
 }
 
 // ---------------- settlement ----------------
@@ -271,7 +352,9 @@ export function settleQuarter(world0, script, inputs) {
   for (const id of teamIds) {
     const orders = (inputs.orders?.[id] || []).slice();
     const { st, led, defaults } = replayWindow(world, id, orders);
-    per[id] = { st, led, defaults, navOpen: world.teams[id].navHist[world.teams[id].navHist.length - 1] };
+    // capital the Event Head added or removed for this round is not profit
+    const t = world.teams[id];
+    per[id] = { st, led, defaults, navOpen: t.navHist[t.navHist.length - 1] + (t.flows?.[q] || 0), flow: t.flows?.[q] || 0 };
   }
   // 2. the bell: forced liquidation if Risk Used is above 100%
   for (const id of teamIds) {
@@ -284,7 +367,7 @@ export function settleQuarter(world0, script, inputs) {
   }
   // 3. interest and premiums on what is held at the bell
   const carry = carryRates(world.mkt);
-  for (const id of teamIds) { applyCashInterest(per[id].st, per[id].led); applyCarry(per[id].st, per[id].led, carry); }
+  for (const id of teamIds) { applyCashInterest(per[id].st, per[id].led); applyLoanInterest(per[id].st, per[id].led); applyCarry(per[id].st, per[id].led, carry); }
   // 4. central banks act on the release (with any crisis revisions and rule changes)
   const decisions = decideAll(world.mkt, figsFromRelease(world.release), world.round.mods);
   // 5. prices reset
@@ -305,13 +388,13 @@ export function settleQuarter(world0, script, inputs) {
   for (const id of teamIds) {
     const t = world.teams[id];
     const p = per[id];
-    t.cash = p.st.cash; t.pos = p.st.pos; t.open = p.st.open;
+    t.cash = p.st.cash; t.pos = p.st.pos; t.open = p.st.open; t.loans = p.st.loans;
     const navEnd = navOf(p.st);
     t.navHist.push(navEnd);
     const fv = inputs.forecasts?.[id];
     t.forecasts[q] = { value: fv === undefined || fv === null || fv === '' ? null : r2(Number(fv)), spec: sq.forecast };
     results[id] = {
-      navOpen: p.navOpen, navBell: p.navBell, navEnd, pnl: navEnd - p.navOpen,
+      navOpen: p.navOpen, navBell: p.navBell, navEnd, pnl: navEnd - p.navOpen, flow: p.flow, debt: debtOf(p.st),
       ledger: p.led, check: ledgerTotal(p.led), forced: p.forced, riskBell: p.riskBell,
       defaults: p.defaults, forecast: t.forecasts[q].value,
     };
@@ -336,7 +419,7 @@ export function settleQuarter(world0, script, inputs) {
 }
 
 function fundRow(t) {
-  return { id: t.id, name: t.name, navHist: t.navHist, forecastPoints: t.forecastPts, forced: t.forced };
+  return { id: t.id, name: t.name, navHist: t.navHist, flows: t.flows || {}, forecastPoints: t.forecastPts, forced: t.forced };
 }
 function slimRow(r) { return { id: r.id, name: r.name, rank: r.rank, nav: r.nav, total: r.total, rar: r.rar, forecast: r.forecast, discipline: r.discipline }; }
 

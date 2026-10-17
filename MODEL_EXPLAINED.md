@@ -124,14 +124,17 @@ A crisis stage moves prices **at once**, mid-window: it changes the Fear Index, 
 ## 6. Trading and accounting
 
 - **Orders execute immediately** at the current price. Each costs the spread on its size: 0.10% in calm markets (0.40% in Sarvan), more under strain (crises multiply it for the rest of the round).
-- **3× limit**: all positions together, buys and shorts both counted (futures and protection at their notional), may not exceed 3 × fund value. The desk refuses any order beyond it; reducing a position is always allowed.
+- **3× limit**: all positions together, buys and shorts both counted (futures and protection at their notional), may not exceed 3 × (fund value + loans outstanding). The desk refuses any order beyond it; reducing a position is always allowed.
+- **Trading notes are compulsory.** Every order (buy, sell or close) must carry a written reason of at least a few words, or the server refuses it. Notes are kept round by round in the fund’s journal; only the fund and the Event Head can read them. They do not change any number in the game.
 - **Funded** instruments use cash when bought (shorts receive proceeds). **Rate futures and default protection** use no cash; their gains and losses are paid in cash as the price moves.
 - **Carry**, paid at settlement on the position held at the bell: bonds and credit their yield ÷ 4; currencies their country’s policy rate ÷ 4; the Fear Index costs 3% a round; protection costs its spread ÷ 4 on the amount protected. Shorts pay instead of receive.
-- **Cash interest**: (fund value − money in long positions) × 6% ÷ 4 if positive; if negative you have borrowed and pay 7% ÷ 4 (the cash rate plus 1%).
+- **Cash interest**: (fund value + loans − money in long positions) × 6% ÷ 4 if positive; if negative you have borrowed and pay 7% ÷ 4 (the cash rate plus 1%).
+- **Loans from the Event Head**: a fund may ask for one (Fund tab); the Event Head approves or declines it and sets the amount and the yearly rate (8% suggested), or lends without a request. The money arrives as cash with an equal debt, so **fund value does not change**. Each round, at the bell, every loan costs its principal × yearly rate ÷ 4 (a *Loan interest* line in the P&L). Borrowed cash that is not used still earns the 6% cash rate. A loan adds room under the 3× limit; **Risk Used is still measured against the fund’s own value**. The fund or the Event Head can repay at any time except while a round settles; repaying does not change fund value either.
+- **Capital from the Event Head**: the Event Head can set each fund’s starting capital before the game, and add or remove capital during it (a prize, a penalty, a rescue), with a reason the fund sees. Capital counts for the round being played (or the next one, between rounds). It is **not profit**: see §8.
 - **Crowd impact**: at settlement, for each instrument, all funds’ net buying in the round is compared with its market depth. Price push = 1% × net flow ÷ depth (at most 3%). Each fund pays −(its own net trade) × push: buying with the crowd costs, trading against it earns.
 
 ### The profit and loss, line by line
-For each position: **price change + currency effect + carry − trading cost + crowd impact − forced-sale penalty**, then **cash interest** (and the **auction** in Round 06). The lines always add up exactly to the change in fund value.
+For each position: **price change + currency effect + carry − trading cost + crowd impact − forced-sale penalty**, then **cash interest**, **loan interest** (if any) and the **auction** in Round 06. The lines always add up exactly to the change in fund value, after any capital the Event Head added or removed for that round.
 
 ---
 
@@ -152,6 +155,7 @@ If Risk Used is above 100% **at the bell**, the system closes the largest positi
 **Forecast points** = 10 − 10 × |forecast − actual| (one point lost per 0.1 off, never below 0; a blank scores 0). The actual is the figure in the *next* release — for a policy rate, the rate set at this round’s settlement. Six forecasts in all (one a round), up to 60 points.
 
 **SPECULA Score** (out of 100), calculated once, after the final release, and **sealed until the Event Head presses Reveal**. During the game each fund sees only its own record (return beyond cash, swing, deepest fall, risk-adjusted return, forecast points, forced liquidations) — never another fund’s, and there is no leaderboard. The 60 points depend on the best fund in the room, which is why no fund can know its score before the end.
+- **Return with capital changes**: returns are measured round by round on the money in the fund at the start of each round (fund value at the end of the last round + capital added for this round). The rounds’ returns are multiplied together for the total return, and the swing and deepest fall are measured on that same round-by-round path. So a ₹250 Cr prize, or a ₹200 Cr penalty, changes the fund’s value but not its score. With no capital changes this is exactly fund value ÷ starting value. “Ends below ₹1,000 Cr” becomes “has lost money overall” (ends below its starting capital on that path).
 - **Risk-adjusted return (60)**: the return your decisions earned beyond cash (total return − what 6% cash would have earned) ÷ swing (standard deviation of the round-by-round returns, at least 1%) − 0.10 × deepest fall from a peak (%). The best fund in the room gets 60, the rest in proportion; zero for a fund below ₹1,000 Cr or with a risk-adjusted return of zero or less.
 - **Forecast accuracy (25)**: 25 × points ÷ 240.
 - **Risk discipline (15)**: 15 − 5 × forced liquidations, not below 0.

@@ -191,11 +191,12 @@ export function pnlTable(ledger, { onLine = null } = {}) {
       h('td', { class: 'r hide-sm' }, money(-l.cost - l.forced + l.crowd)),
       h('td', { class: 'r' }, h('b', {}, money(lineTot(l)))));
   });
-  const total = Object.values(ledger.byInst).reduce((a, l) => a + lineTot(l), 0) + ledger.cashInterest + ledger.auction;
+  const total = Object.values(ledger.byInst).reduce((a, l) => a + lineTot(l), 0) + ledger.cashInterest + ledger.auction + (ledger.loanInterest || 0);
   return h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' },
     h('thead', {}, h('tr', {}, h('th', {}, 'Position'), h('th', { class: 'r' }, 'Price'), h('th', { class: 'r hide-sm' }, 'Currency'), h('th', { class: 'r hide-sm' }, 'Carry'), h('th', { class: 'r hide-sm' }, 'Costs'), h('th', { class: 'r' }, 'Total'))),
     h('tbody', {}, rows,
       h('tr', { class: 'click', onclick: () => cashSheet(ledger.cashInterestWork) }, h('td', {}, 'Cash interest'), h('td', { colspan: 4, class: 'hide-sm' }), h('td', { class: 'show-sm' }), h('td', { class: 'r' }, money(ledger.cashInterest))),
+      ledger.loanInterest ? h('tr', { class: 'click', 'data-loan-line': '1', onclick: () => loanSheet(ledger.loanInterestWork) }, h('td', {}, 'Loan interest'), h('td', { colspan: 4, class: 'hide-sm' }), h('td', { class: 'show-sm' }), h('td', { class: 'r' }, money(ledger.loanInterest))) : null,
       ledger.auction ? h('tr', { class: 'click', onclick: () => auctionSheet(ledger.auctionWork) }, h('td', {}, 'Auction'), h('td', { colspan: 4, class: 'hide-sm' }), h('td', { class: 'show-sm' }), h('td', { class: 'r' }, money(ledger.auction))) : null,
       h('tr', { class: 'total' }, h('td', {}, 'Profit and loss'), h('td', { colspan: 4, class: 'hide-sm' }), h('td', { class: 'show-sm' }), h('td', { class: 'r' }, money(total))))));
 }
@@ -224,10 +225,18 @@ export function cashSheet(w) {
   if (!w) return;
   sheet('Cash interest', h('div', { class: 'stack' },
     h('p', {}, 'Unused cash earns the rupee cash rate. Positions beyond your cash are funded by borrowing at that rate plus 1% a year.'),
-    calc(`Fund value at the bell ${fmtCr(w.nav)} − money in long positions ${fmtCr(w.longs)} = ${fmtCr(w.base, 2, { signed: true })} ${w.borrowing ? '(borrowed)' : '(spare cash)'}`,
+    calc(w.debt ? `Fund value at the bell ${fmtCr(w.nav)} + loans ${fmtCr(w.debt)} − money in long positions ${fmtCr(w.longs)} = ${fmtCr(w.base, 2, { signed: true })} ${w.borrowing ? '(borrowed)' : '(spare cash)'}`
+      : `Fund value at the bell ${fmtCr(w.nav)} − money in long positions ${fmtCr(w.longs)} = ${fmtCr(w.base, 2, { signed: true })} ${w.borrowing ? '(borrowed)' : '(spare cash)'}`,
       `${fmtCr(w.base)} × ${fmtNum(w.ratePa)}% ÷ 4 = ${fmtCr(w.base)} × ${fmtNum(w.rateQ)}% = ${fmtRupees(w.amount, { signed: true })}`),
     h('p', { class: 'small muted' }, 'Short positions do not add to the cash that earns interest; rate futures and default protection use no cash.')), { eyebrow: 'Profit and loss' });
 }
+export function loanSheet(lines) {
+  if (!lines?.length) return;
+  sheet('Loan interest', h('div', { class: 'stack' },
+    h('p', {}, 'Each loan from the Event Head costs its yearly rate ÷ 4 every round, on what is still owed at the bell. Borrowed cash you have not used still earns the cash rate (see Cash interest).'),
+    calc(...lines.map((l) => `Loan ${l.id}: ${fmtCr(l.principal)} × ${fmtNum(l.ratePa)}% ÷ 4 = ${fmtCr(l.principal)} × ${fmtNum(l.rateQ)}% = ${fmtRupees(l.amount, { signed: true })}`))), { eyebrow: 'Profit and loss' });
+}
+
 export function auctionSheet(w) {
   if (!w) return;
   sheet('Auction result', h('div', { class: 'stack' },
@@ -292,7 +301,7 @@ export function scoreSheet(row) {
 
 /** Your fund's numbers behind the SPECULA Score, from your own history only. */
 export function myRecord(team, { final = null } = {}) {
-  const s = fundStats(team.navHist);
+  const s = fundStats(team.navHist, team.flows);
   const marked = Object.values(team.forecasts || {}).filter((f) => f.points !== undefined);
   const disc = Math.max(0, RULES.score.discipline - RULES.score.perForced * (team.forced || 0));
   return h('div', { class: 'stack' },
@@ -300,7 +309,7 @@ export function myRecord(team, { final = null } = {}) {
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Return beyond cash'), h('div', { class: `v num ${s.excess > 0 ? 'up' : s.excess < 0 ? 'down' : ''}` }, `${fmtSigned(s.excess)}%`), h('div', { class: 's' }, `total ${fmtSigned(s.totalReturn)}% − cash ${fmtNum(s.cashGrowth)}%`)),
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Swing'), h('div', { class: 'v num' }, `${fmtNum(s.swing)}%`), h('div', { class: 's' }, 'round-to-round ups and downs')),
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Deepest fall'), h('div', { class: `v num ${s.deepest ? 'down' : ''}` }, `${fmtNum(s.deepest)}%`), h('div', { class: 's' }, 'from a peak')),
-      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Risk-adjusted return'), h('div', { class: 'v num' }, fmtNum(s.riskAdj)), h('div', { class: 's' }, s.end < s.start ? 'fund below ₹1,000 Cr: scores 0' : 'the 60 points compare this with the best fund')),
+      h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Risk-adjusted return'), h('div', { class: 'v num' }, fmtNum(s.riskAdj)), h('div', { class: 's' }, s.end < s.start ? 'the fund has lost money: scores 0' : 'the 60 points compare this with the best fund')),
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Forecast points'), h('div', { class: 'v num' }, fmtNum(team.forecastPts || 0, 1)), h('div', { class: 's' }, `of ${marked.length * RULES.forecastMaxPoints} so far`)),
       h('div', { class: 'kpi' }, h('div', { class: 'k' }, 'Risk discipline'), h('div', { class: 'v num' }, `${disc} / 15`), h('div', { class: 's' }, `${team.forced || 0} forced liquidation${team.forced === 1 ? '' : 's'}`))),
     h('button', { class: 'why', onclick: () => myRecordSheet(team) }, 'show the working'),
@@ -308,12 +317,12 @@ export function myRecord(team, { final = null } = {}) {
 }
 
 export function myRecordSheet(team) {
-  const s = fundStats(team.navHist);
+  const s = fundStats(team.navHist, team.flows);
   const marked = Object.entries(team.forecasts || {}).filter(([, f]) => f.points !== undefined);
   sheet('Your fund’s record', h('div', { class: 'stack' },
     h('h4', {}, 'Risk-adjusted return'),
     steps([
-      `Total return: ${fmtCr(s.end)} ÷ ${fmtCr(s.start)} − 1 = ${fmtNum(s.totalReturn)}%`,
+      s.hasFlows ? `Total return, round by round so that capital the Event Head added or removed is not counted as profit: ${fmtNum(s.totalReturn)}%` : `Total return: ${fmtCr(s.end)} ÷ ${fmtCr(s.start)} − 1 = ${fmtNum(s.totalReturn)}%`,
       `Cash alone would have grown ${fmtNum(s.cashGrowth)}% (${fmtNum(RULES.cashRatePct / 4)}% a round for ${s.n} rounds), so your decisions earned ${fmtNum(s.totalReturn)} − ${fmtNum(s.cashGrowth)} = ${fmtNum(s.excess)}%`,
       `Swing = ${fmtNum(s.swing)}%${s.swing < RULES.swingFloorPct ? `, counted as at least ${fmtNum(RULES.swingFloorPct)}%` : ''}`,
       `Deepest fall from a peak = ${fmtNum(s.deepest)}%`,
@@ -333,7 +342,7 @@ export function standingsTable(rows, { me = null, onRow = null, big = false, lim
     h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, 'Fund'), h('th', { class: 'r' }, 'Fund value'), h('th', { class: `r ${big ? '' : 'hide-sm'}` }, 'Return'), h('th', { class: 'r' }, 'Score'))),
     h('tbody', {}, rows.slice(0, limit).map((r) => h('tr', { class: onRow ? 'click' : '', style: r.id === me ? { outline: '2px solid var(--gold)', outlineOffset: '-2px' } : null, onclick: onRow ? () => onRow(r) : null },
       h('td', { class: 'num' }, r.rank), h('td', {}, r.name), h('td', { class: 'r num' }, fmtCr(r.nav, big ? 0 : 2)),
-      h('td', { class: `r ${big ? '' : 'hide-sm'}` }, pct((r.nav / 1e12 - 1) * 100, { dp: 1 })), h('td', { class: 'r num' }, h('b', {}, fmtNum(r.total, 1))))))));
+      h('td', { class: `r ${big ? '' : 'hide-sm'}` }, pct(r.stats?.totalReturn ?? (r.nav / 1e12 - 1) * 100, { dp: 1 })), h('td', { class: 'r num' }, h('b', {}, fmtNum(r.total, 1))))))));
 }
 
 export function familyName(id) { return FAMILIES.find((f) => f.id === id)?.name; }

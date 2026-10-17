@@ -2,6 +2,16 @@
 
 The printed guide is a promise to players. Where the guide gives a number or a rule, the code follows it exactly (`tests/guide.test.mjs` pins every one). Where the guide is silent or needed interpreting, the decision is recorded here. **Items marked ⚑ are interpretations you may want to confirm before the event.**
 
+## 2.1.0 — capital, loans and compulsory trading notes (17 October 2026)
+
+**Requested by the Event Head.** Nothing printed in the guide changes; these are additions (the guide should mention them when it is reprinted).
+
+- **The Event Head controls each fund’s capital.** Before the game: a starting capital per fund (₹1,000 Cr unless changed). During the game: add or remove capital at any time except while a round settles, with a reason the fund sees. ⚑ **Capital is not profit**: the score now uses a *time-weighted* return — each round’s return is measured on the money in the fund at the start of that round (last fund value + capital added for the round), and the rounds are multiplied together. With no capital changes this gives exactly the same numbers as before (the hand check and balance are unchanged). The guide’s “a fund below ₹1,000 Cr scores zero” is read as “a fund that has lost money overall”.
+- **Loans.** A fund can ask the Event Head for a loan from its desk (amount and reason); the Event Head approves (choosing the amount and the yearly rate; 8% is suggested), declines with a reply, or lends without a request. ⚑ A loan adds cash and an equal debt, so fund value does not change. It costs principal × rate ÷ 4 every round (a new *Loan interest* line in the profit and loss), adds room under the 3× limit (now 3 × (fund value + loans)), and does **not** loosen Risk Used, which is still measured on the fund’s own value. Unused borrowed cash still earns the cash rate. The fund or the Event Head can repay at any time except while settling.
+- **Trading notes are compulsory.** Every order (buy, sell or close) needs a written reason of at least a few words; the server refuses an order without one. A new *Trading notes* section on the desk’s Trade tab keeps them round by round. Notes are private to the fund and the Event Head (console → **Notes**). They do not change any number or score — the guide promises no judging.
+- Privacy is unchanged: no public document holds a fund’s capital, loans, loan requests or notes (`tests/api.test.mjs`).
+- The server now saves the game under a new, uniquely named copy each time it changes, so two changes at the same moment (for example a fund repaying a loan while the Event Head releases a crisis) can never overwrite each other.
+
 ## 2.0.0 — six rounds, crisis control, sealed results (13 October 2026)
 
 **Requested by the Event Head. These three changes depart from the printed guide on purpose; the guide (`reference/SPECULA_Guide.pdf`) must be reprinted to match** — see “Guide pages that no longer match” below.

@@ -16,6 +16,13 @@
 - You see the live standings in the console (Control and Debrief tabs), marked “only you can see this”. Keep the laptop screen away from the hall.
 - After Round 06: **Publish the final release** (scores stay sealed), then **Reveal the results**. The Big Screen reveals the standings from last place to first; each desk shows its own score and place.
 
+## Capital, loans and trading notes
+
+- **Starting capital**: console → **Funds** → *Starting capital*, before you press Start. Leave it at ₹1,000 Cr for a fair start.
+- **Add or remove capital** at any time except while a round settles: console → **Funds** → *Capital and loans* → amount, a reason (the fund sees it) → **Add** or **Remove**. It is not counted as profit, so it changes a fund’s money, not its score.
+- **Loans**: teams ask from their Fund tab; requests appear in console → **Funds** → *Loan requests* (the Funds tab shows a dot). **Approve** (you can change the amount; 8% a year is suggested) or **Decline** with a reply. You can also **Lend** without a request, or **Take repayment**. A loan costs its rate ÷ 4 every round and gives more room under the 3× limit, not more Risk Used.
+- **Trading notes** are compulsory: the desk will not send an order without one. Read any fund’s notes in console → **Notes** — useful for the debrief, or to ask a team to explain a trade. Notes do not change scores.
+
 ## Every round, the same rhythm (about 13 minutes)
 
 | Step | You press | Teams see | You say |

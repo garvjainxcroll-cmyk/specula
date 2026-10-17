@@ -12,10 +12,15 @@
 //  - A team member (token from joining with the fund code) may place orders, forecasts and
 //    an auction bid for their own fund only, only while the window is open, only at the
 //    current prices (epoch). Late orders are refused.
+//  - Every order must carry a trading note (why this trade, now). Notes are private to the
+//    fund and the Event Head.
+//  - A fund may ask for a loan and repay its own loans. Only the Event Head grants loans
+//    and adds or removes capital.
 //  - Only the Event Head (password) may create teams, open windows, release crises, settle,
 //    reset and export. The Event Head is the only one who sees unreleased crises.
 
-import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor, checkOrder, standingsNow } from '../src/engine/game.mjs';
+import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor, checkOrder, standingsNow, adjustCapital, grantLoan, repayLoan } from '../src/engine/game.mjs';
+import { debtOf } from '../src/engine/portfolio.mjs';
 import { carryRates, rupeePrice } from '../src/engine/market.mjs';
 import { ruleText, smoothingText } from '../src/engine/macro.mjs';
 import { ECON_ORDER } from '../src/config/economies.mjs';
@@ -25,6 +30,8 @@ import { SCRIPT as LIVE_SCRIPT } from './script.mjs';
 import { RUNSHEET, ROUND_SUMMARIES } from './runsheet.mjs';
 
 const GRACE_MS = 1500;
+const NOTE_MIN = 8; const NOTE_MAX = 600;
+const cleanNote = (x) => String(x ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
 const REOPEN_AFTER_LATE_CRISIS_MS = 30000;
 const enc = new TextEncoder();
 let SCRIPT = LIVE_SCRIPT;
@@ -76,17 +83,24 @@ async function update(store, key, fn, { tries = 8 } = {}) {
   throw new Error(`Busy: could not save ${key}, please try again`);
 }
 
-let cache = { worldV: -1, world: null };
+// The engine state is saved under a new, uniquely named key each time and the state
+// document points to it. If two changes race, the loser's copy is simply never pointed
+// to, so one change can never overwrite another's world.
+let cache = { key: null, world: null };
+const worldKeyOf = (state) => state.worldKey || 'world';
 async function loadWorld(store, state) {
-  if (cache.world && cache.worldV === state.worldV) return cache.world;
-  const w = await getJ(store, 'world');
-  cache = { worldV: state.worldV, world: w };
+  const key = worldKeyOf(state);
+  if (cache.world && cache.key === key) return cache.world;
+  const w = await getJ(store, key);
+  cache = { key, world: w };
   return w;
 }
 async function saveWorld(store, world, state) {
   state.worldV = (state.worldV || 0) + 1;
-  await store.set('world', world);
-  cache = { worldV: state.worldV, world };
+  const key = `world/${state.worldV}-${randomId(6)}`;
+  await store.set(key, world);
+  state.worldKey = key;
+  cache = { key, world };
 }
 
 function freshState() {
@@ -94,13 +108,18 @@ function freshState() {
 }
 async function getState(store) { return (await getJ(store, 'state')) || freshState(); }
 async function setState(store, mutate) {
-  return update(store, 'state', async (cur) => {
+  let prevKey = null;
+  const out = await update(store, 'state', async (cur) => {
     const s = cur || freshState();
-    const out = await mutate(structuredClone(s));
-    if (out === undefined) return undefined;
-    out.v = (s.v || 0) + 1;
-    return out;
+    prevKey = s.worldKey || null;
+    const o = await mutate(structuredClone(s));
+    if (o === undefined) return undefined;
+    o.v = (s.v || 0) + 1;
+    return o;
   });
+  // tidy up the copy of the world that is no longer pointed to
+  if (out?.worldKey && prevKey && prevKey !== out.worldKey) { try { await store.del(prevKey); } catch { /* harmless */ } }
+  return out;
 }
 
 // ---------------- public documents ----------------
@@ -174,6 +193,9 @@ function privateDoc(world, state) {
     final: world.final ? { standings: world.final.standings } : null,
     revealed: !!state.revealed,
     names,
+    funds: Object.fromEntries(Object.values(world.teams).map((t) => [t.id, {
+      name: t.name, nav: t.navHist.at(-1), start: t.navHist[0], flows: t.flows || {}, loans: t.loans || [], debt: debtOf(t), cash: t.cash, capitalLog: t.capitalLog || [],
+    }])),
   };
 }
 
@@ -245,6 +267,7 @@ export async function handle(request, store, env = {}) {
     if (path === 'order') return await order(store, body);
     if (path === 'forecast') return await forecast(store, body);
     if (path === 'bid') return await bid(store, body);
+    if (path === 'loan') return await teamLoan(store, body);
     if (path === 'admin') return await admin(store, body, env);
     return fail(404, 'Not found');
   } catch (e) {
@@ -266,7 +289,7 @@ async function poll(store, url) {
 }
 
 function publicState(s) {
-  const { worldV, ...rest } = s;
+  const { worldV, worldKey, ...rest } = s;
   return { ...rest, teams: (s.teams || []).map((t) => ({ id: t.id, name: t.name, members: (t.members || []).map((m) => ({ id: m.id, name: m.name })) })) };
 }
 
@@ -284,7 +307,9 @@ async function mine(store, url) {
   const t = await getJ(store, `team/${m.teamId}`);
   const q = Number(url.searchParams.get('q') || 0);
   const r = q ? await getJ(store, `team/${m.teamId}/r/${q}`) : null;
-  return json({ ok: true, me: m, team: t?.team || null, result: r });
+  const journal = (await getJ(store, `journal/${m.teamId}`)) || [];
+  const loanRequests = ((await getJ(store, 'loanreq')) || []).filter((x) => x.teamId === m.teamId);
+  return json({ ok: true, me: m, team: t?.team || null, result: r, journal, loanRequests });
 }
 
 async function join(store, body) {
@@ -324,6 +349,8 @@ async function order(store, body) {
   if (Number(body.epoch) !== state.epoch) return refuse(409, 'Prices have just moved: a crisis has broken. Check the desk and place your order again.', { stale: true });
   if (!INST[body.inst]) return fail(400, 'Unknown instrument');
   if (!['buy', 'sell', 'close'].includes(body.side)) return fail(400, 'Unknown order type');
+  const note = cleanNote(body.note);
+  if (note.length < NOTE_MIN) return refuse(400, 'A trading note is compulsory: write why you are making this trade, now (a sentence is enough).', { needNote: true });
   const world = await loadWorld(store, state);
   const id = String(body.id || randomId(12)).slice(0, 40);
   let outcome = null;
@@ -334,7 +361,7 @@ async function order(store, body) {
     const resolved = d.orders.map((o) => ({ inst: o.inst, delta: o.delta, epoch: o.epoch }));
     const chk = checkOrder(world, m.teamId, resolved, { inst: body.inst, side: body.side, amountCr: Number(body.amountCr) });
     if (!chk.ok) { outcome = { ok: false, reason: chk.reason }; return undefined; }
-    const o = { id, inst: body.inst, side: body.side, amountCr: body.side === 'close' ? null : Number(body.amountCr), delta: chk.delta, epoch: state.epoch, by: m.memberId, at: Date.now() };
+    const o = { id, inst: body.inst, side: body.side, amountCr: body.side === 'close' ? null : Number(body.amountCr), delta: chk.delta, epoch: state.epoch, by: m.memberId, at: Date.now(), note };
     outcome = { ok: true, order: o };
     return { ...d, orders: [...d.orders, o], rev: d.rev + 1 };
   });
@@ -383,6 +410,68 @@ async function bid(store, body) {
   return json({ ok: true, orders: d });
 }
 
+// ---------------- loans and capital ----------------
+
+/** Change the engine state between or during rounds (never while settling). */
+async function worldAction(store, fn) {
+  for (let k = 0; k < 4; k++) {
+    const state = await getState(store);
+    if (state.phase === 'settling') return refuse(409, 'The round is settling. Try again in a moment.');
+    if (!state.q || !['data', 'open', 'results'].includes(state.phase)) return refuse(409, 'This is possible once the game has started, until the final release.');
+    const world = await loadWorld(store, state);
+    let next;
+    try { next = fn(world, state); } catch (e) { return refuse(400, e.message); }
+    let done = false;
+    const s2 = await setState(store, async (s) => {
+      if (s.worldV !== state.worldV || s.phase === 'settling' || s.q !== state.q) return undefined;
+      await saveWorld(store, next, s);
+      await writeDocs(store, next, s);
+      done = true;
+      return s;
+    });
+    if (done) return json({ ok: true, state: publicState(s2) });
+  }
+  return refuse(409, 'Someone else changed the game at the same moment. Try again.');
+}
+
+const crOf = (x) => { const v = Number(x); return Number.isFinite(v) ? Math.round(v * 100) / 100 : NaN; };
+
+async function teamLoan(store, body) {
+  const m = await memberFromToken(store, body.token);
+  if (!m) return refuse(401, 'Sign in with your fund code');
+  const state = await getState(store);
+  if (body.action === 'request') {
+    if (!state.q || state.phase === 'final') return refuse(409, 'Loans can be asked for once the game has started.');
+    const amountCr = crOf(body.amountCr);
+    if (!(amountCr > 0) || amountCr > 5000) return refuse(400, 'Ask for an amount between ₹0.01 Cr and ₹5,000 Cr.');
+    const reason = cleanNote(body.reason);
+    if (reason.length < NOTE_MIN) return refuse(400, 'Say why your fund needs the loan (a sentence is enough).');
+    let refused = null; let req = null;
+    await update(store, 'loanreq', (cur) => {
+      const list = cur || [];
+      if (list.filter((x) => x.teamId === m.teamId && x.status === 'pending').length >= 3) { refused = 'You already have three requests waiting for the Event Head.'; return undefined; }
+      req = { id: randomId(8), teamId: m.teamId, amountCr, reason, by: m.memberId, at: Date.now(), q: state.q, status: 'pending' };
+      return [...list, req];
+    });
+    if (refused) return refuse(409, refused);
+    await setState(store, (s) => { s.docs = { ...(s.docs || {}), mine: (s.docs?.mine || 0) + 1 }; return s; });
+    return json({ ok: true, request: req });
+  }
+  if (body.action === 'cancel') {
+    await update(store, 'loanreq', (cur) => (cur || []).map((x) => (x.id === body.id && x.teamId === m.teamId && x.status === 'pending' ? { ...x, status: 'withdrawn', decidedAt: Date.now() } : x)));
+    await setState(store, (s) => { s.docs = { ...(s.docs || {}), mine: (s.docs?.mine || 0) + 1 }; return s; });
+    return json({ ok: true });
+  }
+  if (body.action === 'repay') {
+    const all = body.all === true;
+    const amountCr = crOf(body.amountCr);
+    if (!all && !(amountCr > 0)) return refuse(400, 'Enter an amount to repay.');
+    return worldAction(store, (world) => repayLoan(world, m.teamId, all ? null : crToPaiseServer(amountCr), 'repaid by the fund'));
+  }
+  return fail(400, 'Unknown loan action');
+}
+const crToPaiseServer = (cr) => Math.round(cr * 100) * 1e7;
+
 // ---------------- the Event Head ----------------
 
 async function admin(store, body, env) {
@@ -425,6 +514,12 @@ async function admin(store, body, env) {
     case 'next': return adminNext(store);
     case 'final': return adminFinal(store);
     case 'reveal': return adminReveal(store);
+    case 'startCapital': return adminStartCapital(store, body);
+    case 'capital': return adminCapital(store, body);
+    case 'loan': return adminLoan(store, body);
+    case 'declineLoan': return adminDeclineLoan(store, body);
+    case 'repay': return worldAction(store, (world) => repayLoan(world, body.teamId, body.all ? null : crToPaiseServer(crOf(body.amountCr)), cleanNote(body.note) || 'repaid by the Event Head'));
+    case 'notes': return adminNotes(store);
     case 'private': return json({ ok: true, private: await getJ(store, 'admin/private') });
     case 'export': return adminExport(store);
     case 'reset': return adminReset(store, body);
@@ -435,7 +530,8 @@ async function admin(store, body, env) {
 async function adminStatus(store) {
   const state = await getState(store);
   const sec = await getJ(store, 'secrets');
-  const out = { ok: true, state: publicState(state), codes: sec?.codes || {}, now: Date.now(), rounds: SCRIPT === LIVE_SCRIPT ? ROUND_SUMMARIES : [] };
+  const out = { ok: true, state: publicState(state), codes: sec?.codes || {}, now: Date.now(), rounds: SCRIPT === LIVE_SCRIPT ? ROUND_SUMMARIES : [],
+    loanRequests: (await getJ(store, 'loanreq')) || [], startCapital: Object.fromEntries(state.teams.map((t) => [t.id, t.startCr || RULES.startFundCr])) };
   if (state.q) {
     const world = await loadWorld(store, state);
     const stages = world.run ? stagesFor(SCRIPT, world.run.q) : [];
@@ -480,7 +576,7 @@ async function adminStart(store) {
   const state = await getState(store);
   if (state.phase !== 'lobby') return refuse(409, 'The game has already started. Reset it first to start again.');
   if (!state.teams.length) return refuse(400, 'Add the funds first.');
-  let world = newGame(state.teams.map((t) => ({ id: t.id, name: t.name })), SCRIPT);
+  let world = newGame(state.teams.map((t) => ({ id: t.id, name: t.name, startCr: t.startCr || null })), SCRIPT);
   world = openQuarter(world, SCRIPT, 1);
   const s2 = await setState(store, async (s) => {
     if (s.phase !== 'lobby') return undefined;
@@ -564,6 +660,16 @@ async function adminSettle(store, body) {
     const out = settleQuarter(world, SCRIPT, inputs);
     after = out.world; result = out.result;
     await store.set(`resultfull/${state.q}`, result);
+    // each fund's trading notes for the round go into its journal
+    for (const t of state.teams) {
+      const d = await getJ(store, `orders/${state.q}/${t.id}`);
+      const names = Object.fromEntries((t.members || []).map((x) => [x.id, x.name]));
+      await update(store, `journal/${t.id}`, (cur) => {
+        const j = cur || [];
+        if (j.some((x) => x.q === state.q)) return undefined;
+        return [...j, { q: state.q, orders: (d?.orders || []).map((o) => journalLine(o, names)) }];
+      });
+    }
   } else {
     result = await getJ(store, `resultfull/${state.q}`); // recovering a settlement interrupted half-way
   }
@@ -609,6 +715,68 @@ async function adminFinal(store) {
   return json({ ok: true, state: publicState(s2 || (await getState(store))) });
 }
 
+async function adminStartCapital(store, body) {
+  const state = await getState(store);
+  if (state.phase !== 'lobby') return refuse(409, 'Starting capital can only be set before the game starts. During the game, add or remove capital instead.');
+  const startCr = crOf(body.startCr);
+  if (!(startCr >= 1) || startCr > 100000) return refuse(400, 'Enter a starting capital between ₹1 Cr and ₹1,00,000 Cr.');
+  if (!state.teams.some((t) => t.id === body.teamId)) return refuse(400, 'Unknown fund.');
+  const s2 = await setState(store, (s) => { s.teams = s.teams.map((t) => (t.id === body.teamId ? { ...t, startCr } : t)); return s; });
+  return json({ ok: true, state: publicState(s2) });
+}
+
+async function adminCapital(store, body) {
+  const amountCr = crOf(body.amountCr);
+  if (!amountCr || Math.abs(amountCr) > 100000) return refuse(400, 'Enter an amount to add (for example 200) or remove (for example −200).');
+  const note = cleanNote(body.note);
+  if (note.length < 3) return refuse(400, 'Write a short reason; the fund sees it.');
+  return worldAction(store, (world) => adjustCapital(world, body.teamId, crToPaiseServer(amountCr), note));
+}
+
+async function adminLoan(store, body) {
+  const amountCr = crOf(body.amountCr);
+  const ratePct = Number(body.ratePct);
+  if (!(amountCr > 0) || amountCr > 5000) return refuse(400, 'Enter a loan between ₹0.01 Cr and ₹5,000 Cr.');
+  let req = null;
+  if (body.requestId) {
+    req = ((await getJ(store, 'loanreq')) || []).find((x) => x.id === body.requestId);
+    if (!req || req.status !== 'pending') return refuse(409, 'That request has already been answered or withdrawn.');
+  }
+  const teamId = req ? req.teamId : body.teamId;
+  const out = await worldAction(store, (world) => grantLoan(world, teamId, crToPaiseServer(amountCr), ratePct, cleanNote(body.note) || (req ? `approved: ${req.reason}` : 'granted by the Event Head')));
+  const okBody = await out.clone().json();
+  if (okBody.ok && req) {
+    await update(store, 'loanreq', (cur) => (cur || []).map((x) => (x.id === req.id ? { ...x, status: 'approved', grantedCr: amountCr, ratePct, decidedAt: Date.now() } : x)));
+    await setState(store, (s) => { s.docs = { ...(s.docs || {}), mine: (s.docs?.mine || 0) + 1 }; return s; });
+  }
+  return out;
+}
+
+async function adminDeclineLoan(store, body) {
+  let found = false;
+  await update(store, 'loanreq', (cur) => (cur || []).map((x) => { if (x.id === body.requestId && x.status === 'pending') { found = true; return { ...x, status: 'declined', reply: cleanNote(body.note), decidedAt: Date.now() }; } return x; }));
+  if (!found) return refuse(409, 'That request has already been answered or withdrawn.');
+  await setState(store, (s) => { s.docs = { ...(s.docs || {}), mine: (s.docs?.mine || 0) + 1 }; return s; });
+  return json({ ok: true });
+}
+
+/** Every fund's trading notes: earlier rounds from the journals, this round from the orders. */
+async function adminNotes(store) {
+  const state = await getState(store);
+  const out = {};
+  for (const t of state.teams) {
+    const journal = (await getJ(store, `journal/${t.id}`)) || [];
+    const cur = state.q && !journal.some((j) => j.q === state.q) ? (await getJ(store, `orders/${state.q}/${t.id}`))?.orders || [] : [];
+    const names = Object.fromEntries((t.members || []).map((m) => [m.id, m.name]));
+    out[t.id] = { name: t.name, rounds: [...journal, ...(cur.length ? [{ q: state.q, orders: cur.map((o) => journalLine(o, names)) }] : [])] };
+  }
+  return json({ ok: true, notes: out });
+}
+
+function journalLine(o, names) {
+  return { id: o.id, inst: o.inst, side: o.side, amountCr: o.amountCr, delta: o.delta, epoch: o.epoch, at: o.at, by: names[o.by] || o.by, note: o.note || '' };
+}
+
 // The scores stay sealed until the Event Head reveals them (on the Big Screen and every desk).
 async function adminReveal(store) {
   const state = await getState(store);
@@ -627,7 +795,13 @@ async function adminReveal(store) {
 async function adminExport(store) {
   const keys = await store.list('');
   const out = {};
-  for (const k of keys) if (!k.startsWith('config') && !k.startsWith('secrets')) out[k] = await store.get(k);
+  const state = await getState(store);
+  for (const k of keys) {
+    if (k.startsWith('config') || k.startsWith('secrets')) continue;
+    if (k.startsWith('world/') && k !== state.worldKey) continue; // an old copy
+    out[k] = await store.get(k);
+  }
+  out.world = state.worldKey ? out[state.worldKey] : out.world;
   return json({ ok: true, exportedAt: new Date().toISOString(), data: out });
 }
 
@@ -638,7 +812,7 @@ async function adminReset(store, body) {
   for (const k of keys) if (k !== 'config' && k !== 'secrets') await store.del(k);
   const sec = await getJ(store, 'secrets');
   await store.set('secrets', { hmacKey: randomId(32), codes: body.keepTeams ? (sec?.codes || {}) : {} });
-  cache = { worldV: -1, world: null };
+  cache = { key: null, world: null };
   const fresh = freshState();
   fresh.phase = 'lobby';
   // keeping the funds keeps their names and codes; everyone signs in again

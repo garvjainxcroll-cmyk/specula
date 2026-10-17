@@ -17,6 +17,7 @@ const TIPS = [
   { phase: 'data', target: 'data', text: 'This is the data release. Every round starts here: growth, inflation, unemployment, the policy rate, the budget and the current account for all six economies. Small “exp” numbers show what forecasters expected — the gap is the surprise. Tap any figure to see exactly how it was worked out.' },
   { phase: 'data', target: 'rules', text: 'These are the central bank rules. At settlement each bank plugs this release into its rule. If you work it out first, you know what rates will do before the market does.' },
   { phase: 'open', target: 'markets', text: 'The window is open: two minutes to trade in practice (ten in the real game). Tap any instrument to see its price, what holding it earns or costs, a worked example, and the trade ticket. Try buying something now.' },
+  { phase: 'open', target: 'notes', text: 'Trading notes are compulsory: every order needs a sentence on why you are making it, now. They collect here, round by round, so you can check your reasoning after the bell. Only your fund and the Event Head can read them.', tab: 'trade' },
   { phase: 'open', target: 'forecast', text: 'Each round has one forecast. Up to 10 points; you lose 1 point for every 0.1 you are off. Hint: a policy-rate question is answered by the rule you just read.', tab: 'trade' },
   { phase: 'open', target: 'fund', text: 'Your fund: value, spare cash, exposure (limit 3×) and Risk Used (limit 100%). Tap Risk Used to see the full working. Above 100% at the bell means forced liquidation.', tab: 'fund' },
   { phase: 'results', target: 'results', text: 'The bell rang and the market settled. Every line of your profit and loss opens into a sum you can check with a calculator: price change, currency effect, carry, trading cost and crowd impact.', tab: 'results' },
@@ -34,7 +35,7 @@ export default function practice(app, { band }) {
     const teams = [{ id: ME, name: 'Your Practice Fund' }, ...BOT_TEAMS.map(([id, name]) => ({ id, name }))];
     let world = newGame(teams, PRACTICE);
     world = openQuarter(world, PRACTICE, 1);
-    g = { world, phase: 'data', orders: { [ME]: [], p1: [], p2: [], p3: [] }, forecast: null, bid: null, endsAt: null, results: {}, lastResult: null, v: 1, crisisAt: null, rand: rng(7) };
+    g = { world, journal: [], phase: 'data', orders: { [ME]: [], p1: [], p2: [], p3: [] }, forecast: null, bid: null, endsAt: null, results: {}, lastResult: null, v: 1, crisisAt: null, rand: rng(7) };
   }
 
   function qdoc() {
@@ -58,19 +59,24 @@ export default function practice(app, { band }) {
         orders: g.phase === 'open' || g.phase === 'data' ? g.orders[ME] : [], forecastSaved: g.forecast, bidSaved: g.bid,
         result: g.lastResult, myResult: g.lastResult ? g.results[g.lastResult.q]?.teams[ME] : null,
         final: w.final ? { standings: w.final.standings } : null, history: w.history,
+        journal: g.journal, loanRequests: [],
       };
     },
     subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     placeOrder: async (o) => {
       if (g.phase !== 'open' || Date.now() > g.endsAt) return { ok: false, reason: 'The window is closed. Late orders are refused.' };
+      if (String(o.note || '').replace(/\s+/g, ' ').trim().length < 8) return { ok: false, reason: 'A trading note is compulsory: write why you are making this trade, now.' };
       const c = checkOrder(g.world, ME, g.orders[ME], o);
       if (!c.ok) return { ok: false, reason: c.reason };
-      g.orders[ME].push({ inst: o.inst, side: o.side, delta: c.delta, epoch: c.epoch, by: 'you' });
+      g.orders[ME].push({ id: `p${g.v}`, inst: o.inst, side: o.side, delta: c.delta, epoch: c.epoch, by: 'You', at: Date.now(), note: String(o.note).trim() });
       g.v++; emit();
       return { ok: true };
     },
     setForecast: async (value) => { if (g.phase !== 'open') return { ok: false, reason: 'The window is closed.' }; g.forecast = value; g.v++; emit(); return { ok: true }; },
     setBid: async () => ({ ok: false, reason: 'There is no auction in practice.' }),
+    requestLoan: async () => ({ ok: false, reason: 'In the real game you can ask the Event Head for a loan here.' }),
+    cancelLoan: async () => ({ ok: false, reason: 'Not in practice.' }),
+    repayLoan: async () => ({ ok: false, reason: 'Not in practice.' }),
   };
 
   function botsTrade() {
@@ -95,6 +101,7 @@ export default function practice(app, { band }) {
       for (const [id, , bot] of BOT_TEAMS) forecasts[id] = BOTS[bot].forecast({ world: w, teamId: id, q: w.run.q, rand: g.rand, forecastSpec: w.run.forecast });
       const res = settleQuarter(w, PRACTICE, { orders: g.orders, forecasts, bids: {} });
       g.world = res.world; g.results[res.result.q] = res.result;
+      g.journal = [...g.journal, { q: res.result.q, orders: g.orders[ME].map((x) => ({ ...x })) }];
       g.lastResult = { ...res.result, funds: {} };
       g.phase = 'results'; g.endsAt = null; g.v++; emit();
     },

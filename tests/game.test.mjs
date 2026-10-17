@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, openQuarter, settleQuarter, fireStage, stagesFor, deskNow, checkOrder, finalRelease, replayWindow } from '../src/engine/game.mjs';
+import { newGame, openQuarter, settleQuarter, fireStage, stagesFor, deskNow, checkOrder, finalRelease, replayWindow, adjustCapital, grantLoan, repayLoan } from '../src/engine/game.mjs';
 import { rupeePrice, cdsPrice, bandMove } from '../src/engine/market.mjs';
 import { riskUsed, forcedLiquidation } from '../src/engine/risk.mjs';
 import { forecastPoints, specula, fundStats } from '../src/engine/scoring.mjs';
@@ -330,4 +330,67 @@ test('crises are optional: a round settles with none, some or all released, and 
   w = fireStage(w, SCRIPT, 'dinar-1').world;
   w = fireStage(w, SCRIPT, 'concord-1').world;
   assert.deepEqual(w.run.fired, ['contagion-1', 'dinar-1', 'concord-1']);
+});
+
+test('the Event Head can give a fund a different starting capital', () => {
+  let w = newGame([{ id: 'a', name: 'A', startCr: 1500 }, { id: 'b', name: 'B' }], quiet);
+  assert.equal(w.teams.a.cash, 1500 * CR);
+  assert.equal(w.teams.b.cash, 1000 * CR);
+  for (let q = 1; q <= 6; q++) w = settleQuarter(openQuarter(w, quiet, q), quiet, { orders: {} }).world;
+  const rows = finalRelease(w, quiet).final.standings.rows;
+  // both only held cash: the same return, whatever the size
+  assert.equal(rows.find((r) => r.id === 'a').stats.totalReturn, rows.find((r) => r.id === 'b').stats.totalReturn);
+});
+
+test('capital the Event Head adds or removes is never counted as profit', () => {
+  let w = newGame([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], quiet);
+  w = settleQuarter(openQuarter(w, quiet, 1), quiet, { orders: {} }).world;
+  w = adjustCapital(w, 'a', 500 * CR, 'prize for the quiz'); // between rounds: counts for Round 02
+  w = openQuarter(w, quiet, 2);
+  w = adjustCapital(w, 'b', -200 * CR, 'penalty'); // during the data drop of Round 02
+  const res = settleQuarter(w, quiet, { orders: {} });
+  const ra = res.result.teams.a; const rb = res.result.teams.b;
+  assert.equal(ra.flow, 500 * CR);
+  assert.equal(ra.navOpen, 1015 * CR + 500 * CR);
+  assert.equal(ledgerTotal(ra.ledger), ra.navEnd - ra.navOpen); // the ledger still adds up
+  assert.equal(ledgerTotal(rb.ledger), rb.navEnd - rb.navOpen);
+  w = res.world;
+  for (let q = 3; q <= 6; q++) w = settleQuarter(openQuarter(w, quiet, q), quiet, { orders: {} }).world;
+  const rows = finalRelease(w, quiet).final.standings.rows;
+  const A = rows.find((r) => r.id === 'a'); const B = rows.find((r) => r.id === 'b');
+  // both held only cash: the same time-weighted return, despite +₹500 Cr and −₹200 Cr
+  assert.ok(Math.abs(A.stats.totalReturn - B.stats.totalReturn) <= 0.01, `${A.stats.totalReturn} vs ${B.stats.totalReturn}`);
+  assert.ok(A.nav > B.nav + 600 * CR);
+  assert.equal(A.stats.contributed, 1500 * CR);
+  assert.equal(B.stats.contributed, 800 * CR);
+  assert.throws(() => adjustCapital(w, 'b', -5000 * CR), /nothing/);
+});
+
+test('a loan does not change fund value, costs its rate ÷ 4 a round, and adds room under the 3× limit', () => {
+  let w = newGame([{ id: 'a', name: 'A' }], quiet);
+  w = openQuarter(w, quiet, 1);
+  const before = deskNow(w, 'a', []).nav;
+  // without a loan, ₹3,200 Cr of futures is beyond 3 × ₹1,000 Cr
+  assert.equal(checkOrder(w, 'a', [], { inst: 'AURFUT', side: 'buy', amountCr: 3200 }).ok, false);
+  w = grantLoan(w, 'a', 500 * CR, 8, 'approved request');
+  const d = deskNow(w, 'a', []);
+  assert.equal(d.nav, before); // cash +500, debt +500
+  assert.equal(d.debt, 500 * CR);
+  const list = [];
+  order(w, 'a', list, { inst: 'AURFUT', side: 'buy', amountCr: 3200 }); // now inside 3 × ₹1,500 Cr
+  const res = settleQuarter(w, quiet, { orders: { a: list } });
+  const r = res.result.teams.a;
+  assert.equal(r.ledger.loanInterest, -mulPct(500 * CR, 2)); // 8% a year = 2% a round
+  assert.equal(ledgerTotal(r.ledger), r.navEnd - r.navOpen);
+  assert.equal(r.flow, 0); // a loan is not capital
+  // idle borrowed cash still earns the cash rate
+  assert.equal(r.ledger.cashInterestWork.debt, 500 * CR);
+  w = res.world;
+  w = repayLoan(w, 'a', 200 * CR);
+  assert.equal(w.teams.a.loans[0].principal, 300 * CR);
+  const navNow = w.teams.a.cash + Object.entries(w.teams.a.pos).filter(([id]) => INST[id].funded).reduce((s, [, v]) => s + v, 0) - 300 * CR;
+  assert.equal(navNow, w.teams.a.navHist.at(-1)); // repaying does not change fund value either
+  w = repayLoan(w, 'a');
+  assert.deepEqual(w.teams.a.loans, []);
+  assert.throws(() => repayLoan(w, 'a'), /no loan/);
 });
