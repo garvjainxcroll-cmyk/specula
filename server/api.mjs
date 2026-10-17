@@ -20,7 +20,7 @@
 //    reset and export. The Event Head is the only one who sees unreleased crises.
 
 import { newGame, openQuarter, fireStage, settleQuarter, finalRelease, stagesFor, checkOrder, standingsNow, adjustCapital, grantLoan, repayLoan } from '../src/engine/game.mjs';
-import { debtOf } from '../src/engine/portfolio.mjs';
+import { debtOf, navOf } from '../src/engine/portfolio.mjs';
 import { carryRates, rupeePrice } from '../src/engine/market.mjs';
 import { ruleText, smoothingText } from '../src/engine/macro.mjs';
 import { ECON_ORDER } from '../src/config/economies.mjs';
@@ -194,7 +194,7 @@ function privateDoc(world, state) {
     revealed: !!state.revealed,
     names,
     funds: Object.fromEntries(Object.values(world.teams).map((t) => [t.id, {
-      name: t.name, nav: t.navHist.at(-1), start: t.navHist[0], flows: t.flows || {}, loans: t.loans || [], debt: debtOf(t), cash: t.cash, capitalLog: t.capitalLog || [],
+      name: t.name, nav: navOf({ cash: t.cash, pos: t.pos, loans: t.loans }), navBell: t.navHist.at(-1), start: t.navHist[0], flows: t.flows || {}, loans: t.loans || [], debt: debtOf(t), cash: t.cash, capitalLog: t.capitalLog || [],
     }])),
   };
 }

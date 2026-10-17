@@ -399,12 +399,19 @@ export function createDesk(root, adapter, { band, practice = false, onRender = n
           h('button', { class: 'btn sm', 'data-loan-request': '1', onclick: async () => { const r = await adapter.requestLoan({ amountCr: Number(amt.value), reason: why.value }); if (r.ok) { amt.value = ''; why.value = ''; } toast(r.ok ? 'Request sent to the Event Head.' : r.reason, r.ok ? 'good' : 'bad', 6000); } }, 'Send the request'),
           h('p', { class: 'tiny muted' }, 'The Event Head decides the amount and the interest rate. Decisions appear here.'))) : null,
       reqs.length ? h('div', { style: { marginTop: '8px' } }, h('div', { class: 'eyebrow' }, 'Your requests'), reqs.map((r) => h('p', { class: 'small', 'data-loan-status': r.status },
-        `${fmtCr(r.amountCr * CR)} — `, h('b', {}, { pending: 'waiting for the Event Head', approved: `approved: ${fmtCr((r.grantedCr ?? r.amountCr) * CR)} at ${fmtNum(r.ratePct)}% a year`, declined: 'declined', withdrawn: 'withdrawn' }[r.status] || r.status),
+        `${fmtCr(r.amountCr * CR)} — `, h('b', {}, r.status === 'approved' ? `approved: ${fmtCr((r.grantedCr ?? r.amountCr) * CR)} at ${fmtNum(r.ratePct)}% a year` : ({ pending: 'waiting for the Event Head', declined: 'declined', withdrawn: 'withdrawn' }[r.status] || r.status)),
         r.reply ? ` (“${r.reply}”)` : '', r.status === 'pending' ? h('button', { class: 'linkish tiny', style: { marginLeft: '8px' }, onclick: async () => { const x = await adapter.cancelLoan(r.id); toast(x.ok ? 'Request withdrawn.' : x.reason); } }, 'withdraw') : null))) : null,
       log.length ? h('div', { style: { marginTop: '8px' } }, h('div', { class: 'eyebrow' }, 'From the Event Head'), log.map((e) => h('p', { class: 'small', style: { margin: '4px 0' } },
-        `Round 0${e.q}: `, h('b', {}, { add: `capital added ${fmtCr(e.amount)}`, remove: `capital removed ${fmtCr(-e.amount)}`, loan: `loan ${e.id} of ${fmtCr(e.amount)} at ${fmtNum(e.ratePct)}%`, repay: `repaid ${fmtCr(-e.amount)}` }[e.kind] || e.kind),
+        `Round 0${e.q}: `, h('b', {}, logText(e)),
         e.note ? ` — ${e.note}` : ''))) : null,
       flowsNote(v));
+  }
+  function logText(e) {
+    if (e.kind === 'add') return `capital added ${fmtCr(e.amount)}`;
+    if (e.kind === 'remove') return `capital removed ${fmtCr(-e.amount)}`;
+    if (e.kind === 'loan') return `loan ${e.id} of ${fmtCr(e.amount)} at ${fmtNum(e.ratePct)}% a year`;
+    if (e.kind === 'repay') return `loan repaid ${fmtCr(-e.amount)}`;
+    return e.kind;
   }
   function flowsNote(v) {
     const f = Object.values(v.team.flows || {}).some((x) => x);

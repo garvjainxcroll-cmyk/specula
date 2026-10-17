@@ -216,7 +216,7 @@ export default function admin(app, { band }) {
     return h('div', { class: 'card', id: 'capital-card' }, h('div', { class: 'row between' }, h('div', { class: 'eyebrow' }, 'Capital and loans'), h('span', { class: 'badge alert' }, 'only you can see this')),
       h('p', { class: 'small' }, 'Add or remove capital (a prize, a penalty, a bail-out), lend money, or take repayment — at any time except while a round is settling. Added capital is not counted as profit: scores use each round’s return on the money in the fund. A loan adds cash and an equal debt (fund value unchanged), costs its yearly rate ÷ 4 every round, and adds room under the 3× limit. Each fund sees what you did and your reason.'),
       h('div', { class: 'scroll-x' }, h('table', { class: 'tbl' },
-        h('thead', {}, h('tr', {}, h('th', {}, 'Fund'), h('th', { class: 'r' }, 'Fund value'), h('th', { class: 'r' }, 'Money put in'), h('th', { class: 'r' }, 'Loans'), h('th', {}, 'Change'))),
+        h('thead', {}, h('tr', {}, h('th', {}, 'Fund'), h('th', { class: 'r' }, 'Fund value*'), h('th', { class: 'r' }, 'Money put in'), h('th', { class: 'r' }, 'Loans'), h('th', {}, 'Change'))),
         h('tbody', {}, s.teams.map((t) => {
           const x = f[t.id] || {};
           const putIn = (x.start || 0) + Object.values(x.flows || {}).reduce((a, v) => a + v, 0);
@@ -233,7 +233,8 @@ export default function admin(app, { band }) {
                 B('Remove', () => { if (confirm(`Remove ₹${Math.abs(Number(amt.value))} Cr of capital from ${t.name}?`)) call('capital', { teamId: t.id, amountCr: -Math.abs(Number(amt.value)), note: why.value }); }),
                 B('Lend', () => call('loan', { teamId: t.id, amountCr: Math.abs(Number(amt.value)), ratePct: Number(rate.value), note: why.value }), 'sm ghost', { 'data-cap-lend': t.name }), rate, h('span', { class: 'tiny muted' }, '% a year'),
                 x.debt ? B('Take repayment', () => { if (confirm(`Take full repayment of ${t.name}’s loans now?`)) call('repay', { teamId: t.id, all: true, note: why.value }); }) : null)));
-        })))));
+        })))),
+      h('p', { class: 'tiny muted' }, '* At the last bell, plus any capital added since; trades in an open window count from the next bell.'));
   }
 
   function loanRequestsCard(s) {
