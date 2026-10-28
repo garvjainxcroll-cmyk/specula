@@ -41,7 +41,7 @@ export function createRoom({ id, code, kind = 'cash', name = 'Table', isPrivate 
   const room = {
     id, code, kind, name, private: !!isPrivate, owner, ownerName, createdAt: now, status: 'open', paused: false,
     cfg: c, pendingCfg: null, tables: [], tour: null, outbox: [], applied: [], nextOut: 1, v: 1,
-    ledger: { in: 0, out: 0 }, notes: [],
+    ledger: { in: 0, out: 0, botIn: 0, botOut: 0 }, notes: [],
   };
   if (kind === 'tournament') {
     room.tour = { ...cleanTournament(tour), status: 'registering', level: 0, levelEndsAt: null, pausedLeft: null, entrants: [], results: [], startedAt: null, finishedAt: null };
@@ -106,6 +106,7 @@ export function sit(room, { acct, name, avatar, bot = null, stack, table = 0, se
   const running = isLive(t) || playersAt(t).filter((p) => !p.sittingOut && p.stack > 0).length >= 2;
   t.seats[s] = newSeat(room, { acct, name, avatar, bot, stack, autoMuck }, now, room.cfg.newPlayers === 'wait-bb' && running && !bot);
   room.ledger.in += stack;
+  if (bot) room.ledger.botIn += stack;
   markApplied(room, xferId);
   if (!t.hand && t.nextAt === null) t.nextAt = now + 1500;
   note(room, now, `${name}${bot ? ' (bot)' : ''} sat down with ${stack}`);
@@ -118,7 +119,8 @@ function cashOut(room, t, s, now, why) {
   if (!seat) return 0;
   const amount = seat.stack;
   room.ledger.out += amount;
-  if (!seat.bot && room.kind === 'cash' && amount > 0) outbox(room, { kind: 'cashout', acct: seat.acct, amount, room: room.id, roomName: room.name, at: now });
+  if (seat.bot) room.ledger.botOut += amount;
+  if (!seat.bot && room.kind === 'cash') outbox(room, { kind: 'cashout', acct: seat.acct, amount, room: room.id, roomName: room.name, at: now });
   t.seats[s] = null;
   note(room, now, `${seat.name} left the table${amount ? ` with ${amount}` : ''}${why ? ` (${why})` : ''}`);
   return amount;
@@ -438,7 +440,7 @@ function housekeeping(room, t, now, rng) {
     if (x.sitOutNext) { x.sittingOut = true; x.sitOutNext = false; x.sitOutAt = now; changed = true; }
     if (x.stack <= 0 && !x.busted) {
       if (x.bot) { // bots buy back in so practice can go on
-        const amount = room.cfg.maxBuyIn; x.stack = amount; x.buyIn += amount; room.ledger.in += amount;
+        const amount = room.cfg.maxBuyIn; x.stack = amount; x.buyIn += amount; room.ledger.in += amount; room.ledger.botIn += amount;
         note(room, now, `${x.name} (bot) bought back in`);
       } else { x.busted = true; x.sittingOut = true; x.sitOutAt = now; }
       changed = true;

@@ -4,7 +4,7 @@
 /** The complete record of a finished hand (server-side; contains every hole card). */
 export function handRecord(room, t, h, now) {
   return {
-    id: h.id, room: room.id, roomName: room.name, kind: room.kind, table: t.i, no: h.no, at: now,
+    id: h.id, room: room.id, roomName: room.name, kind: room.kind, private: room.private, table: t.i, no: h.no, at: now,
     blinds: h.blinds, button: h.button, sbSeat: h.sbSeat, bbSeat: h.bbSeat,
     revealFolded: !!room.cfg.revealFoldedInHistory || room.kind === 'practice',
     players: h.players.map((p) => ({
