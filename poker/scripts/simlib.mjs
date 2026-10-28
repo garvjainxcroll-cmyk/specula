@@ -63,7 +63,7 @@ export function simulateCash({ seed = 'cash', hands = 1000, seats = 6, humans = 
     }
     const h = t.hand;
     if (h && h.status === 'complete' && h.result.pots.length > 1 && h.events.at(-1).counted !== true) { sidePots++; h.events.at(-1).counted = true; }
-    if (checkViews && rng.int(checkViews) === 0) { checkView(room, { acct: people[rng.int(people.length)] }, now); checkView(room, { screen: true }, now); }
+    if (checkViews && rng.int(checkViews) === 0) { if (people.length) checkView(room, { acct: people[rng.int(people.length)] }, now); checkView(room, { screen: true }, now); }
     if (isLive(t)) {
       const s = h.toAct;
       const x = t.seats[s];
@@ -130,9 +130,7 @@ export function simulateTournament({ seed = 'tour', entrants = 24, seats = 9, hu
       if (t.hand && !seen.has(t.hand.id)) {
         seen.add(t.hand.id); hands++;
         // when a hand starts, its table is never more than one player above the emptiest table
-        const others = open.filter((x) => x !== t).map((x) => x.seats.filter((y) => y && y.stack > 0).length);
-        const mine = t.seats.filter((y) => y && y.stack > 0).length;
-        if (others.length) startSpread = Math.max(startSpread, mine - Math.min(...others));
+        startSpread = Math.max(startSpread, t.spread ?? 0);
       }
     }
     if (checkViews && rng.int(checkViews) === 0) checkView(room, { acct: `h${rng.int(humans)}` }, now);

@@ -22,7 +22,10 @@ let bad = 0;
 for (const f of walk(dist)) {
   if (!/\.(m?js|html)$/.test(f)) continue;
   const txt = readFileSync(f, 'utf8');
-  if (/from\s+['"][^'"]*server\//.test(txt) || /from\s+['"]node:/.test(txt) || /\bMath\.random\b/.test(txt) && f.includes(`${join('src', 'engine')}`)) { console.error(`Refused: ${f} loads server or Node code`); bad++; }
+  if (/from\s+['"][^'"]*server\//.test(txt) || /from\s+['"]node:/.test(txt)) { console.error(`Refused: ${f} loads server or Node code`); bad++; }
+  // the game rules stay pure: no clock and no randomness of their own (both are passed in)
+  const code = txt.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  if (f.includes(join('src', 'engine')) && /\bMath\.random\b|\bDate\.now\b|\bnew Date\b/.test(code)) { console.error(`Refused: ${f} uses its own clock or randomness`); bad++; }
 }
 if (bad) process.exit(1);
 console.log(`Built dist/ (version ${version}).`);

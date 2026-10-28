@@ -1,9 +1,9 @@
 {
-  "name": "alea-poker",
+  "name": "artha-vyuha",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "ALEA — live multiplayer No-Limit Texas Hold'em with virtual chips (JACO CORP)",
+  "description": "Artha Vyūha — live multiplayer No-Limit Texas Hold'em with virtual chips (JACO CORP)",
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",

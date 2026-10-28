@@ -47,7 +47,7 @@ async function whoActs(id, toks) {
 
 test('health', async () => {
   const r = await get('health');
-  assert.equal(r.ok, true); assert.equal(r.app, 'alea');
+  assert.equal(r.ok, true); assert.equal(r.app, 'artha');
 });
 
 test('accounts: register, unique names, hashed passwords, login, lockout', async () => {
@@ -218,7 +218,7 @@ test('the Event Head: password set once, tournaments, chip grants, settings', as
   const players = [await guest('P1'), await guest('P2')];
   assert.ok((await post('host/grant', { acct: players[0].me.id, amount: 500 }, ht)).ok);
   assert.equal((await get('me', players[0].token)).me.bankroll, 10500);
-  const tr = await post('host/room', { kind: 'tournament', name: 'ALEA Cup', cfg: { seats: 6, actionSeconds: 10 }, tour: { startingStack: 500, schedule: [{ sb: 25, bb: 50, minutes: 1 }, { sb: 100, bb: 200, minutes: 1 }, { sb: 250, bb: 500, minutes: 1 }], payouts: [70, 30], perEntrant: 100 }, bots: { count: 2, level: 'easy' } }, ht);
+  const tr = await post('host/room', { kind: 'tournament', name: 'Artha Vyūha Cup', cfg: { seats: 6, actionSeconds: 10 }, tour: { startingStack: 500, schedule: [{ sb: 25, bb: 50, minutes: 1 }, { sb: 100, bb: 200, minutes: 1 }, { sb: 250, bb: 500, minutes: 1 }], payouts: [70, 30], perEntrant: 100 }, bots: { count: 2, level: 'easy' } }, ht);
   assert.ok(tr.ok, tr.error);
   for (const p of players) assert.ok((await post('room/register', { id: tr.id }, p.token)).ok);
   assert.equal((await post('room/manage', { id: tr.id, op: 'start' }, players[0].token)).code, 'not-owner');

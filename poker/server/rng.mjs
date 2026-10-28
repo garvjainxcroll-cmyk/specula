@@ -4,7 +4,7 @@ import { randomInt, randomBytes } from 'node:crypto';
 
 export const secureRng = {
   int(n) { return randomInt(n); },
-  float() { return randomInt(0x1000000000000) / 0x1000000000000; },
+  float() { return randomInt(0x800000000000) / 0x800000000000; }, // 2^47: randomInt's range must stay below 2^48
 };
 
 const ALPHA = 'abcdefghijkmnpqrstuvwxyz23456789';

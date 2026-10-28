@@ -1,11 +1,11 @@
-// The stand-alone ALEA server: serves dist/ and runs the same /api/* code as Netlify.
+// The stand-alone Artha Vyūha server: serves dist/ and runs the same /api/* code as Netlify.
 // On top of that it pushes changes to open tables instantly (Server-Sent Events at
 // /api/stream?id=ROOM) and runs a background clock, so time-outs and practice bots happen on
-// time even between requests. Use it for local play or to host ALEA on any Node service.
+// time even between requests. Use it for local play or to host Artha Vyūha on any Node service.
 //
 //   node scripts/dev-server.mjs [port]
-//   PORT=8080 ALEA_DATA_DIR=/data ALEA_ADMIN_PASSWORD=... node scripts/dev-server.mjs
-//   ALEA_STORE=memory  → nothing saved to disk (tests)
+//   PORT=8080 ARTHA_DATA_DIR=/data ARTHA_ADMIN_PASSWORD=... node scripts/dev-server.mjs
+//   ARTHA_STORE=memory  → nothing saved to disk (tests)
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, dirname, normalize } from 'node:path';
@@ -16,10 +16,10 @@ import { memoryStore } from '../server/storage-memory.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
 const port = Number(process.argv[2] || process.env.PORT || 8888);
-const dataDir = process.env.ALEA_DATA_DIR || join(root, '.data');
-const file = process.env.ALEA_STORE === 'memory' ? null : join(dataDir, `alea-store-${port}.json`);
+const dataDir = process.env.ARTHA_DATA_DIR || join(root, '.data');
+const file = process.env.ARTHA_STORE === 'memory' ? null : join(dataDir, `artha-store-${port}.json`);
 const store = memoryStore({ file, kind: file ? 'file' : 'memory' });
-const env = { ADMIN_PASSWORD: process.env.ALEA_ADMIN_PASSWORD || '' };
+const env = { ADMIN_PASSWORD: process.env.ARTHA_ADMIN_PASSWORD || '' };
 const types = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 
 // ---- live push ----
@@ -51,14 +51,14 @@ setInterval(async () => {
   } finally { ticking = false; }
 }, 500).unref();
 
-const opts = { publish, streaming: true, ipLimit: Number(process.env.ALEA_IP_LIMIT || 1200) };
+const opts = { publish, streaming: true, ipLimit: Number(process.env.ARTHA_IP_LIMIT || 1200) };
 
 http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${port}`);
     if (url.pathname === '/api/stream') return stream(req, res, url);
     if (url.pathname.startsWith('/api/')) {
-      if (process.env.ALEA_API_DOWN === '1') { res.writeHead(503); res.end('down'); return; }
+      if (process.env.ARTHA_API_DOWN === '1') { res.writeHead(503); res.end('down'); return; }
       const chunks = []; for await (const c of req) chunks.push(c);
       const body = chunks.length ? Buffer.concat(chunks) : undefined;
       const headers = { ...req.headers, 'x-forwarded-for': req.socket.remoteAddress || 'local' };
@@ -78,6 +78,6 @@ http.createServer(async (req, res) => {
   } catch (e) {
     res.writeHead(500); res.end(String(e));
   }
-}).listen(port, () => console.log(`ALEA on http://localhost:${port}  (store: ${file || 'memory'}; live push on)`));
+}).listen(port, () => console.log(`Artha Vyūha on http://localhost:${port}  (store: ${file || 'memory'}; live push on)`));
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { store.flush?.(); process.exit(0); });

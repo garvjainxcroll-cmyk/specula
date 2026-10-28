@@ -2,7 +2,7 @@
 // both change the same document (the loser re-reads and tries again).
 import { getStore } from '@netlify/blobs';
 
-export function blobsStore(name = 'alea') {
+export function blobsStore(name = 'artha') {
   const s = getStore({ name, consistency: 'strong' });
   return {
     kind: 'blobs',

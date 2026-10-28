@@ -1,4 +1,4 @@
-// The ALEA server: accounts, chips, rooms and the live game. Runs inside the Netlify
+// The Artha Vyūha server: accounts, chips, rooms and the live game. Runs inside the Netlify
 // function (netlify/functions/api.mjs) with Netlify Blobs, and in the stand-alone Node server
 // (scripts/dev-server.mjs) and the tests with the in-memory store. Same code everywhere.
 //
@@ -92,7 +92,7 @@ async function settingsOf(store) {
 function tokenFrom(ctx) {
   const h = ctx.request.headers.get('authorization') || '';
   if (h.startsWith('Bearer ')) return h.slice(7);
-  return ctx.request.headers.get('x-alea-token') || ctx.url.searchParams.get('token') || null;
+  return ctx.request.headers.get('x-artha-token') || ctx.url.searchParams.get('token') || null;
 }
 async function who(ctx) {
   if (ctx._who !== undefined) return ctx._who;
@@ -122,7 +122,7 @@ function clientIp(request) {
 
 // ---------------- accounts ----------------
 
-const AVATAR_GLYPHS = ['eagle', 'globe', 'crown', 'key', 'anchor', 'star', 'compass', 'tower', 'laurel', 'owl', 'lion', 'wave'];
+const AVATAR_GLYPHS = ['eagle', 'globe', 'crown', 'key', 'anchor', 'star', 'compass', 'tower', 'laurel', 'owl', 'sun', 'wave'];
 const AVATAR_TONES = ['gold', 'sheen', 'bronze', 'emblem'];
 function cleanAvatar(a) {
   return { glyph: AVATAR_GLYPHS.includes(a?.glyph) ? a.glyph : 'eagle', tone: AVATAR_TONES.includes(a?.tone) ? a.tone : 'gold' };
@@ -383,7 +383,7 @@ async function buyIn(ctx, acct, roomId, amount, apply) {
 const ROUTES = {};
 const route = (method, path, fn) => { ROUTES[`${method} ${path}`] = fn; };
 
-route('GET', 'health', async (ctx) => json({ ok: true, app: 'alea', version: VERSION, storage: ctx.store.kind, now: ctx.now, stream: !!ctx.streaming }));
+route('GET', 'health', async (ctx) => json({ ok: true, app: 'artha', version: VERSION, storage: ctx.store.kind, now: ctx.now, stream: !!ctx.streaming }));
 
 // --- accounts ---
 route('POST', 'auth/register', async (ctx, b) => {
@@ -506,7 +506,7 @@ route('GET', 'lobby', async (ctx) => {
     .filter((r) => r.status === 'open' && r.kind !== 'practice' && (!r.private || w?.host))
     .filter((r) => !(r.tour && r.tour.status === 'finished' && ctx.now - r.createdAt > 6 * 3600000))
     .sort((a, b) => (a.kind === b.kind ? b.humans - a.humans || a.bb - b.bb : a.kind === 'tournament' ? -1 : 1));
-  const mine = me ? Object.values(lob.rooms).filter((r) => r.status === 'open' && w.acct.at?.[r.id]) : [];
+  const mine = me ? Object.entries(w.acct.at || {}).filter(([id]) => lob.rooms[id]?.status === 'open').map(([id, x]) => ({ id, name: x.name, code: x.code, kind: x.kind })) : [];
   return json({ ok: true, rooms, mine, stakes: STAKES, sizes: TABLE_SIZES, formats: s.formats, guests: s.guests, registration: s.registration, now: ctx.now });
 });
 
@@ -525,7 +525,7 @@ route('POST', 'quickplay', async (ctx, b) => {
   if (fits.length) return json({ ok: true, id: fits[0].id, code: fits[0].code });
   const n = Object.values(lob.rooms).filter((r) => r.kind === 'cash' && !r.private).length + 1;
   const room = await newRoom(ctx, {
-    kind: 'cash', name: `${seats === 2 ? 'Heads-Up' : 'Quick Play'} ${stakes.label} · ${String(n).padStart(2, '0')}`, isPrivate: false, owner: 'system', ownerName: 'ALEA',
+    kind: 'cash', name: `${seats === 2 ? 'Heads-Up' : 'Quick Play'} ${stakes.label} · ${String(n).padStart(2, '0')}`, isPrivate: false, owner: 'system', ownerName: 'Artha Vyūha',
     cfg: { sb: stakes.sb, bb: stakes.bb, seats, minBuyIn: 40 * stakes.bb, maxBuyIn: 200 * stakes.bb },
   });
   return json({ ok: true, id: room.id, code: room.code, created: true });
@@ -749,7 +749,7 @@ route('POST', 'host/login', async (ctx, b) => {
 
 route('POST', 'host/password', async (ctx, b) => {
   await needHost(ctx);
-  if (ctx.env.ADMIN_PASSWORD) no('env', 'The password is set on the server (the ALEA_ADMIN_PASSWORD setting): change it there');
+  if (ctx.env.ADMIN_PASSWORD) no('env', 'The password is set on the server (the ARTHA_ADMIN_PASSWORD setting): change it there');
   const pw = String(b.password || '');
   if (pw.length < 6 || pw.length > 200) no('password', 'Choose a password of at least 6 characters');
   const pass = await hashPassword(pw);

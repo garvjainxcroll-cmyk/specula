@@ -15,9 +15,10 @@ const AWAY_MS = 45000;
  */
 export function viewRoom(room, viewer = {}, now = 0) {
   const me = viewer.acct || null;
+  const manage = !!viewer.host || (!!me && room.owner === me); // the Event Head and a private table's host see player ids (to remove a player)
   let you = null;
   const tables = room.tables.filter((t) => !t.closed).map((t) => {
-    const v = viewTable(room, t, me, now);
+    const v = viewTable(room, t, me, now, manage);
     if (v.you) you = { table: t.i, seat: v.you.seat, sittingOut: v.you.sittingOut, waitBB: v.you.waitBB, leaving: v.you.leaving, busted: v.you.busted, stack: v.you.stack, autoMuck: v.you.autoMuck };
     delete v.you;
     return v;
@@ -38,7 +39,7 @@ function publicCfg(c) {
   return { sb, bb, ante, seats, minBuyIn, maxBuyIn, actionSeconds, timeBankSeconds, presets, showdownReveal, revealFoldedInHistory, newPlayers, idleSitOut, sitOutMinutes, botLevel };
 }
 
-function viewTable(room, t, me, now) {
+function viewTable(room, t, me, now, manage = false) {
   const h = t.hand;
   const live = h && h.status === 'betting';
   const complete = h && h.status === 'complete';
@@ -51,7 +52,7 @@ function viewTable(room, t, me, now) {
     if (p && !p.folded) cards = mine || p.shown ? p.cards.slice() : ['back', 'back'];
     if (p && p.folded && mine) cards = p.cards.slice(); // you can still see your own folded cards
     const seat = {
-      seat: s, name: x.name, avatar: x.avatar, bot: x.bot ? x.bot.level : null,
+      seat: s, name: x.name, avatar: x.avatar, bot: x.bot ? x.bot.level : null, botId: x.bot ? x.acct : null, acct: manage ? x.acct : undefined,
       stack: p && live ? p.stack : x.stack,
       sittingOut: x.sittingOut, waitBB: x.waitBB, leaving: x.leaving, busted: x.busted,
       away: !x.bot && now - x.lastSeen > AWAY_MS,
@@ -147,7 +148,7 @@ export function lobbyEntry(room) {
   const seated = room.tables.reduce((a, t) => a + (t.closed ? 0 : t.seats.filter(Boolean).length), 0);
   const humans = room.tables.reduce((a, t) => a + (t.closed ? 0 : t.seats.filter((x) => x && !x.bot).length), 0);
   return {
-    id: room.id, code: room.private ? null : room.code, kind: room.kind, name: room.name, private: room.private, status: room.status,
+    id: room.id, code: room.code, kind: room.kind, name: room.name, private: room.private, status: room.status,
     sb: room.cfg.sb, bb: room.cfg.bb, ante: room.cfg.ante, seats: room.cfg.seats, seated, humans, minBuyIn: room.cfg.minBuyIn, maxBuyIn: room.cfg.maxBuyIn,
     actionSeconds: room.cfg.actionSeconds, ownerName: room.ownerName,
     tour: room.tour ? { status: room.tour.status, entrants: room.tour.entrants.length, startingStack: room.tour.startingStack, level: room.tour.level + 1, lateRegOpen: room.tour.status === 'registering' || (room.tour.status !== 'finished' && room.tour.level < room.tour.lateRegLevels), blinds: room.tour.schedule[room.tour.level] } : null,

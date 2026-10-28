@@ -38,6 +38,12 @@ test('a 30-player tournament on four tables runs to the end: tables stay balance
   assert.ok(r.hands > 100, `hands played: ${r.hands}`);
 });
 
+test('a 45-player tournament on five tables: no hand starts at a table two above the emptiest', () => {
+  const r = simulateTournament({ seed: 'tsim-1', entrants: 45, seats: 9, humans: 8 });
+  assert.equal(r.room.tour.status, 'finished');
+  assert.ok(r.startSpread <= 1, `spread ${r.startSpread}`);
+});
+
 test('a heads-up tournament and a 6-max tournament', () => {
   const a = simulateTournament({ seed: 'hu-cup', entrants: 2, seats: 2, humans: 1 });
   assert.equal(a.room.tour.status, 'finished');

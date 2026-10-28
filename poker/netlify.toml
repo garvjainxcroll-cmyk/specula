@@ -1,4 +1,4 @@
-# ALEA on Netlify. When you import the repository, set "Base directory" to  poker
+# Artha Vyūha on Netlify. When you import the repository, set "Base directory" to  poker
 # Publish dir is dist/ (built by scripts/build.mjs); the one function
 # (netlify/functions/api.mjs) answers every /api/* request.
 [build]

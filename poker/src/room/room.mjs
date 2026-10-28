@@ -456,6 +456,9 @@ function beginHand(room, t, now, rng) {
   if (room.pendingCfg && !room.tables.some(isLive)) { applyConfig(room, room.pendingCfg, now); changed = true; }
   if (room.kind === 'tournament') {
     if (balance(room, t, now, rng) === 'broken') return true;
+    // how far this table is above the emptiest one as its hand starts (0 or 1 when balanced)
+    const others = room.tables.filter((x) => !x.closed && !x.breaking && x !== t);
+    t.spread = others.length ? count(t) - Math.min(...others.map(count)) : 0;
   }
   const el = eligible(room, t);
   if (el.length < 2) {
@@ -634,6 +637,8 @@ const count = (t) => t.seats.filter((x) => x && x.stack > 0).length;
 
 function moveSeat(room, from, s, to, now) {
   const x = from.seats[s];
+  // players knocked out at the destination stay seated until its next hand; their seats are free
+  for (let k = 0; k < to.seats.length; k++) if (to.seats[k] && to.seats[k].stack <= 0 && !dealtIn(to, k)) to.seats[k] = null;
   const free = to.seats.map((y, k) => (y ? -1 : k)).filter((k) => k >= 0);
   if (!free.length) return false;
   // a moved player takes the empty seat nearest the big blind side, so they do not skip blinds unfairly
@@ -665,12 +670,12 @@ function balance(room, t, now, rng) {
     } else smallest.breaking = true;
   }
   if (t.breaking) { breakTable(room, t, now); return 'broken'; }
-  const live = room.tables.filter((x) => !x.closed);
-  if (live.length > 1) {
+  const others = room.tables.filter((x) => !x.closed && !x.breaking && x !== t); // never move a player to a table about to break up
+  if (others.length) {
     // move players (the one due to post the big blind next, each time) until this table is at most one above the emptiest
-    for (let k = 0; k < per && count(t) - Math.min(...live.filter((x) => x !== t).map(count)) > 1 && count(t) === Math.max(...live.map(count)); k++) {
-      const min = Math.min(...live.filter((x) => x !== t).map(count));
-      const dest = live.find((x) => x !== t && count(x) === min);
+    for (let k = 0; k < per && count(t) - Math.min(...others.map(count)) > 1; k++) {
+      const min = Math.min(...others.map(count));
+      const dest = others.find((x) => count(x) === min);
       const seats = t.seats.map((x, s) => (x && x.stack > 0 ? s : -1)).filter((s) => s >= 0);
       const btn = t.button === null ? seats[0] : (seats.find((s) => s > t.button) ?? seats[0]);
       const pos = positions(seats, btn);
