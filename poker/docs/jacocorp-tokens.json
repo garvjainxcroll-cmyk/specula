@@ -1,0 +1,61 @@
+{
+  "name": "JACO CORP",
+  "version": 1,
+  "meta": {"source": "Crest artwork supplied by the brand (single PNG). Colors sampled from it; light theme derived."},
+  "color": {
+    "themes": [{"id": "dark", "name": "Night (primary)"}, {"id": "light", "name": "Parchment"}],
+    "tokens": [
+      {"name": "surface", "value": {"dark": "#070302", "light": "#f7f1e6"}, "usage": "Page background. Dark value is the artwork's black field; light value is a derived parchment."},
+      {"name": "surface-raised", "value": {"dark": "#121619", "light": "#fffdf8"}, "usage": "Cards, panels, dialogs. Dark value is the crest's charcoal fill."},
+      {"name": "line", "value": {"dark": "#504434", "light": "#d9ccb5"}, "usage": "Decorative hairlines and dividers only (under 3:1 — not for control borders; use gold for those)."},
+      {"name": "ink", "value": {"dark": "#fcf0de", "light": "#121619"}, "usage": "Primary text on surface and surface-raised (16:1+ in both themes)."},
+      {"name": "ink-muted", "value": {"dark": "#b3a48b", "light": "#5e5344"}, "usage": "Secondary text, captions, metadata on either surface (6.6:1+)."},
+      {"name": "gold", "value": "#d8b870", "usage": "The crest gold. Outlines, rules, primary button fill, control borders and focus rings. As TEXT only on dark grounds (9.5:1 on surface-raised dark); on light grounds use gold-text."},
+      {"name": "gold-bright", "value": "#e2bf7b", "usage": "Highlight gold from the globe. Hover state of gold fills and outlines."},
+      {"name": "gold-text", "value": {"dark": "#d8b870", "light": "#7a5c1e"}, "usage": "Gold as text or small icons on the current surface — links, eyebrows, numerals (5.5:1 on parchment)."},
+      {"name": "on-gold", "value": "#121619", "usage": "Text and icons placed on a gold fill (9.5:1)."},
+      {"name": "sheen", "value": "#ead2ae", "usage": "Champagne light of the silk arcs. Decorative glows and large display accents; not for body text on light grounds."},
+      {"name": "bronze", "value": "#504434", "usage": "Mid-tone of the silk folds. Decorative fields and chart fills; never text."},
+      {"name": "night", "value": "#070302", "usage": "Fixed artwork black, same in both themes — hero bands and anywhere the crest sits."},
+      {"name": "emblem", "value": "#121619", "usage": "Fixed crest charcoal, same in both themes — the fill inside gold outlines."}
+    ]
+  },
+  "type": {
+    "fonts": [],
+    "families": {
+      "display": "\"Cinzel\", \"Trajan Pro\", Georgia, serif",
+      "serif": "\"EB Garamond\", Garamond, Georgia, serif"
+    },
+    "groups": [
+      {"name": "Display", "family": "display", "styles": [
+        {"name": "display-xl", "fontSize": "64px", "lineHeight": "68px", "fontWeight": 600, "letterSpacing": "0.04em", "sample": "JACO CORP", "usage": "Hero titles and posters. Always capitals (Cinzel has no lowercase)."},
+        {"name": "display-lg", "fontSize": "40px", "lineHeight": "46px", "fontWeight": 600, "letterSpacing": "0.04em", "sample": "Round One", "usage": "Page and section titles."},
+        {"name": "heading", "fontSize": "24px", "lineHeight": "30px", "fontWeight": 500, "letterSpacing": "0.03em", "sample": "Market Entry", "usage": "Card and subsection titles."},
+        {"name": "eyebrow", "fontSize": "12px", "lineHeight": "16px", "fontWeight": 600, "letterSpacing": "0.16em", "sample": "Event 02", "usage": "Labels above titles, in gold-text."}
+      ]},
+      {"name": "Text", "family": "serif", "styles": [
+        {"name": "lead", "fontSize": "20px", "lineHeight": "30px", "fontWeight": 400, "sample": "Four rounds. One market. The best strategy takes the floor.", "usage": "Intro paragraphs."},
+        {"name": "body", "fontSize": "17px", "lineHeight": "26px", "fontWeight": 400, "sample": "Teams submit their valuation before the round closes.", "usage": "Running text. Garamond runs small — 17px is the floor for reading."},
+        {"name": "caption", "fontSize": "14px", "lineHeight": "20px", "fontWeight": 500, "sample": "Registrations close Friday", "usage": "Captions and metadata, in ink-muted."}
+      ]}
+    ]
+  },
+  "spacing": {"tokens": [
+    {"name": "space-1", "value": "4px", "usage": "Icon-to-label gaps."},
+    {"name": "space-2", "value": "8px", "usage": "Tight stacks, eyebrow to title."},
+    {"name": "space-4", "value": "16px", "usage": "Control padding, gutters on phones."},
+    {"name": "space-6", "value": "24px", "usage": "Card padding."},
+    {"name": "space-8", "value": "32px", "usage": "Between cards and groups."},
+    {"name": "space-12", "value": "48px", "usage": "Section spacing."},
+    {"name": "space-16", "value": "64px", "usage": "Hero padding, space around the crest."}
+  ]},
+  "radius": {"tokens": [
+    {"name": "radius-none", "value": "0", "usage": "Rules, full-bleed bands."},
+    {"name": "radius-sm", "value": "4px", "usage": "Buttons, inputs, tags."},
+    {"name": "radius-md", "value": "8px", "usage": "Cards and panels — matches the softened feather tips of the crest."}
+  ]},
+  "borderWidth": {"tokens": [
+    {"name": "stroke-crest", "value": "2px", "usage": "Gold outline weight for crest-style frames, cards and button outlines."},
+    {"name": "stroke-hair", "value": "1px", "usage": "Dividers in line colour."}
+  ]}
+}
