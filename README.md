@@ -12,4 +12,4 @@ Screens: Home `/`, How to Play `/#/learn`, Practice `/#/practice`, Team Desk `/#
 
 > Keep this repository **private**: it contains the secret script.
 
-**Also here:** the [stock game](stockgame/README.md), a separate ten-stock broker app and Event Head desk for JACO CORP.
+**Also here:** the [stock game](stockgame/README.md), a separate ten-stock trading game for JACO CORP (buy, sell or short). Its live version is a second Netlify site from this repository with Base directory `stockgame`: see [stockgame/DEPLOY.md](stockgame/DEPLOY.md).

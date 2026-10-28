@@ -90,72 +90,114 @@ export function codeProblem(c) {
 }
 
 // ---------- the team's book ----------
-// state = { capital, cash, holdings: {k: {qty, cost}}, orders: [...], trades: [...], nextId }
+// book  = { capital, cash, margin, holdings: {k: {qty, cost}}, orders: [...], trades: [...], nextId }
+//         qty < 0 is a short position; cost is signed too (qty x average price), so the
+//         profit on any position is qty x LTP - cost.
 // order = { id, k, side: 'B'|'S', type: 'MKT'|'LMT'|'SL', qty, limit?, trigger?, status: 'OPEN'|'DONE'|'CANCELLED'|'REJECTED', at, p, fill?, note? }
 // trade = { p, k, side, qty, price, t, id, auto }   (t = unix seconds; auto = a resting order filled by a price move)
+//
+// Shorting: selling more than you hold opens a short. The sale's proceeds go into cash,
+// and margin (book.margin x the short's current value, 100% unless set otherwise) is held
+// from your own money, so cash available = cash - held for open buy orders
+// - (1 + margin) x the value of every short at its last price.
+// A trade that only reduces a position (selling shares you hold, buying back a short) is
+// always allowed; any other trade must leave cash available at zero or above.
 
-export function newBook(capitalRupees) {
+export const DEFAULT_MARGIN = 1;
+
+export function newBook(capitalRupees, margin = DEFAULT_MARGIN) {
   const capital = Math.round(capitalRupees * PAISE);
-  return { capital, cash: capital, holdings: {}, orders: [], trades: [], nextId: 1 };
+  return { capital, cash: capital, margin, holdings: {}, orders: [], trades: [], nextId: 1 };
+}
+const marginOf = (book) => (book.margin ?? DEFAULT_MARGIN);
+export const qtyOf = (book, k) => book.holdings[k]?.qty || 0;
+
+export function reservedCash(book, exceptId = null) {
+  let r = 0;
+  for (const o of book.orders) if (o.status === 'OPEN' && o.side === 'B' && o.type === 'LMT' && o.id !== exceptId) r += o.qty * o.limit;
+  return r;
+}
+export function shortMargin(book, ltpOf) {
+  let m = 0;
+  for (const k in book.holdings) { const q = book.holdings[k].qty; if (q < 0) m += (1 + marginOf(book)) * -q * ltpOf(+k); }
+  return Math.round(m);
+}
+export function availableCash(book, ltpOf, exceptId = null) {
+  return book.cash - reservedCash(book, exceptId) - shortMargin(book, ltpOf);
 }
 
-export function reservedCash(book) {
-  let r = 0;
-  for (const o of book.orders) if (o.status === 'OPEN' && o.side === 'B') r += o.qty * o.limit;
-  return r;
+// Can `dq` shares (signed: + buy, - sell) of stock k fill at `price` now?
+export function canFill(book, k, dq, price, ltpOf, exceptId = null) {
+  const q = qtyOf(book, k);
+  if (q !== 0 && Math.sign(dq) !== Math.sign(q) && Math.abs(dq) <= Math.abs(q)) return { ok: true }; // only reduces a position
+  const h = { ...book.holdings, [k]: { qty: q + dq, cost: 0 } };
+  const after = { ...book, cash: book.cash - dq * price, holdings: h };
+  const avail = availableCash(after, (j) => (j === k ? price : ltpOf(j)), exceptId);
+  if (avail >= 0) return { ok: true };
+  const now = availableCash(book, ltpOf, exceptId);
+  const shorting = dq < 0;
+  return {
+    ok: false,
+    msg: shorting
+      ? `Not enough free cash to hold margin for this short. You have ${fmtRs(Math.max(0, now))} available; a short needs its full value as margin.`
+      : `Not enough cash. This order needs ${fmtRs(dq * price)} and you have ${fmtRs(Math.max(0, now))} available.`,
+  };
 }
-export function reservedQty(book, k) {
-  let r = 0;
-  for (const o of book.orders) if (o.status === 'OPEN' && o.side === 'S' && o.k === k) r += o.qty;
-  return r;
+
+// Change a position by dq shares at price; returns the profit realised by any part that closed.
+function applyFill(book, k, dq, price) {
+  const h = book.holdings[k] || { qty: 0, cost: 0 };
+  let realised = 0;
+  book.cash -= dq * price;
+  if (h.qty === 0 || Math.sign(h.qty) === Math.sign(dq)) {
+    h.qty += dq; h.cost += dq * price;
+  } else {
+    const close = Math.sign(dq) * Math.min(Math.abs(dq), Math.abs(h.qty)); // opposite sign to the position
+    const avg = h.cost / h.qty;
+    realised = Math.round(-close * (price - avg));
+    h.cost = h.qty + close === 0 ? 0 : Math.round(h.cost + close * avg);
+    h.qty += close;
+    const rest = dq - close; // a sell bigger than the long (or a buy bigger than the short) flips it
+    if (rest) { h.qty += rest; h.cost += rest * price; }
+  }
+  if (h.qty === 0) delete book.holdings[k]; else book.holdings[k] = h;
+  return realised;
 }
-export function availableCash(book) { return book.cash - reservedCash(book); }
-export function freeQty(book, k) { return (book.holdings[k]?.qty || 0) - reservedQty(book, k); }
 
 function fill(book, o, price, p, t, auto = false) {
-  const amount = o.qty * price;
-  const h = book.holdings[o.k] || { qty: 0, cost: 0 };
-  if (o.side === 'B') {
-    book.cash -= amount;
-    h.qty += o.qty; h.cost += amount;
-  } else {
-    const avg = h.qty ? h.cost / h.qty : 0;
-    const costOut = Math.round(avg * o.qty);
-    book.cash += amount;
-    h.qty -= o.qty; h.cost -= costOut;
-    if (h.qty === 0) h.cost = 0;
-    o.realised = amount - costOut;
-  }
-  if (h.qty === 0) delete book.holdings[o.k]; else book.holdings[o.k] = h;
+  o.realised = applyFill(book, o.k, o.side === 'B' ? o.qty : -o.qty, price);
   o.status = 'DONE'; o.fill = price; o.filledAt = t; o.fillP = p;
   book.trades.push({ p, k: o.k, side: o.side, qty: o.qty, price, t, id: o.id, auto });
 }
 
-// Place an order at price state p. ltp = current price (paise) of the stock.
+// Place an order at price state p; ltpOf(k) gives each stock's last price (paise).
 // Returns { ok, order, msg }. Market orders and marketable limits fill at once.
-export function placeOrder(book, req, ltp, p, t) {
+export function placeOrder(book, req, ltpOf, p, t) {
+  const ltp = ltpOf(req.k);
   const qty = Math.floor(Number(req.qty));
-  const o = { id: book.nextId, k: req.k, side: req.side, type: req.type, qty, at: t, p, status: 'OPEN' };
+  const side = req.side === 'S' ? 'S' : 'B';
+  const o = { id: book.nextId, k: req.k, side, type: req.type, qty, at: t, p, status: 'OPEN' };
   if (!(qty >= 1) || qty > 1000000) return { ok: false, msg: 'Enter a quantity between 1 and 10,00,000.' };
+  if (!['MKT', 'LMT', 'SL'].includes(req.type)) return { ok: false, msg: 'Choose market, limit or stop-loss.' };
   if (req.type === 'LMT') {
     o.limit = Math.round(Number(req.limit) * PAISE);
     if (!(o.limit > 0)) return { ok: false, msg: 'Enter a limit price above zero.' };
   }
   if (req.type === 'SL') {
-    if (req.side !== 'S') return { ok: false, msg: 'Stop-loss orders are for selling shares you hold.' };
     o.trigger = Math.round(Number(req.trigger) * PAISE);
     if (!(o.trigger > 0)) return { ok: false, msg: 'Enter a trigger price above zero.' };
-    if (o.trigger >= ltp) return { ok: false, msg: 'A stop-loss trigger must be below the last price.' };
+    if (side === 'S' && o.trigger >= ltp) return { ok: false, msg: 'A sell stop-loss trigger must be below the last price.' };
+    if (side === 'B' && o.trigger <= ltp) return { ok: false, msg: 'A buy stop-loss trigger must be above the last price.' };
   }
-  if (req.side === 'S' && freeQty(book, req.k) < qty) {
-    const free = Math.max(0, freeQty(book, req.k));
-    return { ok: false, msg: free ? `You can sell at most ${fmtQty(free)} shares (the rest are in open orders).` : 'You hold no free shares of this stock. Selling short is not allowed.' };
-  }
-  const marketable = req.type === 'MKT' || (req.type === 'LMT' && (req.side === 'B' ? ltp <= o.limit : ltp >= o.limit));
-  if (req.side === 'B') {
-    // a buy that fills now costs qty x price; a resting limit buy holds qty x limit
-    const need = qty * (marketable ? ltp : o.limit);
-    if (availableCash(book) < need) return { ok: false, msg: `Not enough cash. This order needs ${fmtRs(need)} and you have ${fmtRs(availableCash(book))} available.` };
+  const dq = side === 'B' ? qty : -qty;
+  const marketable = req.type === 'MKT' || (req.type === 'LMT' && (side === 'B' ? ltp <= o.limit : ltp >= o.limit));
+  if (marketable) {
+    const c = canFill(book, req.k, dq, ltp, ltpOf);
+    if (!c.ok) return { ok: false, msg: c.msg };
+  } else if (side === 'B' && req.type === 'LMT') {
+    // a resting limit buy holds qty x limit of cash until it fills or is cancelled
+    const need = qty * o.limit, avail = availableCash(book, ltpOf);
+    if (avail < need) return { ok: false, msg: `Not enough cash. This order holds ${fmtRs(need)} and you have ${fmtRs(Math.max(0, avail))} available.` };
   }
   book.nextId++;
   book.orders.push(o);
@@ -171,7 +213,7 @@ export function cancelOrder(book, id) {
 }
 
 // Prices have just moved to state p. Fill any open orders whose condition is met,
-// in the order they were placed. Returns the orders filled.
+// in the order they were placed, at the new price. Returns the orders filled.
 export function onPriceStep(book, ltpOf, p, t) {
   const filled = [];
   for (const o of book.orders) {
@@ -179,25 +221,36 @@ export function onPriceStep(book, ltpOf, p, t) {
     const ltp = ltpOf(o.k);
     let go = false;
     if (o.type === 'LMT') go = o.side === 'B' ? ltp <= o.limit : ltp >= o.limit;
-    if (o.type === 'SL') go = ltp <= o.trigger;
+    if (o.type === 'SL') go = o.side === 'S' ? ltp <= o.trigger : ltp >= o.trigger;
     if (!go) continue;
-    if (o.side === 'B') {
-      // the reserved cash (qty x limit) covers the fill because ltp <= limit
-      const others = reservedCash(book) - o.qty * o.limit;
-      if (book.cash - others < o.qty * ltp) { o.status = 'REJECTED'; o.note = 'Not enough cash when the price was reached.'; continue; }
-    } else if ((book.holdings[o.k]?.qty || 0) < o.qty) {
-      o.status = 'REJECTED'; o.note = 'Not enough shares when the price was reached.'; continue;
-    }
+    const c = canFill(book, o.k, o.side === 'B' ? o.qty : -o.qty, ltp, ltpOf, o.id);
+    if (!c.ok) { o.status = 'REJECTED'; o.note = 'Not enough free cash when the price was reached.'; continue; }
     fill(book, o, ltp, p, t, true);
     filled.push(o);
   }
   return filled;
 }
 
+// The most shares an order could be for, at `price`, given the rules above.
+export function maxQty(book, k, side, price, ltpOf) {
+  if (!(price > 0)) return 0;
+  const sign = side === 'B' ? 1 : -1;
+  let lo = 0, hi = 1000000;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (canFill(book, k, sign * mid, price, ltpOf).ok) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
 export function bookValue(book, ltpOf) {
-  let hv = 0, cost = 0;
-  for (const k in book.holdings) { hv += book.holdings[k].qty * ltpOf(+k); cost += book.holdings[k].cost; }
-  return { cash: book.cash, holdingsValue: hv, invested: cost, total: book.cash + hv, pnl: hv - cost };
+  let long = 0, short = 0, invested = 0, pnl = 0;
+  for (const k in book.holdings) {
+    const h = book.holdings[k], v = h.qty * ltpOf(+k);
+    if (h.qty > 0) { long += v; invested += h.cost; } else short += -v;
+    pnl += v - h.cost;
+  }
+  return { cash: book.cash, longValue: long, shortValue: short, holdingsValue: long - short, invested, pnl, total: book.cash + long - short };
 }
 
 // ---------- report code ----------
@@ -297,9 +350,9 @@ export function decodeReport(code) {
 // after update p+1's prices were out (plus grace) used stale prices and is voided.
 // Resting orders filled by a price move (auto) fill at that move's own price, so they
 // are never stale, even when the team types a round's price code late.
-export function replay(report, { paths, applied, releasedAt, graceSec = 45, capital }) {
-  const cap = Math.round(capital * PAISE);
-  const book = { capital: cap, cash: cap, holdings: {}, orders: [], trades: [], nextId: 1 };
+export function replay(report, { paths, applied, releasedAt, graceSec = 45, capital, margin = DEFAULT_MARGIN }) {
+  const book = newBook(capital, margin);
+  const cap = book.capital;
   const voided = [];
   let prevP = 0;
   report.trades.forEach((tr, j) => {
@@ -309,11 +362,10 @@ export function replay(report, { paths, applied, releasedAt, graceSec = 45, capi
     if (tr.p < prevP) return why('out of order');
     const next = releasedAt && releasedAt[tr.p + 1];
     if (!tr.auto && next && tr.t * 1000 > next + graceSec * 1000) return why(`placed at old prices after update ${tr.p + 1} had moved them`);
-    const price = paths[tr.k][tr.p];
-    const o = { id: j + 1, k: tr.k, side: tr.side, qty: tr.qty };
-    if (tr.side === 'B' && book.cash < tr.qty * price) return why('not enough cash');
-    if (tr.side === 'S' && (book.holdings[tr.k]?.qty || 0) < tr.qty) return why('sold shares it did not hold');
-    fill(book, o, price, tr.p, tr.t, tr.auto);
+    const ltpOf = (k) => paths[k][tr.p];
+    const c = canFill(book, tr.k, tr.side === 'B' ? tr.qty : -tr.qty, ltpOf(tr.k), ltpOf);
+    if (!c.ok) return why(tr.side === 'B' ? 'not enough cash' : 'not enough margin for the short');
+    fill(book, { id: j + 1, k: tr.k, side: tr.side, qty: tr.qty }, ltpOf(tr.k), tr.p, tr.t, tr.auto);
     prevP = tr.p;
   });
   const v = bookValue(book, (k) => paths[k][applied]);

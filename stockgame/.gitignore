@@ -1,2 +1,6 @@
 secret/
 dist/
+node_modules/
+live/dist/
+.netlify/
+*.zip

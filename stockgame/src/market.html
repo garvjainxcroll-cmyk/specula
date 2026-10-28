@@ -53,6 +53,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .wl .tk.up { color: var(--up); } .wl .tk.down { color: var(--down); } .wl .tk.flat { color: var(--ink); }
 .wl .co { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .wl .held { font-size: 11px; color: var(--gold-text); }
+.wl .held.short { color: var(--down); }
+.mkt { font-size: 13px; padding: 5px 12px; font-variant-numeric: tabular-nums; }
+.order .what { font-size: 14px; color: var(--ink); }
+.order .what:empty { display: none; }
 .wl .pct { font-size: 12px; text-align: right; }
 .wl .ltp { text-align: right; font-weight: 500; min-width: 74px; }
 .wl .ltp small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
@@ -220,11 +224,12 @@ textarea.input { min-height: 84px; font: 500 12px/1.4 var(--font-mono); word-bre
     <nav class="nav" aria-label="Sections">
       <a href="#dashboard" data-v="dashboard">Dashboard</a>
       <a href="#orders" data-v="orders">Orders</a>
-      <a href="#holdings" data-v="holdings">Holdings</a>
+      <a href="#holdings" data-v="holdings">Positions</a>
       <a href="#funds" data-v="funds">Funds</a>
       <a href="#news" data-v="news">News<span class="badge" id="newsBadge" hidden></span></a>
     </nav>
     <button class="btn primary code-btn" id="codeBtn" type="button">Enter code</button>
+    <span class="chip code-btn mkt" id="mkt" hidden role="status">Connecting…</span>
     <div class="acct"><span class="avatar" id="avatar">T</span><span class="team" id="teamName">Your team</span></div>
   </header>
 
@@ -262,18 +267,25 @@ textarea.input { min-height: 84px; font: 500 12px/1.4 var(--font-mono); word-bre
 /*@VAULT@*/
 /*@CHART@*/
 
+// One page, two ways to run:
+//  - as a single file (Claude artifact): updates are sealed in the page and open with the
+//    codes on the big screen; the account lives in this browser.
+//  - LIVE (the Netlify site): the server releases news and moves prices for everyone at
+//    once, takes the orders and keeps every team's account.
 const G = JSON.parse(document.getElementById('payload').textContent);
-const ST = G.stocks;
-const SHORT = ST.map((s) => s.name.split(' ')[0]);
-const KEY = 'markets:' + G.id;
+const LIVE = !!G.live;
+let ST = G.stocks;
+let SHORT = ST.map((s) => s.name.split(' ')[0]);
+const KEY = LIVE ? 'jaco-live:team' : 'markets:' + G.id;
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nowSec = () => Math.floor(Date.now() / 1000);
 const cls = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : 'flat');
 const arrow = (x) => (x > 0 ? '▲' : x < 0 ? '▼' : '');
 const clock = (t) => new Date(t * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const posText = (q) => (q > 0 ? `${fmtQty(q)} held` : q < 0 ? `${fmtQty(-q)} short` : 'no position');
 
-// ---------- saved state (this browser only) ----------
+// ---------- saved state (this browser) ----------
 let storageOK = true;
 function load() {
   try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { storageOK = false; return null; }
@@ -281,11 +293,14 @@ function load() {
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { storageOK = false; }
 }
-let S = load() || { team: '', book: null, entries: [], pDone: 0, readNews: 0 };
+let S = load() || (LIVE ? { token: '', team: '', code: '', book: null, readNews: 0 } : { team: '', book: null, entries: [], pDone: 0, readNews: 0 });
+if (LIVE) S.book = null; // the server's copy is the real one; it arrives with the first poll
 
-// ---------- the market, as far as this browser has unlocked it ----------
+// ---------- the market, as far as this device knows it ----------
 const opened = new Map();
 let news = [], steps = [], A = 0, P = 0, paths = pricePaths(ST, []);
+// M: the trading window (always open in the single-file game, where the big screen rules)
+const M = { open: !LIVE, timer: null, offset: 0, connected: true, started: !LIVE, joinOpen: true, capital: G.capital, margin: G.margin ?? DEFAULT_MARGIN };
 function rebuild() {
   const items = [...opened.values()];
   news = items.filter((x) => x.t === 'N').sort((a, b) => a.i - b.i);
@@ -330,14 +345,24 @@ window.addEventListener('hashchange', route);
 const go = (h) => { if (location.hash === '#' + h) route(); else location.hash = h; };
 
 // ---------- top bar & watchlist ----------
+function timeLeft() { const t = M.timer; return !t ? 0 : t.endsAt ? t.endsAt - (Date.now() + M.offset) : t.left; }
+function renderMarketChip() {
+  if (!LIVE) return;
+  const el = $('#mkt');
+  if (!M.connected) { el.className = 'chip down'; el.textContent = 'Reconnecting…'; return; }
+  if (!M.started) { el.className = 'chip'; el.textContent = 'Not started'; return; }
+  const left = timeLeft();
+  const open = M.open && left > -1500;
+  el.className = 'chip ' + (open ? 'up' : '');
+  el.textContent = open ? `Market open · ${pad2(Math.floor(Math.max(0, left) / 60000))}:${pad2(Math.floor((Math.max(0, left) % 60000) / 1000))}` : 'Market closed';
+}
 function renderTop() {
   const i0 = indexAt(paths, prevCloseStep(A, P));
   const i1 = indexAt(paths, P);
   const ch = i1 / i0 - 1;
   $('#idx').innerHTML = `<span class="name">Market 10</span><span class="val num">${i1.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span class="num ${cls(ch)}">${arrow(ch)} ${fmtPct(ch)}</span>`;
   $('#session').innerHTML = `<span class="chip gold">Day ${pad2(day())}</span><span class="chip">News ${pad2(A)}/45</span><span class="chip">Prices ${pad2(P)}/45</span>`;
-  const team = S.team || 'Your team';
-  $('#teamName').textContent = team;
+  $('#teamName').textContent = S.team || 'Your team';
   $('#avatar').textContent = (S.team || 'T').trim().charAt(0).toUpperCase() || 'T';
   const unread = Math.max(0, A - (S.readNews || 0));
   for (const id of ['#newsBadge', '#newsBadge2']) { const b = $(id); b.hidden = !unread; b.textContent = unread; }
@@ -347,6 +372,7 @@ function renderTop() {
   });
   $('#app').classList.toggle('show-watch', view === 'watchlist');
   $('#wlDay').textContent = `Day ${pad2(day())} · change vs previous close`;
+  renderMarketChip();
 }
 
 let lastLtp = null;
@@ -359,24 +385,25 @@ function renderWatch() {
     if (q && !(s.t.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || s.sector.toLowerCase().includes(q))) return;
     shown++;
     const st = stat(k);
-    const held = S.book?.holdings[k]?.qty || 0;
+    const pos = S.book ? qtyOf(S.book, k) : 0;
     const li = document.createElement('li');
     if (view === 'stock' && stockK === k) li.className = 'sel';
     li.innerHTML = `
       <button class="row" type="button" data-k="${k}">
-        <span><span class="tk ${cls(st.chg)}">${s.t}</span>${held ? ` <span class="held">· ${fmtQty(held)} held</span>` : ''}<span class="co">${esc(s.name)}</span></span>
+        <span><span class="tk ${cls(st.chg)}">${s.t}</span>${pos ? ` <span class="held${pos < 0 ? ' short' : ''}">· ${posText(pos)}</span>` : ''}<span class="co">${esc(s.name)}</span></span>
         <span class="pct num ${cls(st.chg)}">${fmtPct(st.chgPct)}</span>
         <span class="ltp num ${cls(st.chg)}">${arrow(st.chg)} ${fmtPrice(st.ltp)}<small>${fmtPrice(st.chg)}</small></span>
       </button>
-      <span class="acts"><button class="mini b" type="button" data-buy="${k}" aria-label="Buy ${s.t}">B</button><button class="mini s" type="button" data-sell="${k}" aria-label="Sell ${s.t}">S</button></span>`;
-    if (lastLtp && lastLtp[k] !== st.ltp) li.querySelector('.row').classList.add(st.ltp > lastLtp[k] ? 'flash-up' : 'flash-down');
+      <span class="acts"><button class="mini b" type="button" data-buy="${k}" aria-label="Buy ${s.t}">B</button><button class="mini s" type="button" data-sell="${k}" aria-label="Sell or short ${s.t}">S</button></span>`;
+    if (lastLtp && lastLtp[k] !== undefined && lastLtp[k] !== st.ltp) li.querySelector('.row').classList.add(st.ltp > lastLtp[k] ? 'flash-up' : 'flash-down');
     ul.appendChild(li);
   });
   lastLtp = ST.map((_, k) => ltp(k));
   const sm = summary();
   $('#railSum').innerHTML = sm ? `<span>Account <b class="num">${fmtRs(sm.total, { whole: true })}</b> <span class="num ${cls(sm.ret)}">${fmtPct(sm.ret)}</span></span><span class="gold">Overview ›</span>` : '<span>Market overview</span><span class="gold">›</span>';
   $('#wlCount').textContent = shown === ST.length ? `${ST.length} stocks` : `${shown} of ${ST.length}`;
-  if (!shown) ul.innerHTML = '<li class="empty">No stock matches that search.</li>';
+  if (!ST.length) ul.innerHTML = '<li class="empty">Connecting to the market…</li>';
+  else if (!shown) ul.innerHTML = '<li class="empty">No stock matches that search.</li>';
 }
 $('#q').addEventListener('input', renderWatch);
 $('#wl').addEventListener('click', (e) => {
@@ -391,9 +418,9 @@ function render() {
   renderWatch();
   const main = $('#main');
   const V = { dashboard: vDash, orders: vOrders, holdings: vHoldings, funds: vFunds, news: vNews, stock: vStock, watchlist: () => '' }[view];
-  main.innerHTML = `<div class="wrap">${V()}</div>`;
+  main.innerHTML = ST.length || view !== 'stock' ? `<div class="wrap">${V()}</div>` : '';
   after.forEach((f) => f()); after = [];
-  if (!S.team) showOnboard();
+  if (!S.team || (LIVE && !S.token)) showOnboard();
 }
 let after = [];
 
@@ -402,7 +429,7 @@ function summary() {
   const v = bookValue(S.book, ltp);
   let day = 0;
   for (const k in S.book.holdings) day += S.book.holdings[k].qty * stat(+k).chg;
-  return { ...v, day, avail: availableCash(S.book), blocked: reservedCash(S.book), ret: v.total / S.book.capital - 1 };
+  return { ...v, day, avail: availableCash(S.book, ltp), blocked: reservedCash(S.book), shortHeld: shortMargin(S.book, ltp), ret: v.total / S.book.capital - 1 };
 }
 
 function vDash() {
@@ -411,7 +438,7 @@ function vDash() {
   const movers = ST.map((st, k) => ({ k, ...stat(k) })).sort((a, b) => b.chgPct - a.chgPct);
   const gain = movers.filter((m) => m.chg > 0).slice(0, 3);
   const lose = movers.filter((m) => m.chg < 0).reverse().slice(0, 3);
-  after.push(() => {
+  if (ST.length) after.push(() => {
     const pts = Array.from({ length: P + 1 }, (_, p) => ({ x: p, y: indexAt(paths, p) }));
     lineChart($('#idxChart'), pts, {
       height: 200, xMax: Math.max(5, day() * 5), fmtY: (v) => v.toFixed(0), label: 'Market 10 index after each update',
@@ -427,14 +454,14 @@ function vDash() {
     ${s ? `<div class="grid2">
       <section class="panel"><div class="sec-head"><h2 class="h2">Equity</h2><a href="#funds" class="label">View statement</a></div>
         <div class="stats" style="margin-top:14px">
-          <div class="stat"><div class="v big num">${fmtRs(s.avail)}</div><div class="l">Cash available</div></div>
-          <div class="stat"><div class="v num">${fmtRs(s.blocked)}</div><div class="l">Held for open orders</div></div>
+          <div class="stat"><div class="v big num ${s.avail < 0 ? 'down' : ''}">${fmtRs(s.avail)}</div><div class="l">Cash available</div></div>
+          <div class="stat"><div class="v num">${fmtRs(s.blocked + s.shortHeld)}</div><div class="l">Held for open orders and shorts</div></div>
           <div class="stat"><div class="v num">${fmtRs(S.book.capital, { whole: true })}</div><div class="l">Opening balance</div></div>
         </div></section>
-      <section class="panel"><div class="sec-head"><h2 class="h2">Holdings</h2><a href="#holdings" class="label">View holdings</a></div>
+      <section class="panel"><div class="sec-head"><h2 class="h2">Positions</h2><a href="#holdings" class="label">View positions</a></div>
         <div class="stats" style="margin-top:14px">
           <div class="stat"><div class="v big num ${cls(s.total - S.book.capital)}">${fmtRs(s.total - S.book.capital, { sign: true })}</div><div class="l">Total P&amp;L · ${fmtPct(s.ret)}</div></div>
-          <div class="stat"><div class="v num">${fmtRs(s.holdingsValue)}</div><div class="l">Current value</div></div>
+          <div class="stat"><div class="v num">${fmtRs(s.longValue)}${s.shortValue ? ` <span class="down">/ −${fmtRs(s.shortValue)}</span>` : ''}</div><div class="l">Long${s.shortValue ? ' / short' : ''} value</div></div>
           <div class="stat"><div class="v num ${cls(s.day)}">${fmtRs(s.day, { sign: true })}</div><div class="l">Day's P&amp;L</div></div>
         </div></section>
     </div>` : ''}
@@ -456,12 +483,20 @@ function moverCard(m) {
 }
 function dayTicks() { return Array.from({ length: 9 }, (_, d) => ({ x: d * 5, label: 'D' + (d + 1) })).filter((t) => t.x <= Math.max(5, day() * 5) - 1); }
 function emptyNews() {
-  return `<div class="empty"><span class="h2">No news yet</span><span>When the Event Head releases an update, type the code from the big screen into <b>Enter code</b>. The story appears here.</span></div>`;
+  return LIVE
+    ? `<div class="empty"><span class="h2">No news yet</span><span>When the Event Head releases an update, the story appears here on its own.</span></div>`
+    : `<div class="empty"><span class="h2">No news yet</span><span>When the Event Head releases an update, type the code from the big screen into <b>Enter code</b>. The story appears here.</span></div>`;
 }
 function banners() {
   let out = '';
-  if (!storageOK) out += `<div class="banner warn"><span><b>This browser is not saving your account.</b> A private window or blocked site data will lose your trades if the page reloads. Open the link in a normal window, or copy your report code from Funds often.</span></div>`;
-  if (A > P) out += `<div class="banner"><span><span class="eyebrow">Trading window</span><br>Update ${pad2(A)} is out and prices have not moved yet. Trade now at the current prices; they move when the Event Head shows the next price code.</span></div>`;
+  if (!storageOK) out += `<div class="banner warn"><span><b>This browser is not saving your sign-in.</b> ${LIVE ? 'Keep your team code (Funds) to sign in again.' : 'A private window or blocked site data will lose your trades if the page reloads. Open the link in a normal window, or copy your report code from Funds often.'}</span></div>`;
+  if (LIVE && !M.connected) out += `<div class="banner warn"><span><b>Reconnecting to the market…</b> Check the Wi-Fi. Your account is safe on the server.</span></div>`;
+  if (LIVE) {
+    if (M.open) out += `<div class="banner"><span><span class="eyebrow">Market open</span><br>${A > P ? `Update ${pad2(A)} is out and prices have not moved yet. Trade now at the current prices.` : 'Trade now. Prices move when the Event Head moves them.'}</span></div>`;
+    else if (M.started && S.book) out += `<div class="banner"><span><span class="eyebrow">Market closed</span><br>Orders open when the Event Head starts the trading window. Read the news and plan your next move.</span></div>`;
+  } else if (A > P) {
+    out += `<div class="banner"><span><span class="eyebrow">Trading window</span><br>Update ${pad2(A)} is out and prices have not moved yet. Trade now at the current prices; they move when the Event Head shows the next price code.</span></div>`;
+  }
   return out;
 }
 
@@ -511,7 +546,7 @@ function vStock() {
           <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><span class="h1">${s.t}</span><span class="co-name">${esc(s.name)}</span></div>
           <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap"><span class="px num">₹${fmtPrice(st.ltp)}</span><span class="ch num ${cls(st.chg)}">${arrow(st.chg)} ${fmtPrice(st.chg)} (${fmtPct(st.chgPct)})</span><span class="label">today</span></div>
         </div>
-        <div class="acts"><button class="btn buy" type="button" data-buy="${k}">Buy</button><button class="btn sell" type="button" data-sell="${k}">Sell</button></div>
+        <div class="acts"><button class="btn buy" type="button" data-buy="${k}">Buy</button><button class="btn sell" type="button" data-sell="${k}">Sell / Short</button></div>
       </div>
       <div id="stkChart" style="margin-top:18px"></div>
       <p class="hint" style="margin-top:6px">Dashed line: previous close. Hover or use the arrow keys to read each point.</p>
@@ -524,8 +559,8 @@ function vStock() {
         <div class="stat"><div class="v num">${fmtPrice(st.low)}</div><div class="l">Day low</div></div>
         <div class="stat"><div class="v num">${fmtPrice(st.start)}</div><div class="l">Price at the opening bell</div></div>
         <div class="stat"><div class="v num ${cls(st.sinceStart)}">${fmtPct(st.sinceStart)}</div><div class="l">Since the opening bell</div></div>
-        <div class="stat"><div class="v num">${h ? fmtQty(h.qty) : '0'}</div><div class="l">Shares you hold</div></div>
-        <div class="stat"><div class="v num">${h ? fmtPrice(Math.round(h.cost / h.qty)) : '—'}</div><div class="l">Your average price</div></div>
+        <div class="stat"><div class="v num ${h && h.qty < 0 ? 'down' : ''}">${h ? (h.qty < 0 ? '−' + fmtQty(-h.qty) : fmtQty(h.qty)) : '0'}</div><div class="l">${h && h.qty < 0 ? 'Shares you are short' : 'Shares you hold'}</div></div>
+        <div class="stat"><div class="v num">${h ? fmtPrice(Math.round(h.cost / h.qty)) : '—'}</div><div class="l">${h && h.qty < 0 ? 'Your average short price' : 'Your average price'}</div></div>
         <div class="stat"><div class="v num ${h ? cls(h.qty * st.ltp - h.cost) : ''}">${h ? fmtRs(h.qty * st.ltp - h.cost, { sign: true }) : '—'}</div><div class="l">Your P&amp;L</div></div>
       </div>
     </section>
@@ -534,31 +569,39 @@ function vStock() {
       <div class="news-list" style="margin-top:14px">${mine.length ? mine.map((n) => storyHTML(n, true)).join('<hr style="border:0;border-top:1px solid var(--line);margin:0">') : `<p class="muted">Nothing released yet mentions ${esc(s.name)}.</p>`}</div>
     </section>`;
 }
-$('#main').addEventListener('click', (e) => {
+$('#main').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-buy]'); if (b) return openOrder(+b.dataset.buy, 'B');
   const s = e.target.closest('[data-sell]'); if (s) return openOrder(+s.dataset.sell, 'S');
   const c = e.target.closest('[data-cancel]');
-  if (c && S.book) { if (cancelOrder(S.book, +c.dataset.cancel)) { save(); toast('Order cancelled', 'The cash or shares it held are free again.'); render(); } }
-  const row = e.target.closest('tr[data-goto]'); if (row) go('stock-' + row.dataset.goto);
+  if (c && S.book) {
+    if (LIVE) {
+      c.disabled = true;
+      const r = await api('cancel', { token: S.token, id: +c.dataset.cancel }).catch(() => null);
+      if (r?.me) { S.book = r.me.book; save(); }
+      if (r?.ok) toast('Order cancelled', 'The cash it held is free again.'); else toast('Could not cancel', r?.error || 'Check your connection and try again.', true);
+      render();
+    } else if (cancelOrder(S.book, +c.dataset.cancel)) { save(); toast('Order cancelled', 'The cash it held is free again.'); render(); }
+  }
+  const row = e.target.closest('tr[data-goto]'); if (row && !e.target.closest('button')) go('stock-' + row.dataset.goto);
 });
 
 function vHoldings() {
   const s = summary();
   if (!s) return noAccount();
-  const rows = Object.keys(S.book.holdings).map(Number).sort((a, b) => a - b);
-  return `<div class="sec-head"><h1 class="h1">Holdings <span class="muted" style="font-size:16px">(${rows.length})</span></h1></div>
+  const rows = Object.keys(S.book.holdings).map(Number).sort((a, b) => (S.book.holdings[a].qty < 0) - (S.book.holdings[b].qty < 0) || a - b);
+  return `<div class="sec-head"><h1 class="h1">Positions <span class="muted" style="font-size:16px">(${rows.length})</span></h1><span class="muted">Long = shares you own. Short = shares you sold without owning; you gain if the price falls.</span></div>
     <section class="panel"><div class="stats">
-      <div class="stat"><div class="v num">${fmtRs(s.invested)}</div><div class="l">Total investment</div></div>
-      <div class="stat"><div class="v num">${fmtRs(s.holdingsValue)}</div><div class="l">Current value</div></div>
+      <div class="stat"><div class="v num">${fmtRs(s.longValue)}</div><div class="l">Long positions at last price</div></div>
+      <div class="stat"><div class="v num ${s.shortValue ? 'down' : ''}">${s.shortValue ? '−' : ''}${fmtRs(s.shortValue)}</div><div class="l">Short positions at last price</div></div>
       <div class="stat"><div class="v num ${cls(s.day)}">${fmtRs(s.day, { sign: true })}</div><div class="l">Day's P&amp;L</div></div>
-      <div class="stat"><div class="v num ${cls(s.pnl)}">${fmtRs(s.pnl, { sign: true })}</div><div class="l">Unrealised P&amp;L${s.invested ? ' · ' + fmtPct(s.pnl / s.invested) : ''}</div></div>
+      <div class="stat"><div class="v num ${cls(s.pnl)}">${fmtRs(s.pnl, { sign: true })}</div><div class="l">Unrealised P&amp;L</div></div>
     </div></section>
     <section class="panel">${rows.length ? `<div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Instrument</th><th class="r">Qty.</th><th class="r">Avg. cost</th><th class="r">LTP</th><th class="r">Cur. val</th><th class="r">P&amp;L</th><th class="r">Net chg.</th><th class="r">Day chg.</th><th></th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="r">Qty.</th><th class="r">Avg. price</th><th class="r">LTP</th><th class="r">Cur. val</th><th class="r">P&amp;L</th><th class="r">Net chg.</th><th class="r">Day chg.</th><th></th></tr></thead>
       <tbody>${rows.map((k) => {
-        const h = S.book.holdings[k], st = stat(k), val = h.qty * st.ltp, pl = val - h.cost;
-        return `<tr class="click" data-goto="${ST[k].t}"><td><b>${ST[k].t}</b> <span class="muted hide-sm">${esc(SHORT[k])}</span></td><td class="r num">${fmtQty(h.qty)}</td><td class="r num">${fmtPrice(Math.round(h.cost / h.qty))}</td><td class="r num">${fmtPrice(st.ltp)}</td><td class="r num">${fmtPrice(val)}</td><td class="r num ${cls(pl)}">${fmtRs(pl, { sign: true })}</td><td class="r num ${cls(pl)}">${fmtPct(pl / h.cost)}</td><td class="r num ${cls(st.chg)}">${fmtPct(st.chgPct)}</td><td class="r"><button class="mini s" type="button" data-sell="${k}" aria-label="Sell ${ST[k].t}">S</button></td></tr>`;
-      }).join('')}</tbody></table></div>` : `<div class="empty"><span class="h2">No holdings yet</span><span>Pick a stock from the watchlist and press Buy. Everything you own shows here with its profit or loss.</span></div>`}</section>`;
+        const h = S.book.holdings[k], st = stat(k), val = h.qty * st.ltp, pl = val - h.cost, short = h.qty < 0;
+        return `<tr class="click" data-goto="${ST[k].t}"><td><b>${ST[k].t}</b> ${short ? '<span class="chip down">SHORT</span>' : ''} <span class="muted hide-sm">${esc(SHORT[k])}</span></td><td class="r num ${short ? 'down' : ''}">${short ? '−' + fmtQty(-h.qty) : fmtQty(h.qty)}</td><td class="r num">${fmtPrice(Math.round(h.cost / h.qty))}</td><td class="r num">${fmtPrice(st.ltp)}</td><td class="r num">${fmtPrice(val)}</td><td class="r num ${cls(pl)}">${fmtRs(pl, { sign: true })}</td><td class="r num ${cls(pl)}">${fmtPct(pl / Math.abs(h.cost))}</td><td class="r num ${cls(st.chg)}">${fmtPct(st.chgPct)}</td><td class="r">${short ? `<button class="mini b" type="button" data-buy="${k}" aria-label="Buy back ${ST[k].t}">B</button>` : `<button class="mini s" type="button" data-sell="${k}" aria-label="Sell ${ST[k].t}">S</button>`}</td></tr>`;
+      }).join('')}</tbody></table></div>` : `<div class="empty"><span class="h2">No positions yet</span><span>Pick a stock and press Buy, or Sell / Short if you think its price will fall. Every position shows here with its profit or loss.</span></div>`}</section>`;
 }
 
 function vOrders() {
@@ -571,7 +614,7 @@ function vOrders() {
     <section class="panel"><h2 class="h2">Open orders (${open.length})</h2>
       ${open.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Placed</th><th>Type</th><th>Instrument</th><th class="r">Qty.</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>
       ${open.map((o) => `<tr><td class="num">${clock(o.at)}</td><td><span class="chip ${o.side === 'B' ? 'up' : 'down'}">${o.side === 'B' ? 'BUY' : 'SELL'}</span></td><td><b>${ST[o.k].t}</b></td><td class="r num">${fmtQty(o.qty)}</td><td class="num">${typeOf(o)}</td><td><span class="chip gold">Open</span></td><td class="r"><button class="btn small quiet" type="button" data-cancel="${o.id}">Cancel</button></td></tr>`).join('')}
-      </tbody></table></div><p class="hint" style="margin-top:8px">Open orders are checked each time prices move. A limit buy fills when the price falls to your limit or below; a sell fills at your limit or above; a stop-loss sells when the price falls to the trigger or below. Fills happen at the new price.</p>`
+      </tbody></table></div><p class="hint" style="margin-top:8px">Open orders are checked each time prices move. A limit buy fills when the price falls to your limit or below; a limit sell at your limit or above. A sell stop-loss fires when the price falls to its trigger, a buy stop-loss (to protect a short) when it rises to its trigger. Fills happen at the new price.</p>`
       : '<p class="muted" style="margin-top:8px">No open orders. Limit and stop-loss orders wait here until a price move reaches them.</p>'}
     </section>
     <section class="panel"><h2 class="h2">Executed (${trades.length})</h2>
@@ -587,25 +630,33 @@ function vOrders() {
 function vFunds() {
   const s = summary();
   if (!s) return noAccount();
-  const code = encodeReport(S.team, S.book);
+  const pct = Math.round(M.margin * 100);
   return `<div class="sec-head"><h1 class="h1">Funds</h1><span class="muted">${esc(S.team)}</span></div>
     ${banners()}
     <section class="panel framed"><div class="stats">
-      <div class="stat"><div class="v big num">${fmtRs(s.total)}</div><div class="l">Account value (cash + holdings at last price)</div></div>
+      <div class="stat"><div class="v big num">${fmtRs(s.total)}</div><div class="l">Account value (cash + longs − shorts, at last prices)</div></div>
       <div class="stat"><div class="v big num ${cls(s.ret)}">${fmtPct(s.ret)}</div><div class="l">Return since the opening bell</div></div>
     </div></section>
     <section class="panel"><div class="tbl-wrap"><table class="tbl"><tbody>
       <tr><td>Opening balance</td><td class="r num">${fmtRs(S.book.capital)}</td></tr>
-      <tr><td>Cash</td><td class="r num">${fmtRs(s.cash)}</td></tr>
+      <tr><td>Cash (includes money received from short sales)</td><td class="r num">${fmtRs(s.cash)}</td></tr>
       <tr><td>Held for open buy orders</td><td class="r num">${fmtRs(s.blocked)}</td></tr>
-      <tr><td><b>Cash available to trade</b></td><td class="r num"><b>${fmtRs(s.avail)}</b></td></tr>
-      <tr><td>Holdings at last price</td><td class="r num">${fmtRs(s.holdingsValue)}</td></tr>
+      <tr><td>Held for short positions (their value + ${pct}% margin)</td><td class="r num">${fmtRs(s.shortHeld)}</td></tr>
+      <tr><td><b>Cash available to trade</b></td><td class="r num ${s.avail < 0 ? 'down' : ''}"><b>${fmtRs(s.avail)}</b></td></tr>
+      <tr><td>Long positions at last price</td><td class="r num">${fmtRs(s.longValue)}</td></tr>
+      <tr><td>Short positions at last price</td><td class="r num">${s.shortValue ? '−' : ''}${fmtRs(s.shortValue)}</td></tr>
       <tr><td>Charges</td><td class="r num">₹0.00 <span class="muted">(this market charges no brokerage)</span></td></tr>
-    </tbody></table></div></section>
-    <section class="panel"><div style="display:grid;gap:10px">
+    </tbody></table></div>
+    ${s.avail < 0 ? '<p class="warn" style="margin-top:10px">A short has moved against you, so you cannot open new positions. You can still sell what you hold or buy back a short.</p>' : ''}</section>
+    ${LIVE ? `<section class="panel"><div style="display:grid;gap:10px">
+      <h2 class="h2">Your team code</h2>
+      <p class="muted">Use this to sign in on another phone or laptop. Everyone on the team trades the same account. Keep it inside your team.</p>
+      <div class="code-input" style="text-align:left;min-height:0;font-size:30px">${esc(S.code || '')}</div>
+      <div id="outBox"><button class="btn quiet" type="button" id="signOut1">Sign out of this device</button></div>
+    </div></section>` : `<section class="panel"><div style="display:grid;gap:10px">
       <h2 class="h2">Your report code</h2>
       <p class="muted">Send this to the Event Head when asked, at the end or between rounds. It lists every trade you made, so the desk can check your account against the official prices and rank you. It changes after every trade.</p>
-      <textarea class="input" id="rptOut" readonly aria-label="Report code">${code}</textarea>
+      <textarea class="input" id="rptOut" readonly aria-label="Report code">${encodeReport(S.team, S.book)}</textarea>
       <div><button class="btn primary" type="button" id="copyRpt">Copy report code</button></div>
     </div></section>
     <section class="panel"><div style="display:grid;gap:10px">
@@ -614,16 +665,17 @@ function vFunds() {
       <label class="field"><span>Report code</span><textarea class="input" id="rptIn" placeholder="RPT-…"></textarea></label>
       <div class="err" id="rptErr"></div>
       <div><button class="btn" type="button" id="restore">Restore my account</button></div>
-    </div></section>
+    </div></section>`}
     <section class="panel"><h2 class="h2">Words on this screen</h2>
       <dl class="gloss" style="margin-top:12px">
         <div><dt>LTP</dt><dd>Last traded price: the price every order fills at right now.</dd></div>
         <div><dt>Day change</dt><dd>How far the price has moved since the end of the previous round. Each round of five updates is one trading day.</dd></div>
         <div><dt>Market order</dt><dd>Buy or sell straight away at the LTP.</dd></div>
-        <div><dt>Limit order</dt><dd>Buy only at your price or lower, or sell only at your price or higher. If the price is not there yet, the order waits and the cash or shares it needs are held for it.</dd></div>
-        <div><dt>Stop-loss</dt><dd>An order to sell if the price falls to your trigger. Prices here jump when news lands, so a stop-loss fills at the new price, which can be below your trigger. That is called a gap.</dd></div>
-        <div><dt>Average cost</dt><dd>What you paid per share, across all your buys of that stock.</dd></div>
-        <div><dt>P&amp;L</dt><dd>Profit and loss: what your shares are worth now minus what you paid.</dd></div>
+        <div><dt>Limit order</dt><dd>Buy only at your price or lower, or sell only at your price or higher. If the price is not there yet, the order waits; a waiting buy holds the cash it needs.</dd></div>
+        <div><dt>Short selling</dt><dd>Selling shares you do not own, to buy them back later. If the price falls you buy back cheaper and keep the difference; if it rises you lose. The sale's money stays in your account, and the short's full value plus ${pct}% margin is held while it is open.</dd></div>
+        <div><dt>Stop-loss</dt><dd>An order that fires when the price moves against you: a sell stop below the price protects shares you own, a buy stop above the price protects a short. Prices here jump when news lands, so a stop fills at the new price, which can be past your trigger. That is called a gap.</dd></div>
+        <div><dt>Average price</dt><dd>What you paid per share (or received, for a short), across all your trades in that stock.</dd></div>
+        <div><dt>P&amp;L</dt><dd>Profit and loss: what your position is worth now against what it cost.</dd></div>
       </dl></section>`;
 }
 document.addEventListener('click', async (e) => {
@@ -633,6 +685,9 @@ document.addEventListener('click', async (e) => {
     catch { ta.focus(); ta.select(); toast('Select and copy', 'The code is selected. Copy it with your keyboard or long-press.'); }
   }
   if (e.target.id === 'restore') restoreFrom($('#rptIn').value);
+  if (e.target.id === 'signOut1') $('#outBox').innerHTML = `<div class="banner warn"><span>Sign out? You can sign back in with your team code <b>${esc(S.code)}</b>.</span><span style="display:flex;gap:8px"><button class="btn small sell" type="button" id="signOut2">Sign out</button><button class="btn small quiet" type="button" data-rerender>Stay</button></span></div>`;
+  if (e.target.id === 'signOut2') { S = { token: '', team: '', code: '', book: null, readNews: S.readNews }; save(); render(); }
+  if (e.target.closest('[data-rerender]')) render();
 });
 function restoreFrom(code) {
   const err = $('#rptErr');
@@ -640,7 +695,7 @@ function restoreFrom(code) {
   try { r = decodeReport(code); } catch (x) { err.textContent = x.message; return; }
   const need = Math.max(0, ...r.trades.map((t) => t.p));
   if (need > P) { err.textContent = `This report has trades after update ${pad2(need)}. Enter the latest price code from the big screen first.`; return; }
-  const rep = replay(r, { paths, applied: P, releasedAt: null, capital: G.capital });
+  const rep = replay(r, { paths, applied: P, releasedAt: null, capital: G.capital, margin: M.margin });
   rep.book.orders = []; rep.book.nextId = rep.book.trades.length + 1;
   S.team = r.team; S.book = rep.book; S.pDone = P; save();
   err.textContent = '';
@@ -649,29 +704,29 @@ function restoreFrom(code) {
   render();
 }
 function noAccount() {
-  return `<div class="empty panel"><span class="h2">Open your account first</span><span>Name your team to get your opening balance of ${fmtRs(G.capital * 100, { whole: true })}.</span><button class="btn primary" type="button" data-onboard>Open account</button></div>`;
+  return `<div class="empty panel"><span class="h2">${LIVE ? 'Join the market first' : 'Open your account first'}</span><span>Name your team to get your opening balance of ${fmtRs((M.capital || G.capital) * 100, { whole: true })}.</span><button class="btn primary" type="button" data-onboard>${LIVE ? 'Join' : 'Open account'}</button></div>`;
 }
 
 // ---------- order pad ----------
 function openOrder(k, side) {
   if (!S.book) return showOnboard();
   const layer = $('#layer');
-  let type = 'MKT';
-  const held = () => S.book.holdings[k]?.qty || 0;
+  let type = 'MKT', busy = false;
   layer.innerHTML = `<div class="scrim" id="scrim"><div class="sheet order ${side}" role="dialog" aria-modal="true" aria-labelledby="ordT">
     <div class="band"><div><div class="t" id="ordT"></div><div class="s num" id="ordS"></div></div>
-      <div class="toggle" role="group" aria-label="Buy or sell"><button type="button" data-side="B">Buy</button><button type="button" data-side="S">Sell</button></div></div>
+      <div class="toggle" role="group" aria-label="Buy, or sell and short"><button type="button" data-side="B">Buy</button><button type="button" data-side="S">Sell / Short</button></div></div>
     <form class="sheet-body" id="ordF" novalidate>
       <div class="seg" role="radiogroup" aria-label="Order type">
         <label><input type="radio" name="ot" value="MKT" checked> Market</label>
         <label><input type="radio" name="ot" value="LMT"> Limit</label>
-        <label><input type="radio" name="ot" value="SL" id="otSL"> Stop-loss</label>
+        <label><input type="radio" name="ot" value="SL"> Stop-loss</label>
       </div>
       <div class="row2">
         <label class="field"><span>Quantity</span><input class="input num" id="oq" type="number" inputmode="numeric" min="1" step="1" value="1"></label>
         <label class="field"><span id="opL">Price</span><input class="input num" id="op" type="number" inputmode="decimal" min="0.01" step="0.05" disabled></label>
       </div>
       <div class="quick" id="quick"></div>
+      <div class="what" id="oWhat"></div>
       <div class="hint" id="oHint"></div>
       <div class="err" id="oErr" role="alert"></div>
     </form>
@@ -680,63 +735,89 @@ function openOrder(k, side) {
   const root = $('#scrim', layer);
   const q = $('#oq'), pr = $('#op');
   const paint = () => {
-    const s = ST[k], price = ltp(k);
+    const s = ST[k], price = ltp(k), pos = qtyOf(S.book, k);
     const sheet = $('.sheet', layer);
     sheet.classList.remove('B', 'S'); sheet.classList.add(side);
-    $('#ordT').textContent = `${side === 'B' ? 'Buy' : 'Sell'} ${s.t} · ${s.name}`;
-    $('#ordS').textContent = `LTP ₹${fmtPrice(price)} · Delivery · ${held() ? fmtQty(held()) + ' held' : 'none held'}`;
+    $('#ordT').textContent = `${side === 'B' ? (pos < 0 ? 'Buy back' : 'Buy') : (pos > 0 ? 'Sell' : 'Short')} ${s.t} · ${s.name}`;
+    $('#ordS').textContent = `LTP ₹${fmtPrice(price)} · ${posText(pos)}`;
     layer.querySelectorAll('[data-side]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.side === side)));
-    const sl = $('#otSL');
-    sl.disabled = side === 'B';
-    if (side === 'B' && type === 'SL') { type = 'MKT'; layer.querySelector('input[value=MKT]').checked = true; }
     pr.disabled = type === 'MKT';
     $('#opL').textContent = type === 'SL' ? 'Trigger price' : type === 'LMT' ? 'Limit price' : 'Price (market)';
-    if (type === 'MKT') pr.value = (price / 100).toFixed(2);
-    else if (pr.dataset.touched !== '1') pr.value = (price / 100).toFixed(2);
+    if (type === 'MKT' || pr.dataset.touched !== '1') pr.value = (price / 100).toFixed(2);
+    const at = type === 'MKT' ? price : Math.round(Number(pr.value) * 100) || price;
+    const qty = Math.max(0, Math.floor(Number(q.value)) || 0);
     const gob = $('#oGo');
-    gob.textContent = side === 'B' ? 'Buy' : 'Sell';
+    gob.textContent = side === 'B' ? (pos < 0 && qty <= -pos ? 'Buy back' : 'Buy') : (pos > 0 && qty <= pos ? 'Sell' : 'Sell short');
     gob.className = 'btn ' + (side === 'B' ? 'buy' : 'sell');
-    const avail = availableCash(S.book);
-    const maxB = Math.floor(avail / Math.max(1, type === 'LMT' ? Math.round(Number(pr.value) * 100) || price : price));
-    const maxS = Math.max(0, freeQty(S.book, k));
-    const opts = side === 'B' ? [1, 10, 50, 100] : [];
-    $('#quick').innerHTML = opts.map((n) => `<button type="button" data-q="${n}">${n}</button>`).join('') + `<button type="button" data-q="${side === 'B' ? maxB : maxS}">Max ${fmtQty(side === 'B' ? maxB : maxS)}</button>` + (side === 'S' && maxS > 1 ? `<button type="button" data-q="${Math.floor(maxS / 2)}">Half</button>` : '');
-    const qty = Math.floor(Number(q.value)) || 0;
-    const at = type === 'MKT' ? price : Math.round(Number(pr.value) * 100) || 0;
+    gob.disabled = busy || (LIVE && !M.open);
+    const avail = availableCash(S.book, ltp);
+    const maxN = maxQty(S.book, k, side, at, ltp);
+    const opts = [1, 10, 50, 100].filter((n) => n < maxN);
+    $('#quick').innerHTML = opts.map((n) => `<button type="button" data-q="${n}">${n}</button>`).join('')
+      + (side === 'S' && pos > 0 ? `<button type="button" data-q="${pos}">All ${fmtQty(pos)} held</button>` : '')
+      + (side === 'B' && pos < 0 ? `<button type="button" data-q="${-pos}">Buy back all ${fmtQty(-pos)}</button>` : '')
+      + `<button type="button" data-q="${maxN}">Max ${fmtQty(maxN)}</button>`;
+    let what;
+    if (side === 'B') what = pos < 0 ? (qty <= -pos ? `Buys back ${fmtQty(qty)} of your ${fmtQty(-pos)} short shares.` : `Buys back your ${fmtQty(-pos)} short shares and buys ${fmtQty(qty + pos)} more.`) : '';
+    else what = pos > 0 ? (qty <= pos ? `Sells ${fmtQty(qty)} of your ${fmtQty(pos)} shares.` : `Sells your ${fmtQty(pos)} shares and shorts ${fmtQty(qty - pos)} more.`)
+      : `Short sale: you sell ${fmtQty(qty)} shares you do not own and buy them back later. You gain if the price falls, and lose if it rises.`;
+    $('#oWhat').textContent = what;
+    const shortQty = side === 'S' ? Math.max(0, qty - Math.max(0, pos)) : 0;
     $('#oNeed').innerHTML = side === 'B'
-      ? `<span>Needed <b class="num">${fmtRs(qty * at)}</b></span><span>Available <span class="num">${fmtRs(avail)}</span></span>`
-      : `<span>You receive about <b class="num">${fmtRs(qty * (type === 'MKT' ? price : at))}</b></span><span>Free to sell <span class="num">${fmtQty(maxS)}</span></span>`;
-    $('#oHint').textContent = type === 'MKT' ? 'Fills at once at the last price.'
+      ? `<span>Order value <b class="num">${fmtRs(qty * at)}</b></span><span>Cash available <span class="num">${fmtRs(avail)}</span></span>`
+      : `<span>You receive about <b class="num">${fmtRs(qty * at)}</b></span><span>${shortQty ? `Margin held <span class="num">${fmtRs(Math.round(shortQty * at * M.margin))}</span> · ` : ''}available <span class="num">${fmtRs(avail)}</span></span>`;
+    $('#oHint').textContent = LIVE && !M.open ? 'The market is closed. You can place orders when the Event Head opens the trading window.'
+      : type === 'MKT' ? 'Fills at once at the last price.'
       : type === 'LMT' ? (side === 'B' ? 'Fills now if the price is at or below your limit; otherwise waits for a price move and holds the cash.' : 'Fills now if the price is at or above your limit; otherwise waits for a price move.')
-      : 'Sells when a price move takes the price to your trigger or below, at the new price.';
+      : side === 'S' ? 'Sells when a price move takes the price down to your trigger or below, at the new price.' : 'Buys when a price move takes the price up to your trigger or above, at the new price. Use it to limit the loss on a short.';
   };
   root.addEventListener('click', (e) => {
     if (e.target.id === 'scrim' || e.target.id === 'oX') return close();
-    const sb = e.target.closest('[data-side]'); if (sb) { side = sb.dataset.side; $('#oErr').textContent = ''; paint(); }
+    const sb = e.target.closest('[data-side]'); if (sb) { side = sb.dataset.side; pr.dataset.touched = ''; $('#oErr').textContent = ''; paint(); }
     const qb = e.target.closest('[data-q]'); if (qb) { q.value = qb.dataset.q; paint(); }
   });
   root.addEventListener('change', (e) => { if (e.target.name === 'ot') { type = e.target.value; pr.dataset.touched = ''; paint(); } });
   q.addEventListener('input', paint);
   pr.addEventListener('input', () => { pr.dataset.touched = '1'; paint(); });
-  $('#ordF').addEventListener('submit', (e) => {
+  $('#ordF').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (busy) return;
     const req = { k, side, type, qty: q.value, limit: pr.value, trigger: pr.value };
-    const r = placeOrder(S.book, req, ltp(k), P, nowSec());
-    if (!r.ok) { $('#oErr').textContent = r.msg; return; }
-    save(); close();
-    const o = r.order;
-    if (o.status === 'DONE') toast(`${o.side === 'B' ? 'Bought' : 'Sold'} ${fmtQty(o.qty)} ${ST[k].t} at ₹${fmtPrice(o.fill)}`, `Value ${fmtRs(o.qty * o.fill)}. Cash available ${fmtRs(availableCash(S.book))}.`);
-    else toast(`Order placed: ${o.side === 'B' ? 'buy' : 'sell'} ${fmtQty(o.qty)} ${ST[k].t}`, o.type === 'LMT' ? `Waits for ₹${fmtPrice(o.limit)}. See Orders.` : `Sells if the price reaches ₹${fmtPrice(o.trigger)} or below.`);
+    const before = qtyOf(S.book, k);
+    let o;
+    if (LIVE) {
+      busy = true; paint();
+      const r = await api('order', { token: S.token, p: P, ...req }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+      busy = false;
+      if (r.me) { S.book = r.me.book; save(); }
+      if (!r.ok) { $('#oErr').textContent = r.error; paint(); if (r.code === 409 || r.code === 423) pollOnce(); return; }
+      o = r.order;
+    } else {
+      const r = placeOrder(S.book, req, ltp, P, nowSec());
+      if (!r.ok) { $('#oErr').textContent = r.msg; return; }
+      save();
+      o = r.order;
+    }
+    close();
+    const after = qtyOf(S.book, k);
+    if (o.status === 'DONE') {
+      const verb = o.side === 'B' ? (before < 0 ? 'Bought back' : 'Bought') : (after < 0 && before <= 0 ? 'Shorted' : 'Sold');
+      toast(`${verb} ${fmtQty(o.qty)} ${ST[k].t} at ₹${fmtPrice(o.fill)}`, `Value ${fmtRs(o.qty * o.fill)}. Position now ${posText(after)}.`);
+    } else {
+      toast(`Order placed: ${o.side === 'B' ? 'buy' : 'sell'} ${fmtQty(o.qty)} ${ST[k].t}`, o.type === 'LMT' ? `Waits for ₹${fmtPrice(o.limit)}. See Orders.` : `Fires if the price reaches ₹${fmtPrice(o.trigger)}.`);
+    }
     render();
   });
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
-  function close() { layer.innerHTML = ''; document.removeEventListener('keydown', onKey); }
+  function close() { layer.innerHTML = ''; document.removeEventListener('keydown', onKey); openPaint = null; }
+  openPaint = paint;
   paint();
   setTimeout(() => { q.focus(); q.select(); }, 30);
 }
+let openPaint = null; // repaints an open order pad when the market changes under it
 
-// ---------- code entry ----------
+// ---------- code entry (single-file game) ----------
 function openCode() {
   const layer = $('#layer');
   layer.innerHTML = `<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cT">
@@ -778,7 +859,7 @@ function openCode() {
   });
   setTimeout(() => inp.focus(), 30);
 }
-$('#codeBtn').addEventListener('click', openCode);
+if (LIVE) { $('#codeBtn').hidden = true; $('#mkt').hidden = false; $('#railFoot').textContent = 'Prices change only when the Event Head moves them. Orders work while the market is open.'; } else $('#codeBtn').addEventListener('click', openCode);
 
 async function enterCode(c) {
   if (!crypto?.subtle) return { error: 'This browser cannot open codes. Use an up-to-date Chrome, Safari, Edge or Firefox.' };
@@ -798,38 +879,127 @@ async function enterCode(c) {
   return {};
 }
 
+// ---------- the live market ----------
+async function api(path, body) {
+  const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+  return r.json();
+}
+let lastSeen = '', firstPoll = true, polling = false;
+async function pollOnce() {
+  if (polling) return;
+  polling = true;
+  try {
+    let res;
+    try { res = await api('poll' + (S.token ? '?token=' + encodeURIComponent(S.token) : '')); M.connected = true; }
+    catch { M.connected = false; renderTop(); return; }
+    if (res.refused && res.code === 401) {
+      S = { token: '', team: '', code: '', book: null, readNews: S.readNews }; save();
+      toast('Signed out', res.error, true);
+    }
+    const st = res.state;
+    M.offset = res.now - Date.now();
+    if (!st) { M.started = false; if (firstPoll) render(); firstPoll = false; renderTop(); return; }
+    M.started = true; M.timer = st.timer; M.open = st.open; M.joinOpen = st.joinOpen; M.capital = st.capital; M.margin = st.margin;
+    if (ST.length !== st.stocks.length) { ST = st.stocks; SHORT = ST.map((s) => s.name.split(' ')[0]); }
+    const before = { A, P, trades: S.book?.trades.length ?? null };
+    if (st.a > (news.at(-1)?.i || 0)) {
+      const r = await api('news?from=' + (news.at(-1)?.i || 0));
+      const have = new Set(news.map((n) => n.i));
+      news = news.concat(r.news.filter((n) => !have.has(n.i))).sort((x, y) => x.i - y.i);
+    }
+    news = news.filter((n) => n.i <= st.a);
+    A = st.a; steps = st.moves; P = st.p; paths = pricePaths(ST, steps);
+    if (res.me) { S.book = res.me.book; S.team = res.me.name; S.code = res.me.code; save(); }
+    const seen = JSON.stringify([st.v, A, P, st.open, S.book]);
+    if (seen === lastSeen) { renderTop(); return; }
+    lastSeen = seen;
+    if (!firstPoll) {
+      if (A > before.A) toast(A - before.A === 1 ? `Breaking · Update ${pad2(A)}` : `Breaking · Updates ${pad2(before.A + 1)}–${pad2(A)}`, news.at(-1)?.head || '');
+      if (P > before.P) toast(`Prices moved after update ${pad2(P)}`, 'The watchlist shows the new prices.');
+      if (before.trades !== null && S.book) for (const t of S.book.trades.slice(before.trades).filter((x) => x.auto)) toast(`Open order filled: ${t.side === 'B' ? 'bought' : 'sold'} ${fmtQty(t.qty)} ${ST[t.k].t}`, `At ₹${fmtPrice(t.price)}, after update ${pad2(t.p)}.`);
+    }
+    firstPoll = false;
+    render();
+    if (openPaint) openPaint();
+  } finally {
+    polling = false;
+  }
+}
+function schedule() {
+  const ms = document.hidden ? 20000 : 4000; // about one request every 4 seconds per open app
+  setTimeout(async () => { await pollOnce(); schedule(); }, ms);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollOnce(); });
+
 // ---------- onboarding ----------
 let obStage = 'name';
 function showOnboard() {
   const layer = $('#layer');
   if (layer.firstElementChild) return; // another sheet is open; onboarding returns after it
-  if (obStage === 'restore') return showRestore();
+  if (obStage === 'restore') return LIVE ? showSignin() : showRestore();
+  const cap = fmtRs((M.capital || G.capital) * 100, { whole: true });
   layer.innerHTML = `<div class="scrim onboard" id="onb"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="oT">
-    <div class="hero"><span class="eyebrow">Ten stocks · nine trading days · forty-five updates</span><h1 class="h1" id="oT">Open your trading account</h1>
-      <p>You start with ${fmtRs(G.capital * 100, { whole: true })} of practice money. News breaks during the game; read it, decide which companies win or lose, and trade before the prices move.</p></div>
+    <div class="hero"><span class="eyebrow">Ten stocks · nine trading days · forty-five updates</span><h1 class="h1" id="oT">${LIVE ? 'Join the market' : 'Open your trading account'}</h1>
+      <p>You start with ${cap} of practice money. News breaks during the game; read it, decide which companies win or lose, and buy, sell or short before the prices move.</p></div>
     <form class="sheet-body" id="oF" novalidate>
+      ${LIVE ? `<label class="field"><span>Join PIN (on the big screen)</span><input class="input num" id="oPin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="4 digits"></label>` : ''}
       <label class="field"><span>Team name</span><input class="input" id="oName" maxlength="40" autocomplete="off" placeholder="e.g. Bulls of Dalal Street"></label>
-      <div class="err" id="oErr2" role="alert"></div>
+      <div class="err" id="oErr2" role="alert">${LIVE && !M.started ? 'The market has not opened yet. Wait for the Event Head, then try again.' : ''}</div>
       <ol class="steps">
-        <li>When the big screen shows a code, press <b>Enter code</b> and type it.</li>
-        <li>A news code opens a story. Trade at the current prices while you can.</li>
+        ${LIVE ? `<li>News appears on its own. Read it while the market is open and trade before the prices move.</li>
+        <li>Buy if you think a price will rise; sell what you hold, or short, if you think it will fall.</li>
+        <li>Orders work only while the market is open. When prices move, the market closes until the Event Head opens it again.</li>
+        <li>Everyone in your team can use the same account: after joining, sign in on other devices with your team code.</li>`
+        : `<li>When the big screen shows a code, press <b>Enter code</b> and type it.</li>
+        <li>A news code opens a story. Buy, sell or short at the current prices while you can.</li>
         <li>A price code moves the prices. Trades made at old prices after that are cancelled at the end.</li>
-        <li>Use one device per team. The account lives in this browser.</li>
+        <li>Use one device per team. The account lives in this browser.</li>`}
       </ol>
     </form>
-    <div class="sheet-foot"><button class="linkbtn" type="button" id="oRestore">I already have a report code</button><button class="btn primary" type="submit" form="oF">Open account</button></div>
+    <div class="sheet-foot"><button class="linkbtn" type="button" id="oRestore">${LIVE ? 'I have a team code' : 'I already have a report code'}</button><button class="btn primary" type="submit" form="oF" id="oGo2">${LIVE ? 'Join' : 'Open account'}</button></div>
   </div></div>`;
-  $('#oF').addEventListener('submit', (e) => {
+  $('#oF').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = $('#oName').value.trim().replace(/\s+/g, ' ');
     if (name.length < 2) { $('#oErr2').textContent = 'Type a team name of at least two characters.'; return; }
+    if (LIVE) {
+      const btn = $('#oGo2'); btn.disabled = true;
+      const r = await api('join', { pin: $('#oPin').value, name }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+      btn.disabled = false;
+      if (!r.ok) { $('#oErr2').textContent = r.error; return; }
+      S.token = r.token; S.team = r.me.name; S.code = r.me.code; S.book = r.me.book; save();
+      layer.innerHTML = '';
+      toast(`Welcome, ${S.team}`, `Your team code is ${S.code}. Teammates can sign in with it.`);
+      lastSeen = ''; await pollOnce(); render();
+      return;
+    }
     S.team = name; S.book = newBook(G.capital); S.pDone = P; save();
     layer.innerHTML = '';
     toast(`Welcome, ${name}`, `${fmtRs(S.book.capital, { whole: true })} is ready to trade.`);
     render();
   });
-  $('#oRestore').addEventListener('click', () => { obStage = 'restore'; layer.innerHTML = ''; showRestore(); });
-  setTimeout(() => $('#oName')?.focus(), 30);
+  $('#oRestore').addEventListener('click', () => { obStage = 'restore'; layer.innerHTML = ''; LIVE ? showSignin() : showRestore(); });
+  setTimeout(() => $(LIVE ? '#oPin' : '#oName')?.focus(), 30);
+}
+function showSignin() {
+  const layer = $('#layer');
+  layer.innerHTML = `<div class="scrim onboard"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sT">
+    <div class="sheet-head"><div class="h2" id="sT">Sign in with your team code</div><button class="x" type="button" id="sX" aria-label="Back">×</button></div>
+    <form class="sheet-body" id="sF" novalidate><p class="muted" style="font-family:var(--font-ui);font-size:14px">The team code is on the Funds page of a device already in your team.</p>
+      <input class="input code-input" id="sIn" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="6" placeholder="XXXXXX" aria-label="Team code">
+      <div class="err" id="sErr" role="alert"></div></form>
+    <div class="sheet-foot"><span></span><button class="btn primary" type="submit" form="sF" id="sGo">Sign in</button></div></div></div>`;
+  $('#sX').addEventListener('click', () => { obStage = 'name'; layer.innerHTML = ''; showOnboard(); });
+  $('#sF').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const r = await api('signin', { code: $('#sIn').value }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+    if (!r.ok) { $('#sErr').textContent = r.error; return; }
+    S.token = r.token; S.team = r.me.name; S.code = r.me.code; S.book = r.me.book; save();
+    obStage = 'name'; layer.innerHTML = '';
+    toast(`Signed in to ${S.team}`, 'Every device on the team shares this account.');
+    lastSeen = ''; await pollOnce(); render();
+  });
+  setTimeout(() => $('#sIn')?.focus(), 30);
 }
 function showRestore() {
   const layer = $('#layer');
@@ -841,6 +1011,7 @@ function showRestore() {
   $('#rX').addEventListener('click', () => { obStage = 'name'; layer.innerHTML = ''; showOnboard(); });
   $('#rCode').addEventListener('click', () => { layer.innerHTML = ''; openCode(); });
 }
+document.addEventListener('click', (e) => { if (e.target.closest('[data-onboard]')) showOnboard(); });
 
 // ---------- toasts ----------
 function toast(title, body, bad) {
@@ -857,9 +1028,11 @@ function toast(title, body, bad) {
 
 let resizeT;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (view === 'dashboard' || view === 'stock') render(); }, 150); });
-window.addEventListener('storage', (e) => { if (e.key === KEY) { S = load() || S; boot(); } });
+setInterval(renderMarketChip, 1000);
 
+if (!LIVE) window.addEventListener('storage', (e) => { if (e.key === KEY) { S = load() || S; boot(); } });
 async function boot() {
+  if (LIVE) { await pollOnce(); route(); schedule(); return; }
   for (const en of S.entries || []) { try { await walkBack(G.items, en.slot, en.k, opened); } catch {} }
   rebuild();
   processSteps();
@@ -867,7 +1040,7 @@ async function boot() {
   route();
 }
 try { localStorage.setItem(KEY + ':probe', '1'); localStorage.removeItem(KEY + ':probe'); } catch { storageOK = false; }
-rebuild();
+if (!LIVE) rebuild();
 route();
 boot();
 })();

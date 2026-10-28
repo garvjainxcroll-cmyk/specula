@@ -1,0 +1,66 @@
+{
+ "capital": 1000000,
+ "margin": 1,
+ "stocks": [
+  {
+   "t": "AURI",
+   "name": "Aurelia Industries",
+   "sector": "Energy & Infrastructure",
+   "start": 1150
+  },
+  {
+   "t": "NEXO",
+   "name": "Nexora Technologies",
+   "sector": "Technology & AI",
+   "start": 270
+  },
+  {
+   "t": "VANT",
+   "name": "Vantrex Motors",
+   "sector": "Automobiles & EVs",
+   "start": 580
+  },
+  {
+   "t": "MERB",
+   "name": "Meridian Bank",
+   "sector": "Banking & Finance",
+   "start": 300
+  },
+  {
+   "t": "HELX",
+   "name": "Helix Pharmaceuticals",
+   "sector": "Healthcare & Pharma",
+   "start": 280
+  },
+  {
+   "t": "CRTL",
+   "name": "Crestline Retail",
+   "sector": "Retail & FMCG",
+   "start": 450
+  },
+  {
+   "t": "SKYF",
+   "name": "Skyforge Defence",
+   "sector": "Defence & Aerospace",
+   "start": 650
+  },
+  {
+   "t": "GRVT",
+   "name": "GreenVolt Energy",
+   "sector": "Renewable Energy",
+   "start": 110
+  },
+  {
+   "t": "URBT",
+   "name": "UrbanBite Technologies",
+   "sector": "Food-Tech / Consumer Tech",
+   "start": 380
+  },
+  {
+   "t": "TCOR",
+   "name": "TitanCore Mining",
+   "sector": "Mining & Commodities",
+   "start": 250
+  }
+ ]
+}

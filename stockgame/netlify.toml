@@ -1,0 +1,17 @@
+# The JACO CORP live stock game on Netlify. Deploy this folder (in the repository: set the
+# Base directory to "stockgame"). The build needs no secrets: the game ships sealed in
+# live/server/game-sealed.mjs and opens only when the Event Head signs in with the game key.
+[build]
+  command = "node live/build.mjs"
+  publish = "live/dist"
+
+[functions]
+  directory = "live/netlify/functions"
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    Cache-Control = "no-cache"

@@ -16,7 +16,7 @@ SPECULA is a live, multiplayer macroeconomic trading simulation for Round 3 of *
 | `web/` | The website: Home, How to Play (`#/learn`), Practice (`#/practice`), Team Desk (`#/desk`), Big Screen (`#/display`), Event Head console (`#/admin`). |
 | `scripts/` | Build (with a leak guard), local dev server, balance pass, hand check, run-sheet generator, zip. |
 | `tests/` | Unit tests (`npm test`). `e2e/`: Playwright end-to-end (`npm run e2e`). |
-| `stockgame/` | A separate game: the ten-stock broker app and Event Head desk (see `stockgame/README.md`). Its updates, price moves and codes live only in `stockgame/secret/` (git-ignored) and the private desk page. |
+| `stockgame/` | A separate game: the ten-stock broker app and Event Head desk (see `stockgame/README.md`), as single-file Claude pages and as a live Netlify site (`stockgame/netlify.toml`, Base directory `stockgame`). Its updates, price moves and codes live only in `stockgame/secret/` (git-ignored), the private desk page, and sealed in `stockgame/live/server/game-sealed.mjs`. |
 
 ## Commands
 - `npm test`: all unit tests, including the hand check

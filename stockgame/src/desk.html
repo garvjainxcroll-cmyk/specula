@@ -135,8 +135,8 @@ body.on-screen::before { background: var(--night, #070302); }
 .scr-timer .lbl { font: 600 clamp(12px, 1.1vw, 20px)/1.2 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 .scr-mid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 30vw); gap: 2.5vw; min-height: 0; }
 .scr-news { border: 2px solid var(--gold); border-radius: var(--r-md); background: var(--panel); padding: 3vh 2.4vw; display: grid; gap: 1.6vh; align-content: start; overflow: hidden; }
-.scr-news h2 { font: 600 clamp(26px, 3.1vw, 58px)/1.15 var(--font-text); }
-.scr-news .body { font: 400 clamp(16px, 1.45vw, 27px)/1.5 var(--font-text); columns: 2 26ch; column-gap: 2.4vw; min-height: 0; }
+.scr-news h2 { font: 600 clamp(24px, 2.6vw, 50px)/1.15 var(--font-text); }
+.scr-news .body { font: 400 clamp(16px, 1.45vw, 27px)/1.5 var(--font-text); columns: 2 26ch; column-gap: 2.4vw; }
 .scr-news .body p { margin: 0 0 1.2vh; break-inside: avoid; }
 .scr-news ol { margin: 0; padding-left: 1.4em; display: grid; gap: 1.4vh; font: 500 clamp(18px, 1.9vw, 34px)/1.3 var(--font-text); }
 .scr-code { border: 2px solid var(--gold); border-radius: var(--r-md); background: var(--panel); padding: 3vh 2vw; display: grid; gap: 1.6vh; align-content: center; text-align: center; }
@@ -206,30 +206,66 @@ body.on-screen .toasts { display: none; }
 /*@ENGINE@*/
 /*@CHART@*/
 
+// One desk, two ways to run:
+//  - as a single file (Claude artifact): the whole game is in this page; teams type codes.
+//  - LIVE (the Netlify site): the game stays sealed on the server until the Event Head signs
+//    in with the game key; every click changes the market for all teams at once.
+//    /desk#screen (and /screen) is the public big screen and needs no sign-in.
 const G = JSON.parse(document.getElementById('game').textContent);
-const ST = G.stocks, U = G.updates, TK = ST.map((s) => s.t);
-const MOVES = U.map((u) => u.moves.map((m) => [TK.indexOf(m.t), m.pct]));
-const PATHS = pricePaths(ST, MOVES);
-const KEY = 'desk:' + G.id;
+const LIVE = !!G.live;
+let ST = [], U = [], TK = [], MOVES = [], PATHS = [];
+function setGame(g) {
+  ST = g.stocks; U = g.updates; TK = ST.map((s) => s.t);
+  MOVES = U.map((u) => u.moves.map((m) => [TK.indexOf(m.t), m.pct]));
+  PATHS = pricePaths(ST, MOVES);
+}
+if (!LIVE) setGame(G);
+const KEY = LIVE ? 'jaco-live:desk' : 'desk:' + G.id;
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const cls = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : 'flat');
 const arrow = (x) => (x > 0 ? '▲' : x < 0 ? '▼' : '');
 const hhmm = (ms) => new Date(ms).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-const code = (kind, i) => G.codes[kind][i - 1];
+const code = (kind, i) => (LIVE ? '' : G.codes[kind][i - 1]);
+const capital = () => (LIVE ? D.capital : G.capital);
 
-// ---------- desk state (this browser; the big screen window reads the same copy) ----------
+// ---------- desk state ----------
+// single file: kept in this browser (the big screen window reads the same copy).
+// LIVE: the server's state; only the selected update and the grace are this desk's own.
 const fresh = () => ({ a: 0, p: 0, log: [], mode: 'update', sel: 1, autoTimer: true, timer: { dur: 240000, endsAt: null, left: 240000 }, show: 'market', teams: [], reveal: 0, grace: 45, link: G.marketUrl || '' });
 let storageOK = true;
 function load() { try { const s = localStorage.getItem(KEY); return s ? { ...fresh(), ...JSON.parse(s) } : null; } catch { storageOK = false; return null; } }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(D)); } catch { storageOK = false; } }
-let D = load() || fresh();
+function save() { if (LIVE) return; try { localStorage.setItem(KEY, JSON.stringify(D)); } catch { storageOK = false; } }
+let D = LIVE ? fresh() : load() || fresh();
+let OFF = 0; // server clock minus this clock (LIVE)
+const now = () => Date.now() + OFF;
 
 const day = () => dayOf(D.a);
-const ltp = (k) => PATHS[k][D.p];
 const stat = (k) => dayStats(PATHS[k], D.a, D.p);
 const releasedAt = () => { const r = []; for (const e of D.log) if (e.kind === 'P') r[e.i] = e.at; return r; };
 const logOf = (kind, i) => D.log.find((e) => e.kind === kind && e.i === i);
+
+// ---------- talking to the server (LIVE) ----------
+let gameKey = '';
+try { gameKey = sessionStorage.getItem(KEY + ':key') || localStorage.getItem(KEY + ':key') || ''; } catch {}
+let standingsRows = null, connected = true;
+async function call(path, body) {
+  const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+  return r.json();
+}
+function setState(st) { if (st) D = { ...st, sel: D.sel || 1, grace: D.grace, link: location.origin }; }
+async function admin(action, extra = {}, quiet = false) {
+  let r;
+  try { r = await call('admin', { key: gameKey, action, ...extra }); connected = true; }
+  catch { connected = false; if (!quiet) toast('No connection', 'Check the Wi-Fi; nothing was changed.', true); render(); return { ok: false }; }
+  if (r.now) OFF = r.now - Date.now();
+  if (r.state) setState(r.state);
+  if (r.standings) standingsRows = r.standings;
+  if (!r.ok && !quiet) toast(r.error || 'That did not work', '', true);
+  if (r.refused && r.code === 403 && action !== 'login') { gameKey = ''; forgetKey(); }
+  return r;
+}
+function forgetKey() { try { sessionStorage.removeItem(KEY + ':key'); localStorage.removeItem(KEY + ':key'); } catch {} }
 
 // ---------- the one-click steps ----------
 function nextStep() {
@@ -245,7 +281,16 @@ function stepLabel(s) {
   const span = s.from === s.to ? `update ${pad2(s.from)}` : `updates ${pad2(s.from)}–${pad2(s.to)}`;
   return s.kind === 'N' ? `Release news · ${span}` : `Move prices · ${span}`;
 }
-function doStep(s) {
+async function doStep(s) {
+  if (LIVE) {
+    const r = await admin('step', { kind: s.kind, from: s.from, to: s.to });
+    if (r.ok) {
+      D.sel = s.kind === 'N' ? s.from : Math.min(45, D.p + 1);
+      toast(s.kind === 'N' ? 'News out' : 'Prices moved', s.kind === 'N' ? 'Every team sees the story now.' : 'Every team sees the new prices. The trading window is closed.');
+    }
+    render();
+    return;
+  }
   const at = Date.now(), batch = at;
   for (let i = s.from; i <= s.to; i++) {
     if (s.kind === 'N' && i === D.a + 1) { D.a = i; D.log.push({ kind: 'N', i, at, batch }); }
@@ -259,7 +304,19 @@ function doStep(s) {
   toast(s.kind === 'N' ? `News out · code ${prettyCode(c)}` : `Prices moved · code ${prettyCode(c)}`, 'Show the big screen so teams can type the code.');
   render();
 }
+// Asking before moving prices while the trading window still runs.
+function tryStep(s, box) {
+  const left = timeLeft();
+  if (s.kind === 'P' && D.timer.endsAt && left > 1000 && box) {
+    box.innerHTML = `<div class="confirm"><span>The trading window still has ${fmtClock(left)} left. Move prices now and close it?</span><div class="row"><button class="btn small primary" type="button" id="stepYes">Move prices now</button><button class="btn small quiet" type="button" data-rerender>Wait</button></div></div>`;
+    pendingStep = s;
+    return;
+  }
+  doStep(s);
+}
+let pendingStep = null;
 function undo() {
+  if (LIVE) { admin('undo').then((r) => { if (r.ok) toast('News release undone', 'Teams no longer see that story.'); render(); }); return; }
   if (!D.log.length) return;
   const b = D.log[D.log.length - 1].batch;
   D.log = D.log.filter((e) => e.batch !== b);
@@ -281,21 +338,24 @@ function onScreenCodes() {
 const when = (e) => (e.at ? hhmm(e.at) : 'a time set by hand');
 
 // ---------- timer ----------
-function timeLeft() { const t = D.timer; return t.endsAt ? t.endsAt - Date.now() : t.left; }
+function timeLeft(t = D.timer) { return t.endsAt ? t.endsAt - now() : t.left; }
 function startTimer(reset) { const t = D.timer; const left = reset ? t.dur : Math.max(0, timeLeft()); t.endsAt = Date.now() + left; t.left = left; chimed = false; }
 function stopTimer() { const t = D.timer; if (t.endsAt) { t.left = Math.max(0, t.endsAt - Date.now()); t.endsAt = null; } }
 function fmtClock(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`; }
 let chimed = true;
 function tick() {
-  const left = timeLeft();
-  const running = !!D.timer.endsAt;
+  const t = view === 'screen' && LIVE ? PUB.state?.timer : D.timer;
+  if (!t) return;
+  const left = timeLeft(t);
+  const running = !!t.endsAt;
   document.querySelectorAll('[data-timer]').forEach((el) => {
     el.textContent = fmtClock(left);
     el.classList.toggle('low', running && left <= 30000 && left > 0);
     el.classList.toggle('over', left <= 0);
   });
-  document.querySelectorAll('[data-timer-lbl]').forEach((el) => { el.textContent = left <= 0 ? 'Window closed' : running ? 'Trading window' : 'Window paused'; });
+  document.querySelectorAll('[data-timer-lbl]').forEach((el) => { el.textContent = left <= 0 ? (LIVE ? 'Market closed' : 'Window closed') : running ? (LIVE ? 'Market open' : 'Trading window') : (LIVE ? 'Market closed' : 'Window paused'); });
   if (running && left <= 0 && !chimed) { chimed = true; beep(); }
+  if (running && left > 0) chimed = false;
 }
 let actx;
 function beep() {
@@ -309,30 +369,74 @@ function beep() {
   } catch {}
 }
 setInterval(tick, 250);
+async function timerAct(op, extra = {}) {
+  if (LIVE) { await admin('timer', { op, ...extra }); render(); return; }
+  const t = D.timer;
+  if (op === 'start') startTimer(true);
+  if (op === 'pause') stopTimer();
+  if (op === 'resume') startTimer(false);
+  if (op === 'add') { if (t.endsAt) t.endsAt = Math.max(Date.now(), t.endsAt) + 30000; else t.left += 30000; chimed = false; }
+  if (op === 'dur') { t.dur = extra.seconds * 1000; if (!t.endsAt) t.left = t.dur; }
+  save(); render();
+}
 
 // ---------- routing ----------
 let view = 'control';
 function route() {
   const h = (location.hash || '').slice(1);
-  view = ['control', 'matrix', 'path', 'teams', 'codes', 'guide', 'screen'].includes(h) ? h : 'control';
+  view = G.screenOnly ? 'screen' : ['control', 'matrix', 'path', 'teams', 'codes', 'guide', 'screen'].includes(h) ? h : 'control';
+  if (LIVE && view === 'codes') view = 'control';
   document.body.classList.toggle('on-screen', view === 'screen');
   if (view === 'screen') $('#toasts').textContent = '';
   render();
   window.scrollTo(0, 0);
+  if (LIVE) poke();
 }
 window.addEventListener('hashchange', route);
-window.addEventListener('storage', (e) => { if (e.key === KEY) { D = load() || fresh(); render(); } });
+if (!LIVE) window.addEventListener('storage', (e) => { if (e.key === KEY) { D = load() || fresh(); render(); } });
+if (LIVE) $('a[data-v="codes"]').remove();
 
 function render() {
   if (view === 'screen') { renderScreen(); tick(); return; }
-  $('#status').innerHTML = `<span class="chip gold">Round ${pad2(day())} of 09</span><span class="chip">News ${pad2(D.a)}/45</span><span class="chip">Prices ${pad2(D.p)}/45</span>`;
+  if (LIVE && !U.length) { renderLogin(); return; }
+  $('#status').innerHTML = `<span class="chip gold">Round ${pad2(day())} of 09</span><span class="chip">News ${pad2(D.a)}/45</span><span class="chip">Prices ${pad2(D.p)}/45</span>${LIVE ? `<span class="chip">${D.teams.length} team${D.teams.length === 1 ? '' : 's'}</span>${connected ? '' : '<span class="chip down">Reconnecting…</span>'}` : ''}`;
   document.querySelectorAll('.tabs a').forEach((a) => { if (a.dataset.v === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-  const V = { control: vControl, matrix: vMatrix, path: vPath, teams: vTeams, codes: vCodes, guide: vGuide }[view];
+  const V = { control: vControl, matrix: vMatrix, path: vPath, teams: LIVE ? vTeamsLive : vTeams, codes: vCodes, guide: vGuide }[view];
   $('#page').innerHTML = V();
   after.forEach((f) => f()); after = [];
   tick();
 }
 let after = [];
+
+// ---------- sign-in (LIVE) ----------
+function renderLogin() {
+  $('#status').innerHTML = '';
+  $('.tabs').hidden = true;
+  $('#page').innerHTML = `<div class="wide" style="max-width:520px">
+    <form class="panel framed stack" id="loginF" novalidate>
+      <span class="eyebrow">Event Head</span>
+      <h1 class="h1">Sign in with the game key</h1>
+      <p class="muted">The game key unlocks the 45 updates on the server. The first sign-in after a new deploy opens the game; after that the same key signs you in from any device.</p>
+      <label class="field"><span>Game key</span><input class="input mono" id="gk" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" style="font-size:20px;letter-spacing:0.08em"></label>
+      <label class="check"><input type="checkbox" id="gkRemember"> Remember on this device</label>
+      <div class="warn" id="gkErr" role="alert"></div>
+      <div class="row"><button class="btn primary" type="submit" id="gkGo">Sign in</button><a class="btn quiet" href="#screen">Open the big screen</a></div>
+    </form></div>`;
+  $('#loginF').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#gkGo'); btn.disabled = true; btn.textContent = 'Opening…';
+    gameKey = $('#gk').value;
+    const r = await admin('login', {}, true);
+    btn.disabled = false; btn.textContent = 'Sign in';
+    if (!r.ok) { $('#gkErr').textContent = r.error || 'No connection. Check the Wi-Fi.'; return; }
+    try { (($('#gkRemember').checked) ? localStorage : sessionStorage).setItem(KEY + ':key', gameKey); } catch {}
+    setGame(r.game);
+    D.sel = Math.min(45, D.p + 1);
+    $('.tabs').hidden = false;
+    route();
+  });
+  setTimeout(() => $('#gk')?.focus(), 30);
+}
 
 // ---------- control ----------
 function statusOf(i) { return i <= D.p ? 'priced' : i <= D.a ? 'news' : 'locked'; }
@@ -343,6 +447,7 @@ function vControl() {
   const stLabel = { priced: 'News out · prices moved', news: 'News out · prices not moved', locked: 'Not released' };
   const canN = u.i === D.a + 1, canP = u.i === D.p + 1 && u.i <= D.a;
   const nL = logOf('N', u.i), pL = logOf('P', u.i);
+  const lastIsNews = D.log.length && D.log[D.log.length - 1].kind === 'N';
   return `<div class="ctl">
     <aside class="col"><div class="panel" style="padding:10px">
       <div class="legend"><span><i class="dot"></i>Not released</span><span><i class="dot news"></i>News out</span><span><i class="dot priced"></i>Prices moved</span></div>
@@ -364,11 +469,12 @@ function vControl() {
             <button class="btn small ${D.mode === 'round' ? 'primary' : 'quiet'}" type="button" data-mode="round">Whole round</button></div></div>
         ${ns ? `<div class="what">${stepLabel(ns)}</div>
           <p class="muted">${ns.kind === 'N'
-            ? `Teams get the story${ns.to > ns.from ? 'ies' : ''} when they type the code. Prices stay where they are, so this opens the trading window.`
-            : `Prices move by the effects below${ns.to > ns.from ? ' for each update in turn' : ''}. Close the trading window first: orders placed at the old prices after this are voided when you check teams.`}</p>
+            ? (LIVE ? `Every team sees the stor${ns.to > ns.from ? 'ies' : 'y'} at once. Prices stay where they are while the market is open.` : `Teams get the stor${ns.to > ns.from ? 'ies' : 'y'} when they type the code. Prices stay where they are, so this opens the trading window.`)
+            : (LIVE ? `Prices move by the effects below${ns.to > ns.from ? ' for each update in turn' : ''}, open orders fill, and the market closes.` : `Prices move by the effects below${ns.to > ns.from ? ' for each update in turn' : ''}. Close the trading window first: orders placed at the old prices after this are voided when you check teams.`)}</p>
           <div class="row"><button class="btn primary" type="button" id="goNext">${ns.kind === 'N' ? 'Release news' : 'Move prices'}</button>
-          ${ns.kind === 'N' ? `<label class="check"><input type="checkbox" id="autoT" ${D.autoTimer ? 'checked' : ''}> Start the ${fmtClock(D.timer.dur)} trading window too</label>` : ''}</div>`
-          : `<div class="what">All 45 updates are out</div><p class="muted">Collect each team's report code on the Teams tab, then reveal the standings on the big screen.</p><div class="row"><a class="btn primary" href="#teams">Go to Teams</a></div>`}
+          ${ns.kind === 'N' ? `<label class="check"><input type="checkbox" id="autoT" ${D.autoTimer ? 'checked' : ''}> ${LIVE ? 'Open the market' : 'Start the trading window'} for ${fmtClock(D.timer.dur)} too</label>` : ''}</div>
+          <div id="stepBox"></div>`
+          : `<div class="what">All 45 updates are out</div><p class="muted">${LIVE ? 'The standings are on the Teams tab. Reveal them on the big screen from last place to first.' : "Collect each team's report code on the Teams tab, then reveal the standings on the big screen."}</p><div class="row"><a class="btn primary" href="#teams">Go to Teams</a></div>`}
       </div>
 
       <article class="panel story stack">
@@ -382,34 +488,44 @@ function vControl() {
           <button class="btn ${canN ? 'primary' : 'quiet'}" type="button" data-one="N" ${canN ? '' : 'disabled'}>Release news ${pad2(u.i)}</button>
           <button class="btn ${canP ? 'primary' : 'quiet'}" type="button" data-one="P" ${canP ? '' : 'disabled'}>Move prices ${pad2(u.i)}</button>
         </div>
-        <div class="done-line">${nL ? `News out at ${when(nL)} · code <span class="mono">${prettyCode(code('N', u.i))}</span>` : `News code <span class="mono">${prettyCode(code('N', u.i))}</span> · release order: news ${pad2(D.a + 1)} is next`}<br>
-          ${pL ? `Prices moved at ${when(pL)} · code <span class="mono">${prettyCode(code('P', u.i))}</span>` : `Price code <span class="mono">${prettyCode(code('P', u.i))}</span>${u.i <= D.a ? '' : ' · its news must go out first'}`}</div>
+        <div id="oneBox"></div>
+        ${LIVE ? `<div class="done-line">${nL ? `News out at ${when(nL)}` : `Not released · news ${pad2(D.a + 1)} is next`}${pL ? ` · prices moved at ${when(pL)}` : ''}</div>`
+        : `<div class="done-line">${nL ? `News out at ${when(nL)} · code <span class="mono">${prettyCode(code('N', u.i))}</span>` : `News code <span class="mono">${prettyCode(code('N', u.i))}</span> · release order: news ${pad2(D.a + 1)} is next`}<br>
+          ${pL ? `Prices moved at ${when(pL)} · code <span class="mono">${prettyCode(code('P', u.i))}</span>` : `Price code <span class="mono">${prettyCode(code('P', u.i))}</span>${u.i <= D.a ? '' : ' · its news must go out first'}`}</div>`}
         <div class="body clip">${u.body.map((p) => `<p>${esc(p)}</p>`).join('')}</div>
         <button class="linkbtn" type="button" data-more>Read the full story (${u.body.length} paragraphs)</button>
       </article>
     </section>
 
     <aside class="col side">
-      <section class="panel framed stack">
+      ${LIVE ? `<section class="panel framed stack">
+        <div class="sec-head"><span class="eyebrow">Teams join at</span><a class="btn small" href="#screen" target="_blank" rel="noopener">Open big screen</a></div>
+        <div class="code-sm" style="word-break:break-all">${esc(location.host)}</div>
+        <div class="row"><span class="label">Join PIN</span><span class="code-big" style="font-size:30px">${esc(D.pin || '')}</span>${D.joinOpen ? '<span class="chip up">Joining open</span>' : '<span class="chip">Joining closed</span>'}</div>
+        <div class="muted">${D.teams.length} team${D.teams.length === 1 ? '' : 's'} joined. Manage them on the Teams tab.</div>
+        ${lastIsNews ? `<div id="undoBox"><button class="linkbtn" type="button" id="undo1">Undo the last news release</button></div>` : ''}
+      </section>`
+      : `<section class="panel framed stack">
         <div class="sec-head"><span class="eyebrow">On the big screen</span><a class="btn small" href="#screen">Open big screen</a></div>
         ${sc ? `<div><div class="code-big">${prettyCode(code(sc.main.kind, sc.main.i))}</div>
           <div class="muted" style="margin-top:6px">${sc.main.kind === 'N' ? 'News' : 'Prices'} for update ${pad2(sc.main.i)}${sc.batch.length > 1 ? ` (and the ${sc.batch.length - 1} before it in this round)` : ''}</div></div>
           ${sc.extra ? `<div><div class="label">${sc.extra.kind === 'P' ? 'Latest price code, for teams who missed it' : 'Latest news code, for teams who missed it'}</div><div class="code-sm">${prettyCode(code(sc.extra.kind, sc.extra.i))}</div></div>` : ''}`
           : '<p class="muted">Nothing released yet. The big screen shows the opening prices and how to join.</p>'}
         ${D.log.length ? `<div id="undoBox"><button class="linkbtn" type="button" id="undo1">Undo the last step</button></div>` : ''}
-      </section>
+      </section>`}
       <section class="panel stack">
-        <div class="sec-head"><span class="eyebrow">Trading window</span><span class="label" data-timer-lbl></span></div>
+        <div class="sec-head"><span class="eyebrow">${LIVE ? 'Market' : 'Trading window'}</span><span class="label" data-timer-lbl></span></div>
         <div class="timer" data-timer>00:00</div>
         <div class="row">
           ${[2, 3, 4, 5].map((m) => `<button class="btn small ${D.timer.dur === m * 60000 ? 'primary' : 'quiet'}" type="button" data-dur="${m}">${m} min</button>`).join('')}
         </div>
         <div class="row">
-          <button class="btn small" type="button" data-t="start">${D.timer.endsAt ? 'Restart' : 'Start'}</button>
-          <button class="btn small" type="button" data-t="pause" ${D.timer.endsAt ? '' : 'disabled'}>Pause</button>
+          <button class="btn small" type="button" data-t="start">${D.timer.endsAt ? 'Restart' : LIVE ? 'Open market' : 'Start'}</button>
+          <button class="btn small" type="button" data-t="pause" ${D.timer.endsAt ? '' : 'disabled'}>${LIVE ? 'Close' : 'Pause'}</button>
           <button class="btn small" type="button" data-t="resume" ${!D.timer.endsAt && D.timer.left > 0 && D.timer.left < D.timer.dur ? '' : 'disabled'}>Resume</button>
           <button class="btn small" type="button" data-t="add">+30 s</button>
         </div>
+        ${LIVE ? '<p class="hint">Teams can trade only while this clock runs. Releasing news can open the market by itself (tick the box next to Release news); moving prices closes it.</p>' : ''}
       </section>
       <section class="panel">
         <div class="sec-head"><span class="eyebrow">Market now</span><span class="label">Day ${pad2(day())} change</span></div>
@@ -421,38 +537,32 @@ function vControl() {
   </div>`;
 }
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const t = e.target;
   const sel = t.closest('[data-sel]');
   if (sel) { D.sel = +sel.dataset.sel; save(); render(); return; }
-  if (t.id === 'goNext') { const ns = nextStep(); if (ns) doStep(ns); return; }
+  if (t.id === 'goNext') { const ns = nextStep(); if (ns) tryStep(ns, $('#stepBox')); return; }
+  if (t.id === 'stepYes') { const s = pendingStep; pendingStep = null; if (s) doStep(s); return; }
   const one = t.closest('[data-one]');
-  if (one && !one.disabled) { doStep({ kind: one.dataset.one, from: D.sel, to: D.sel }); return; }
+  if (one && !one.disabled) { tryStep({ kind: one.dataset.one, from: D.sel, to: D.sel }, $('#oneBox')); return; }
   const md = t.closest('[data-mode]');
-  if (md) { D.mode = md.dataset.mode; save(); render(); return; }
+  if (md) { if (LIVE) await admin('settings', { mode: md.dataset.mode }); else { D.mode = md.dataset.mode; save(); } render(); return; }
   if (t.closest('[data-more]')) { const b = t.closest('[data-more]'); b.previousElementSibling.classList.remove('clip'); b.remove(); return; }
   const du = t.closest('[data-dur]');
-  if (du) { D.timer.dur = +du.dataset.dur * 60000; if (!D.timer.endsAt) D.timer.left = D.timer.dur; save(); render(); return; }
+  if (du) { timerAct('dur', { seconds: +du.dataset.dur * 60 }); return; }
   const tm = t.closest('[data-t]');
-  if (tm) {
-    const a = tm.dataset.t;
-    if (a === 'start') startTimer(true);
-    if (a === 'pause') stopTimer();
-    if (a === 'resume') startTimer(false);
-    if (a === 'add') { if (D.timer.endsAt) D.timer.endsAt = Math.max(Date.now(), D.timer.endsAt) + 30000; else D.timer.left += 30000; chimed = false; }
-    save(); render(); return;
-  }
+  if (tm) { timerAct(tm.dataset.t); return; }
   if (t.id === 'undo1') {
     const last = D.log[D.log.length - 1];
-    const n = D.log.filter((x) => x.batch === last.batch).length;
-    $('#undoBox').innerHTML = `<div class="confirm"><span>Undo ${last.kind === 'N' ? 'the news release' : 'the price move'} for ${n > 1 ? n + ' updates' : 'update ' + pad2(last.i)}? Teams who already typed its code keep what it showed them, so only undo a click that no one has seen.</span><div class="row"><button class="btn small sell" type="button" id="undo2">Undo it</button><button class="btn small quiet" type="button" data-rerender>Keep it</button></div></div>`;
+    const n = D.log.filter((x) => x.batch === last.batch && x.kind === last.kind).length;
+    $('#undoBox').innerHTML = `<div class="confirm"><span>Undo ${last.kind === 'N' ? 'the news release' : 'the price move'} for ${n > 1 ? n + ' updates' : 'update ' + pad2(last.i)}? ${LIVE ? 'Teams have already seen it, so only undo a click made by mistake.' : 'Teams who already typed its code keep what it showed them, so only undo a click that no one has seen.'}</span><div class="row"><button class="btn small sell" type="button" id="undo2">Undo it</button><button class="btn small quiet" type="button" data-rerender>Keep it</button></div></div>`;
     return;
   }
-  if (t.id === 'undo2') { undo(); toast('Last step undone', 'The desk and big screen are back one step.'); return; }
-  if (t.closest('[data-rerender]')) { render(); return; }
+  if (t.id === 'undo2') { undo(); if (!LIVE) toast('Last step undone', 'The desk and big screen are back one step.'); return; }
+  if (t.closest('[data-rerender]')) { pendingStep = null; render(); return; }
 });
-document.addEventListener('change', (e) => {
-  if (e.target.id === 'autoT') { D.autoTimer = e.target.checked; save(); }
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'autoT') { if (LIVE) await admin('settings', { autoTimer: e.target.checked }); else { D.autoTimer = e.target.checked; save(); } }
   if (e.target.id === 'grace') { D.grace = Math.max(0, Math.min(600, Math.round(+e.target.value || 0))); save(); const st = $('#standings'); if (st) st.innerHTML = standingsHTML(); }
   if (e.target.id === 'link') { D.link = e.target.value.trim(); save(); }
 });
@@ -510,7 +620,7 @@ function miniPath(box, path, p) {
   box.appendChild(svg);
 }
 
-// ---------- teams ----------
+// ---------- teams (single file: report codes) ----------
 function checkTeam(rpt) {
   const r = decodeReport(rpt);
   return { r, res: replay(r, { paths: PATHS, applied: D.p, releasedAt: releasedAt(), graceSec: D.grace, capital: G.capital }) };
@@ -524,21 +634,25 @@ function standings() {
 let lastCheck = null;
 function standingsHTML() {
   const rows = standings();
-  return `        <div class="sec-head"><h2 class="h2">Standings (${rows.length})</h2><span class="label">valued at prices after update ${pad2(D.p)}</span></div>
-        ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Team</th><th class="r">Value</th><th class="r">Return</th><th class="r">Trades</th><th></th></tr></thead><tbody>
-          ${rows.map((t, j) => `<tr><td class="num">${j + 1}</td><td><b>${esc(t.res.team)}</b>${t.res.voided.length ? `<br><span class="warn" style="font-size:12px">${t.res.voided.length} voided</span>` : ''}${t.res.capitalMismatch ? '<br><span class="warn" style="font-size:12px">wrong opening balance in code</span>' : ''}</td><td class="r num">${fmtRs(t.res.value, { whole: true })}</td><td class="r num ${cls(t.res.ret)}">${fmtPct(t.res.ret)}</td><td class="r num">${t.res.kept}</td><td class="r"><button class="btn small quiet" type="button" data-drop="${j}" data-name="${esc(t.res.team)}">Remove</button></td></tr>`).join('')}
-        </tbody></table></div>` : '<p class="empty">No teams checked yet.</p>'}
-        <h2 class="h2" style="margin-top:8px">Big screen</h2>
-        <div class="row">
-          <button class="btn small ${D.show === 'market' ? 'primary' : 'quiet'}" type="button" data-show="market">Show the market</button>
-          <button class="btn small ${D.show === 'leaders' ? 'primary' : 'quiet'}" type="button" data-show="leaders">Show standings</button>
-        </div>
-        <div class="row">
-          <span class="label">Reveal from last place up: ${Math.min(D.reveal, rows.length)} of ${rows.length} shown</span>
-          <button class="btn small" type="button" data-rev="1" ${D.reveal >= rows.length ? 'disabled' : ''}>Reveal next place</button>
-          <button class="btn small quiet" type="button" data-rev="all">Reveal all</button>
-          <button class="btn small quiet" type="button" data-rev="0">Hide all</button>
-        </div>`;
+  return `<div class="sec-head"><h2 class="h2">Standings (${rows.length})</h2><span class="label">valued at prices after update ${pad2(D.p)}</span></div>
+    ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Team</th><th class="r">Value</th><th class="r">Return</th><th class="r">Trades</th><th></th></tr></thead><tbody>
+      ${rows.map((t, j) => `<tr><td class="num">${j + 1}</td><td><b>${esc(t.res.team)}</b>${t.res.voided.length ? `<br><span class="warn" style="font-size:12px">${t.res.voided.length} voided</span>` : ''}${t.res.capitalMismatch ? '<br><span class="warn" style="font-size:12px">wrong opening balance in code</span>' : ''}</td><td class="r num">${fmtRs(t.res.value, { whole: true })}</td><td class="r num ${cls(t.res.ret)}">${fmtPct(t.res.ret)}</td><td class="r num">${t.res.kept}</td><td class="r"><button class="btn small quiet" type="button" data-drop="${j}" data-name="${esc(t.res.team)}">Remove</button></td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="empty">No teams checked yet.</p>'}
+    ${bigScreenControls(rows.length)}`;
+}
+function bigScreenControls(n) {
+  return `<h2 class="h2" style="margin-top:8px">Big screen</h2>
+    <div class="row">
+      <button class="btn small ${D.show === 'market' ? 'primary' : 'quiet'}" type="button" data-show="market">Show the market</button>
+      <button class="btn small ${D.show === 'leaders' ? 'primary' : 'quiet'}" type="button" data-show="leaders">Show standings</button>
+    </div>
+    <div class="row">
+      <span class="label">Reveal from last place up: ${Math.min(D.reveal, n)} of ${n} shown</span>
+      <button class="btn small" type="button" data-rev="1" ${D.reveal >= n ? 'disabled' : ''}>Reveal next place</button>
+      <button class="btn small quiet" type="button" data-rev="all">Reveal all</button>
+      <button class="btn small quiet" type="button" data-rev="0">Hide all</button>
+    </div>
+    ${LIVE ? '<p class="hint">The standings on the big screen are taken when you press a button here, so press Show standings again to refresh them.</p>' : ''}`;
 }
 function vTeams() {
   const lc = lastCheck;
@@ -556,7 +670,36 @@ function vTeams() {
       <section class="panel stack" id="standings">${standingsHTML()}</section>
     </div></div>`;
 }
-document.addEventListener('click', (e) => {
+
+// ---------- teams (LIVE) ----------
+function vTeamsLive() {
+  const rows = standingsRows || [];
+  return `<div class="wide">
+    <div class="sec-head"><h1 class="h1">Teams</h1><span class="muted">Only you see this. Values at the prices after update ${pad2(D.p)}.</span></div>
+    <div class="ctl" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)">
+      <section class="panel stack">
+        <h2 class="h2">Joining</h2>
+        <p class="muted">Teams open <b>${esc(location.host)}</b> on a phone or laptop, type the PIN and a team name. Each team gets a team code for its other devices.</p>
+        <div class="row"><span class="label">Join PIN</span><span class="code-big">${esc(D.pin || '')}</span><button class="btn small quiet" type="button" data-set="newPin">New PIN</button></div>
+        <div class="row">${D.joinOpen ? '<span class="chip up">Joining is open</span><button class="btn small" type="button" data-set="close">Close joining</button>' : '<span class="chip">Joining is closed</span><button class="btn small" type="button" data-set="open">Open joining</button>'}</div>
+        <h2 class="h2" style="margin-top:8px">Starting money and short margin</h2>
+        ${D.teams.length ? `<p class="muted">Each team started with ${fmtRs(D.capital * 100, { whole: true })}; a short holds its value plus ${Math.round(D.margin * 100)}% margin. These are fixed once a team has joined.</p>`
+        : `<div class="row"><label class="field" style="width:200px"><span>Starting money (₹)</span><input class="input num" id="setCap" type="number" min="1000" step="1000" value="${D.capital}"></label>
+          <label class="field" style="width:160px"><span>Short margin (%)</span><input class="input num" id="setMargin" type="number" min="20" max="300" step="10" value="${Math.round(D.margin * 100)}"></label>
+          <button class="btn small" type="button" data-set="money" style="align-self:end">Save</button></div>`}
+        <h2 class="h2" style="margin-top:8px">Backup</h2>
+        <div class="row"><button class="btn small quiet" type="button" id="export">Download a backup of every account</button></div>
+      </section>
+      <section class="panel stack">
+        <div class="sec-head"><h2 class="h2">Standings (${rows.length})</h2><span class="label">updates every few seconds</span></div>
+        ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Team</th><th class="r">Value</th><th class="r">Return</th><th class="r">Trades</th><th>Code</th><th></th></tr></thead><tbody>
+          ${rows.map((t) => `<tr><td class="num">${t.rank}</td><td><b>${esc(t.name)}</b>${t.shorts ? `<br><span class="label">${t.shorts} short${t.shorts > 1 ? 's' : ''} · −${fmtRs(t.shortValue, { whole: true })}</span>` : ''}</td><td class="r num">${fmtRs(t.value, { whole: true })}</td><td class="r num ${cls(t.ret)}">${fmtPct(t.ret)}</td><td class="r num">${t.trades}${t.open ? `<br><span class="label">${t.open} open</span>` : ''}</td><td class="mono">${esc(t.code)}</td><td class="r"><button class="btn small quiet" type="button" data-remove="${esc(t.id)}">Remove</button></td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="empty">No team has joined yet.</p>'}
+        ${bigScreenControls(rows.length)}
+      </section>
+    </div></div>`;
+}
+document.addEventListener('click', async (e) => {
   const t = e.target;
   if (t.id === 'chk') {
     const val = $('#rpt').value.trim();
@@ -588,14 +731,46 @@ document.addEventListener('click', (e) => {
     D.teams = D.teams.filter((x) => { try { return decodeReport(x.code).team !== name; } catch { return false; } });
     save(); render();
   }
+  const rm = t.closest('[data-remove]');
+  if (rm) {
+    if (rm.dataset.confirm !== '1') { rm.dataset.confirm = '1'; rm.textContent = 'Remove?'; rm.classList.add('sell'); return; }
+    await admin('remove', { id: rm.dataset.remove });
+    await admin('state', { withTeams: true }, true);
+    render();
+  }
   const sh = t.closest('[data-show]');
-  if (sh) { D.show = sh.dataset.show; save(); render(); }
+  if (sh) {
+    if (LIVE) await admin('show', { show: sh.dataset.show, reveal: D.reveal }); else { D.show = sh.dataset.show; save(); }
+    render();
+  }
   const rv = t.closest('[data-rev]');
-  if (rv) { const n = standings().length; D.reveal = rv.dataset.rev === 'all' ? n : rv.dataset.rev === '0' ? 0 : Math.min(n, D.reveal + 1); D.show = 'leaders'; save(); render(); }
+  if (rv) {
+    const n = LIVE ? (standingsRows || []).length : standings().length;
+    const reveal = rv.dataset.rev === 'all' ? n : rv.dataset.rev === '0' ? 0 : Math.min(n, D.reveal + 1);
+    if (LIVE) await admin('show', { show: 'leaders', reveal }); else { D.reveal = reveal; D.show = 'leaders'; save(); }
+    render();
+  }
+  const st = t.closest('[data-set]');
+  if (st) {
+    const w = st.dataset.set;
+    if (w === 'newPin') await admin('settings', { newPin: true });
+    if (w === 'open' || w === 'close') await admin('settings', { joinOpen: w === 'open' });
+    if (w === 'money') { const r = await admin('settings', { capital: +$('#setCap').value, margin: +$('#setMargin').value / 100 }); if (r.ok) toast('Saved', 'New teams start with these settings.'); }
+    render();
+  }
+  if (t.id === 'export') {
+    const r = await admin('export');
+    if (r.ok) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(r, null, 1)], { type: 'application/json' }));
+      a.download = `stock-game-backup-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`;
+      a.click();
+    }
+  }
 });
 let pending = null;
 
-// ---------- codes ----------
+// ---------- codes (single file) ----------
 function vCodes() {
   return `<div class="wide">
     <div class="sec-head"><h1 class="h1">Release codes</h1><span class="secret-tag">Never project this page</span></div>
@@ -607,6 +782,46 @@ function vCodes() {
 
 // ---------- guide ----------
 function vGuide() {
+  if (LIVE) return `<div class="wide"><div class="sec-head"><h1 class="h1">How to run the game</h1></div>
+    <div class="panel guide">
+      <h3>Before the event</h3>
+      <ol>
+        <li>Put <b>${esc(location.host)}/screen</b> on the projector. It shows the address, the join PIN and the prices, and needs no sign-in.</li>
+        <li>Teams open <b>${esc(location.host)}</b>, type the PIN and a team name, and start with ${fmtRs(capital() * 100, { whole: true })}. Each team gets a team code so teammates can sign in on other devices.</li>
+        <li>When every team is in, close joining on the Teams tab.</li>
+      </ol>
+      <h3>Each update</h3>
+      <ol>
+        <li>Press <b>Release news</b>. Every team sees the story at once, and the market opens for the trading window.</li>
+        <li>Teams buy, sell or short at the current prices.</li>
+        <li>When the window ends the market closes. Press <b>Move prices</b>: prices change for everyone, and open limit and stop-loss orders fill.</li>
+      </ol>
+      <p>Prefer whole rounds? Set the pace to <b>Whole round</b>: one click releases all five stories of the round, one click moves all five sets of prices.</p>
+      <h3>Fair play</h3>
+      <ul>
+        <li>The server keeps the game sealed and every account; nothing in a team's browser can be edited to gain money.</li>
+        <li>Orders count only while the market is open and only at the prices on the team's screen. When prices move, the market closes, so nobody can trade at old prices.</li>
+        <li>Teams see only their own account. The standings stay on this desk until you show them on the big screen.</li>
+      </ul>
+      <h3>At the end</h3>
+      <ol>
+        <li>After update 45's prices, open the Teams tab: the standings are already there.</li>
+        <li>Press <b>Show standings</b>, then <b>Reveal next place</b> to count down from last place to the winner.</li>
+        <li>Download a backup of every account for your records.</li>
+      </ol>
+      <h3>If something goes wrong</h3>
+      <ul>
+        <li>This laptop crashed: open <b>${esc(location.host)}/desk</b> anywhere and sign in with the game key. Nothing is lost; the server holds the game.</li>
+        <li>A team lost its phone: its team code (shown on the Teams tab) signs it in on any device.</li>
+        <li>A news release was clicked by mistake: undo it from the Control tab. Price moves cannot be undone, because orders have filled at them.</li>
+      </ul>
+    </div>
+    <div class="panel stack">
+      <h2 class="h2">Start over</h2>
+      <p class="muted">Removes every team and every release. Use it after a rehearsal. Type RESET to confirm.</p>
+      <div class="row"><input class="input" id="resetTxt" style="max-width:160px" placeholder="RESET" autocomplete="off"><button class="btn quiet" type="button" id="resetLive">Start the game over</button></div>
+      <p class="muted" style="font-size:13px">Signed in with the game key on this device. <button class="linkbtn" type="button" id="signOut">Sign out</button></p>
+    </div></div>`;
   return `<div class="wide"><div class="sec-head"><h1 class="h1">How to run the game</h1></div>
     <div class="panel guide">
       <h3>Before the event</h3>
@@ -618,7 +833,7 @@ function vGuide() {
       <h3>Each update</h3>
       <ol>
         <li>Press <b>Release news</b>. The big screen shows the story and a news code, and the trading window starts.</li>
-        <li>Teams type the code, read the story and trade at the current prices.</li>
+        <li>Teams type the code, read the story and buy, sell or short at the current prices.</li>
         <li>When the window closes, press <b>Move prices</b>. The big screen shows the moves and a price code. Teams type it and the prices change in their app.</li>
       </ol>
       <p>Prefer whole rounds? Set the pace to <b>Whole round</b>: one click releases all five stories of the round, and one click moves all five sets of prices. The code shown then opens all five.</p>
@@ -655,7 +870,7 @@ function vGuide() {
       <div id="resetBox"><button class="btn quiet" type="button" id="reset1">Start the game over</button></div>
     </div></div>`;
 }
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const t = e.target;
   if (t.id === 'jump') {
     const a = Math.max(0, Math.min(45, Math.round(+$('#jA').value || 0)));
@@ -669,71 +884,162 @@ document.addEventListener('click', (e) => {
   }
   if (t.id === 'reset1') { $('#resetBox').innerHTML = `<div class="confirm"><span>Clear everything on this desk and start from update 01?</span><div class="row"><button class="btn small sell" type="button" id="reset2">Start over</button><button class="btn small quiet" type="button" data-rerender>Keep the game</button></div></div>`; }
   if (t.id === 'reset2') { D = fresh(); save(); toast('Game reset', 'The desk is back at the opening bell.'); render(); }
+  if (t.id === 'resetLive') {
+    const r = await admin('reset', { confirm: ($('#resetTxt').value || '').trim().toUpperCase() });
+    if (r.ok) { standingsRows = []; D.sel = 1; toast('Game reset', 'Every team and release is cleared. A new join PIN is ready.'); }
+    render();
+  }
+  if (t.id === 'signOut') { gameKey = ''; forgetKey(); U = []; render(); }
 });
 
 // ---------- big screen ----------
-function renderScreen() {
-  const sc = onScreenCodes();
-  const tiles = ST.map((s, k) => { const st = stat(k); return `<div class="tile ${cls(st.chg)}"><span class="tk">${s.t}</span><span class="px num">${fmtPrice(st.ltp)}</span><span class="ch num ${cls(st.chg)}">${arrow(st.chg)} ${fmtPct(st.chgPct)}</span></div>`; }).join('');
-  let left, right;
-  if (D.show === 'leaders') {
+// What the screen needs, from the desk's own copy (single file) or the public feed (LIVE).
+const PUB = { state: null, news: [] };
+function screenData() {
+  if (!LIVE) {
+    const sc = onScreenCodes();
     const rows = standings();
     const n = rows.length, shown = Math.min(D.reveal, n);
-    left = `<div class="scr-news"><span class="eyebrow">Standings · valued after update ${pad2(D.p)}</span>
+    return {
+      a: D.a, p: D.p, show: D.show, stocks: ST, paths: PATHS, story: (i) => U[i - 1],
+      last: sc ? { kind: sc.main.kind, ids: sc.batch.map((e) => e.i), main: sc.main.i } : null, codes: sc,
+      board: rows.map((t, j) => (j >= n - shown ? { rank: j + 1, name: t.res.team, value: t.res.value, ret: t.res.ret } : { rank: j + 1, hidden: true })),
+    };
+  }
+  const st = PUB.state;
+  if (!st) return null;
+  const ids = st.last ? Array.from({ length: st.last.to - st.last.from + 1 }, (_, j) => st.last.from + j) : [];
+  return {
+    a: st.a, p: st.p, show: st.show, stocks: st.stocks, paths: pricePaths(st.stocks, st.moves), story: (i) => PUB.news.find((n) => n.i === i),
+    last: st.last ? { kind: st.last.kind, ids, main: st.last.to } : null, board: st.board || [],
+    join: { open: st.joinOpen, pin: st.pin, teams: st.teams, market: st.open },
+  };
+}
+function renderScreen() {
+  const sd = screenData();
+  if (!sd) { $('#screen').innerHTML = `<div class="scr-top"><span class="eyebrow">Connecting to the market…</span></div>`; return; }
+  const dstat = (k) => dayStats(sd.paths[k], sd.a, sd.p);
+  const tiles = sd.stocks.map((s, k) => { const st = dstat(k); return `<div class="tile ${cls(st.chg)}"><span class="tk">${s.t}</span><span class="px num">${fmtPrice(st.ltp)}</span><span class="ch num ${cls(st.chg)}">${arrow(st.chg)} ${fmtPct(st.chgPct)}</span></div>`; }).join('');
+  const over = sd.a >= 45 && sd.p >= 45;
+  const joinBox = (big) => `<span class="eyebrow">Join the market</span><div class="code-sm" style="word-break:break-all">${esc(location.host)}</div>
+      <div class="eyebrow" style="color:var(--muted)">PIN</div><div class="code-big">${esc(sd.join.pin)}</div>${big ? `<div class="what">${sd.join.teams} team${sd.join.teams === 1 ? '' : 's'} in</div>` : ''}`;
+  const marketBox = () => `<span class="eyebrow">Market</span><div class="code-big" style="font-size:clamp(28px,3vw,64px)">${sd.join.market ? 'Open' : 'Closed'}</div><div class="what">${sd.join.market ? 'Buy, sell or short now, before prices move.' : 'Read the news. Orders open when the market does.'}</div>`;
+  let left, right;
+  if (sd.show === 'leaders') {
+    const rows = sd.board, n = rows.length;
+    const shown = rows.filter((r) => !r.hidden).length;
+    left = `<div class="scr-news"><span class="eyebrow">Standings · valued after update ${pad2(sd.p)}</span>
       ${n ? `<table class="leaders"><thead><tr><th>Place</th><th>Team</th><th class="r">Account value</th><th class="r">Return</th></tr></thead><tbody>
-      ${rows.map((t, j) => { const vis = j >= n - shown; return `<tr class="${vis ? '' : 'hidden'}"><td class="num">${j + 1}</td><td>${vis ? esc(t.res.team) : '· · ·'}</td><td class="r num">${vis ? fmtRs(t.res.value, { whole: true }) : ''}</td><td class="r num ${vis ? cls(t.res.ret) : ''}">${vis ? fmtPct(t.res.ret) : ''}</td></tr>`; }).join('')}
-      </tbody></table>` : '<h2>Standings appear here once teams are checked.</h2>'}</div>`;
-    const over = D.a >= 45 && D.p >= 45;
-    right = `<div class="scr-code"><span class="eyebrow">${over ? 'The closing bell' : 'Round ' + pad2(day())}</span><div class="what">${shown >= n && n ? (over ? 'Congratulations to ' : 'Leading after update ' + pad2(D.p) + ': ') + esc(rows[0].res.team) : 'Counting down from last place'}</div></div>`;
-  } else if (!sc) {
+      ${rows.map((t) => `<tr class="${t.hidden ? 'hidden' : ''}"><td class="num">${t.rank}</td><td>${t.hidden ? '· · ·' : esc(t.name)}</td><td class="r num">${t.hidden ? '' : fmtRs(t.value, { whole: true })}</td><td class="r num ${t.hidden ? '' : cls(t.ret)}">${t.hidden ? '' : fmtPct(t.ret)}</td></tr>`).join('')}
+      </tbody></table>` : '<h2>Standings appear here once teams are in.</h2>'}</div>`;
+    const leader = rows.find((r) => r.rank === 1);
+    right = `<div class="scr-code"><span class="eyebrow">${over ? 'The closing bell' : 'Round ' + pad2(dayOf(sd.a))}</span><div class="what">${shown >= n && n && leader && !leader.hidden ? (over ? 'Congratulations to ' : 'Leading after update ' + pad2(sd.p) + ': ') + esc(leader.name) : 'Counting down from last place'}</div></div>`;
+  } else if (!sd.last) {
     left = `<div class="scr-news"><span class="eyebrow">The opening bell</span><h2>Ten companies. Forty-five updates. Nine trading days.</h2>
-      <div class="body"><p>Open the Markets app${D.link ? ` at <b>${esc(D.link.replace(/^https?:\/\//, ''))}</b>` : ''} and name your team. You start with ${fmtRs(G.capital * 100, { whole: true })}.</p><p>When news breaks, a code appears here. Type it into <b>Enter code</b> to read the story, then trade before the prices move.</p><p>When prices move, a new code appears. Type it and your app shows the new prices. Orders made at old prices after that do not count.</p></div></div>`;
-    right = `<div class="scr-code"><span class="eyebrow">Market code</span><div class="what">The first code appears when the first story breaks.</div></div>`;
+      <div class="body">${LIVE
+        ? `<p>Open <b>${esc(location.host)}</b> on a phone or laptop, type the PIN and your team name. You start with ${fmtRs((PUB.state?.capital || 0) * 100, { whole: true })}.</p><p>When news breaks it appears in your app and here. While the market is open, buy shares you think will rise, or sell and short the ones you think will fall.</p><p>When the Event Head moves prices, the market closes and your account updates by itself.</p>`
+        : `<p>Open the Markets app${D.link ? ` at <b>${esc(D.link.replace(/^https?:\/\//, ''))}</b>` : ''} and name your team. You start with ${fmtRs(G.capital * 100, { whole: true })}.</p><p>When news breaks, a code appears here. Type it into <b>Enter code</b> to read the story, then buy, sell or short before the prices move.</p><p>When prices move, a new code appears. Type it and your app shows the new prices. Orders made at old prices after that do not count.</p>`}</div></div>`;
+    right = LIVE ? `<div class="scr-code">${joinBox(true)}</div>` : `<div class="scr-code"><span class="eyebrow">Market code</span><div class="what">The first code appears when the first story breaks.</div></div>`;
   } else {
-    const mainU = U[sc.main.i - 1];
-    if (sc.main.kind === 'N') {
-      const ids = sc.batch.map((e) => e.i);
-      left = ids.length > 1
-        ? `<div class="scr-news"><span class="eyebrow">Round ${pad2(mainU.round)} · ${ids.length} updates</span><ol start="${ids[0]}">${ids.map((i) => `<li>${esc(U[i - 1].head)}</li>`).join('')}</ol><div class="body" style="columns:auto"><p class="muted">Read the full stories in the app.</p></div></div>`
+    const mainU = sd.story(sd.last.main);
+    if (sd.last.kind === 'N') {
+      const ids = sd.last.ids;
+      left = !mainU ? '<div class="scr-news"><span class="eyebrow">Loading the news…</span></div>' : ids.length > 1
+        ? `<div class="scr-news"><span class="eyebrow">Round ${pad2(mainU.round ?? mainU.r)} · ${ids.length} updates</span><ol start="${ids[0]}">${ids.map((i) => `<li>${esc(sd.story(i)?.head || '')}</li>`).join('')}</ol><div class="body" style="columns:auto"><p class="muted">Read the full stories in the app.</p></div></div>`
         : `<div class="scr-news"><span class="eyebrow">Update ${pad2(mainU.i)} · ${esc(mainU.cat)}</span><h2>${esc(mainU.head)}</h2><div class="body">${mainU.body.map((p) => `<p>${esc(p)}</p>`).join('')}</div></div>`;
     } else {
-      const ids = sc.batch.map((e) => e.i), from = Math.min(...ids) - 1, to = Math.max(...ids);
-      const moved = ST.map((s, k) => ({ k, a: PATHS[k][from], b: PATHS[k][to] })).filter((m) => m.a !== m.b).sort((x, y) => (y.b / y.a) - (x.b / x.a));
+      const ids = sd.last.ids, from = Math.min(...ids) - 1, to = Math.max(...ids);
+      const moved = sd.stocks.map((s, k) => ({ k, a: sd.paths[k][from], b: sd.paths[k][to] })).filter((m) => m.a !== m.b).sort((x, y) => (y.b / y.a) - (x.b / x.a));
       left = `<div class="scr-news"><span class="eyebrow">Prices moved · ${ids.length > 1 ? `updates ${pad2(from + 1)}–${pad2(to)}` : `update ${pad2(to)}`}</span>
-        ${ids.length === 1 ? `<h2 style="font-size:clamp(20px,2.2vw,40px)">${esc(mainU.head)}</h2>` : ''}
-        <div class="movers">${moved.map((m) => { const ch = m.b / m.a - 1; return `<div class="mover"><b>${TK[m.k]}</b><span class="nm">${esc(ST[m.k].name)} · ${fmtPrice(m.a)} → ${fmtPrice(m.b)}</span><span class="num ${cls(ch)}">${arrow(ch)} ${fmtPct(ch)}</span></div>`; }).join('')}</div></div>`;
+        ${ids.length === 1 && mainU ? `<h2 style="font-size:clamp(20px,2.2vw,40px)">${esc(mainU.head)}</h2>` : ''}
+        <div class="movers">${moved.map((m) => { const ch = m.b / m.a - 1; return `<div class="mover"><b>${sd.stocks[m.k].t}</b><span class="nm">${esc(sd.stocks[m.k].name)} · ${fmtPrice(m.a)} → ${fmtPrice(m.b)}</span><span class="num ${cls(ch)}">${arrow(ch)} ${fmtPct(ch)}</span></div>`; }).join('')}</div></div>`;
     }
-    right = `<div class="scr-code"><span class="eyebrow">Enter this code</span><div class="code-big">${prettyCode(code(sc.main.kind, sc.main.i))}</div>
+    if (LIVE) right = `<div class="scr-code">${sd.join.open ? joinBox(false) + '<hr style="width:60%;border:0;border-top:1px solid var(--line);margin:1vh auto">' : ''}${marketBox()}</div>`;
+    else {
+      const sc = sd.codes;
+      right = `<div class="scr-code"><span class="eyebrow">Enter this code</span><div class="code-big">${prettyCode(code(sc.main.kind, sc.main.i))}</div>
       <div class="what">${sc.main.kind === 'N' ? 'Opens the news. Prices have not moved yet.' : 'Moves your prices.'}</div>
       ${sc.extra ? `<div><div class="eyebrow" style="color:var(--muted)">Missed the last ${sc.extra.kind === 'P' ? 'price' : 'news'} code?</div><div class="code-sm">${prettyCode(code(sc.extra.kind, sc.extra.i))}</div></div>` : ''}</div>`;
+    }
   }
   $('#screen').innerHTML = `
-    <div class="scr-top"><span class="eyebrow">Round ${pad2(day())} of 09 · News ${pad2(D.a)}/45 · Prices ${pad2(D.p)}/45</span>
+    <div class="scr-top"><span class="eyebrow">Round ${pad2(dayOf(sd.a))} of 09 · News ${pad2(sd.a)}/45 · Prices ${pad2(sd.p)}/45</span>
       <div class="scr-timer"><span class="lbl" data-timer-lbl></span><span class="timer" data-timer>00:00</span></div></div>
     <div class="scr-mid">${left}${right}</div>
     <div class="scr-board">${tiles}</div>
-    <a class="btn small quiet exit" href="#control">Exit big screen</a>`;
+    ${G.screenOnly ? '' : '<a class="btn small quiet exit" href="#control">Exit big screen</a>'}`;
   fitStory();
 }
-// Shrink the story's type until it fits the panel, so the price board below always shows.
+// Fit the story to the panel so the price board below always shows: at each type size try two
+// columns, then three, and only then go one step smaller. The type never goes below a size the
+// back of a hall can read; a story still too long loses its last paragraphs (teams have the
+// whole story in their app).
 function fitStory() {
   const panel = $('#screen .scr-news'), body = panel && $('.leaders, .movers, ol, .body', panel);
   if (!body) return;
-  body.style.fontSize = '';
-  let size = parseFloat(getComputedStyle(body).fontSize);
-  for (let n = 0; n < 40 && panel.scrollHeight > panel.clientHeight + 1 && size > 13; n++) {
-    size -= 0.5;
+  const isBody = body.classList.contains('body');
+  body.style.fontSize = ''; body.style.columns = '';
+  const over = () => panel.scrollHeight > panel.clientHeight + 1;
+  if (!over()) return;
+  const floor = isBody ? Math.max(16, window.innerWidth / 100) : 12;
+  for (let size = parseFloat(getComputedStyle(body).fontSize); size >= floor; size -= 0.5) {
     body.style.fontSize = size + 'px';
-    if (size < 19 && body.classList.contains('body')) body.style.columns = '3 22ch';
+    for (const cols of isBody ? ['2 24ch', '3 18ch'] : ['']) {
+      body.style.columns = cols;
+      if (!over()) return;
+    }
   }
+  if (!isBody) return;
+  body.style.fontSize = floor + 'px'; body.style.columns = '2 24ch';
+  const note = document.createElement('p');
+  note.className = 'muted';
+  note.textContent = 'The full story is in your app.';
+  body.appendChild(note);
+  while (over() && body.children.length > 2) body.children[body.children.length - 2].remove();
 }
 window.addEventListener('resize', () => { if (view === 'screen') fitStory(); });
 
+// ---------- keeping up with the server (LIVE) ----------
+let lastScreen = '';
+async function pollScreen() {
+  try {
+    const r = await call('poll');
+    OFF = r.now - Date.now();
+    PUB.state = r.state;
+    const have = PUB.news.at(-1)?.i || 0;
+    if (r.state && r.state.a > have) { const n = await call('news?from=' + have); PUB.news = PUB.news.concat(n.news); }
+    if (r.state) PUB.news = PUB.news.filter((n) => n.i <= r.state.a);
+    connected = true;
+  } catch { connected = false; }
+  const seen = JSON.stringify([PUB.state, PUB.news.length]);
+  if (seen !== lastScreen) { lastScreen = seen; renderScreen(); }
+  tick();
+}
+let lastDesk = '';
+async function pollDesk() {
+  if (!gameKey) return;
+  const r = await admin('state', { withTeams: view === 'teams' }, true);
+  if (r.refused && r.code === 403) { U = []; render(); return; }
+  const seen = JSON.stringify([D, standingsRows, connected]);
+  // re-render only when something changed, and never while the Event Head is typing
+  const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (seen !== lastDesk && !typing && !$('.confirm')) { lastDesk = seen; render(); }
+}
+let pollTimer = null;
+function poke() {
+  clearTimeout(pollTimer);
+  const run = async () => {
+    if (view === 'screen') await pollScreen(); else if (U.length) await pollDesk();
+    pollTimer = setTimeout(run, document.hidden ? 20000 : view === 'screen' ? 3000 : 4000);
+  };
+  run();
+}
+
 // ---------- toasts ----------
-function toast(title, body) {
+function toast(title, body, bad) {
   if (view === 'screen') return;
   const t = document.createElement('div');
-  t.className = 'toast';
+  t.className = 'toast' + (bad ? ' bad' : '');
   const b = document.createElement('b'); b.textContent = title;
   const s = document.createElement('span'); s.className = 'muted'; s.textContent = body || '';
   t.append(b, s);
@@ -743,6 +1049,13 @@ function toast(title, body) {
   setTimeout(() => t.remove(), 5200);
 }
 
-route();
+async function boot() {
+  if (LIVE && gameKey && !G.screenOnly) {
+    const r = await admin('login', {}, true);
+    if (r.ok) { setGame(r.game); D.sel = Math.min(45, D.p + 1); } else { gameKey = ''; forgetKey(); }
+  }
+  route();
+}
+boot();
 })();
 </script>

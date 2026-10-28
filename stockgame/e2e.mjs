@@ -55,6 +55,12 @@ const typeCode = async (c) => {
   await team.click('#cGo');
   await team.waitForSelector('#cIn', { state: 'detached', timeout: 15000 }).catch(() => {});
 };
+// Press the desk's next step; moving prices early asks first, so confirm it.
+const deskNext = async () => {
+  await desk.click('#goNext');
+  const yes = await desk.waitForSelector('#stepYes', { timeout: 600 }).catch(() => null);
+  if (yes) await yes.click();
+};
 const cash = async () => team.evaluate(() => JSON.parse(localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith('markets:')))).book.cash);
 
 // opening state
@@ -67,7 +73,7 @@ check((await cash()) === 100000000, 'opening balance is ₹10,00,000');
 await shot(desk, 'desk-start');
 
 // 1. news 01
-await desk.click('#goNext');
+await deskNext();
 const n1 = await deskCode();
 check(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(n1), `desk shows news code ${n1}`);
 await typeCode('ABCD-EFGH');
@@ -91,22 +97,34 @@ await team.fill('#op', limitAt);
 await team.click('#oGo');
 await team.goto(`${base}/market#orders`);
 check((await team.textContent('#main')).includes('Open orders (1)'), 'limit order rests');
+// short 20 of a stock at the opening price
+const shortStock = TK.findIndex((t) => !game.updates[0].moves.some((m) => m.t === t)); // a stock update 01 leaves alone
+await team.evaluate((t) => { location.hash = 'stock-' + t; }, TK[shortStock]);
+await team.click('#main .quote [data-sell]');
+await team.fill('#oq', '20');
+check((await team.textContent('#oWhat')).includes('Short sale'), 'the order pad explains a short sale');
+await team.click('#oGo');
+const afterShort = await team.evaluate(() => JSON.parse(localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith('markets:')))).book.holdings);
+check(afterShort[shortStock]?.qty === -20, `shorted 20 ${TK[shortStock]}`);
 await shot(team, 'team-orders');
 
 // 2. prices 01
-await desk.click('#goNext');
+await deskNext();
 const p1 = await deskCode();
 check(p1 !== n1, `desk shows price code ${p1}`);
 await typeCode(p1);
 const moved = await team.locator(`#wl .row[data-k="${riser}"] .ltp`).textContent();
 check(moved.includes(fmtPrice(PATHS[riser][1])), `${TK[riser]} moved to the sheet's price after update 01`);
+await team.goto(`${base}/market#orders`);
 check((await team.textContent('#main')).includes('Open orders (0)'), `the ${TK[faller]} limit filled when update 01 dropped the price below it`);
+await team.goto(`${base}/market#holdings`);
+check((await team.textContent('#main')).includes('SHORT'), 'positions page lists the short');
 
 // 3. news 02 then prices 02, but the team trades at old prices after the price code is out
-await desk.click('#goNext');
+await deskNext();
 const n2 = await deskCode();
 await typeCode(n2);
-await desk.click('#goNext');
+await deskNext();
 await team.waitForTimeout(1500); // the trade lands clearly after the price code went out
 await team.goto(`${base}/market#stock-${TK[riser]}`);
 await team.click('#main .quote [data-sell]');
@@ -118,9 +136,9 @@ await typeCode(p2);
 // 4. round pace: the rest of round 1 in one click each
 await desk.click('[data-mode=round]');
 check((await desk.textContent('.next .what')).includes('updates 03–05'), 'whole-round pace offers news 03–05');
-await desk.click('#goNext');
+await deskNext();
 const n5 = await deskCode();
-await desk.click('#goNext');
+await deskNext();
 const p5 = await deskCode();
 // the team missed both: the latest price code alone opens everything
 await typeCode(p5);
@@ -134,7 +152,7 @@ screen.on('pageerror', (e) => errors.push(e.message));
 await screen.goto(`${base}/desk#screen`);
 check((await screen.textContent('#screen')).includes(p5), 'big screen shows the current code');
 await desk.click('[data-mode=update]');
-await desk.click('#goNext');
+await deskNext();
 const n6 = await deskCode();
 await screen.waitForFunction((c) => document.querySelector('#screen').textContent.includes(c), n6, { timeout: 5000 }).catch(() => {});
 check((await screen.textContent('#screen')).includes(n6), 'big screen updated itself when the desk released news 06');
