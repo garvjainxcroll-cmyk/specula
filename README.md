@@ -11,3 +11,5 @@ Six rounds, one ten-minute trading window each. Every crisis is the Event Headâ€
 Screens: Home `/`, How to Play `/#/learn`, Practice `/#/practice`, Team Desk `/#/desk`, Big Screen `/#/display`, Event Head `/#/admin`.
 
 > Keep this repository **private**: it contains the secret script.
+
+**Also here:** the [stock game](stockgame/README.md), a separate ten-stock broker app and Event Head desk for JACO CORP.

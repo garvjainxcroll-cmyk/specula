@@ -1,0 +1,748 @@
+<title>Event Head Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/*@THEME@*/
+
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; align-items: center; gap: 14px 20px; flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .t { font: 600 15px/1.1 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; }
+.mark { width: 26px; height: 26px; }
+.status { display: flex; gap: 6px; flex-wrap: wrap; }
+.tabs { display: flex; gap: 2px; flex-wrap: wrap; margin-left: auto; }
+.tabs a { text-decoration: none; color: var(--muted); padding: 7px 10px; border-radius: var(--r-sm); font-weight: 500; position: relative; }
+.tabs a:hover { color: var(--ink); background: var(--hover); }
+.tabs a[aria-current="page"] { color: var(--gold-text); }
+.tabs a[aria-current="page"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -2px; height: 2px; background: var(--gold); }
+.secret-tag { font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+
+.page { padding-block: 20px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.ctl { display: grid; grid-template-columns: 290px minmax(0, 1fr) 340px; gap: 20px; align-items: start; max-width: 1600px; margin: 0 auto; }
+.col { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 18px; min-width: 0; }
+.panel.framed { border: 2px solid var(--gold); }
+.h1 { font: 600 22px/1.2 var(--font-display); letter-spacing: 0.04em; }
+.h2 { font: 600 13px/1.3 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.stack { display: grid; gap: 12px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* rounds rail */
+.rounds { display: grid; gap: 4px; position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto; padding-right: 4px; }
+.rnd-h { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 6px 6px; }
+.upd { width: 100%; display: grid; grid-template-columns: 26px minmax(0, 1fr) 12px; gap: 8px; align-items: start; padding: 8px 6px; border: 0; border-radius: var(--r-sm); background: none; text-align: left; color: inherit; }
+.upd:hover { background: var(--hover); }
+.upd[aria-current="true"] { background: var(--gold-wash); box-shadow: inset 2px 0 0 var(--gold); }
+.upd .n { font: 600 12px/1.6 var(--font-mono); color: var(--muted); }
+.upd .hl { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; border: 1.5px solid var(--line-strong); }
+.dot.news { border-color: var(--gold); background: var(--gold-wash); }
+.dot.priced { border-color: var(--gold); background: var(--gold); }
+.dot.next { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-wash); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); padding: 0 6px; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.legend .dot { margin: 0; }
+
+/* next step */
+.next { display: grid; gap: 14px; }
+.next .what { font: 600 26px/1.2 var(--font-display); letter-spacing: 0.03em; }
+.next .btn:not(.small) { min-height: 52px; font-size: 14px; padding: 0 24px; }
+.check { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.check input { accent-color: var(--gold); width: 16px; height: 16px; margin: 0; }
+
+/* update detail */
+.story h2 { font: 600 26px/1.25 var(--font-text); }
+.story .body { font: 400 17px/1.6 var(--font-text); display: grid; gap: 10px; max-width: 72ch; }
+.story .body.clip p:nth-child(n+2) { display: none; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--gold-text); text-decoration: underline; text-underline-offset: 3px; font-size: 13px; justify-self: start; }
+.tbl-wrap { overflow-x: auto; }
+.tbl { width: 100%; font-size: 13px; }
+.tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.tbl td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tbl .r { text-align: right; }
+.tbl .nw { white-space: nowrap; }
+.effect td.why { font-family: var(--font-text); font-size: 15px; line-height: 1.4; min-width: 220px; }
+.effect .mv { font-size: 16px; font-weight: 600; }
+.done-line { font-size: 13px; color: var(--muted); }
+
+/* code box */
+.code-big { font: 600 34px/1.1 var(--font-mono); letter-spacing: 0.12em; color: var(--gold-text); }
+.code-sm { font: 600 18px/1.2 var(--font-mono); letter-spacing: 0.1em; color: var(--ink); }
+.timer { font: 600 46px/1 var(--font-mono); letter-spacing: 0.04em; }
+.timer.low { color: var(--warn); }
+.timer.over { color: var(--down); }
+.board td, .board th { padding: 7px 6px; }
+.confirm { border: 1px solid var(--warn); border-radius: var(--r-sm); padding: 10px; display: grid; gap: 8px; font-size: 13px; }
+
+/* matrix */
+.mx { font-size: 12px; }
+.mx th, .mx td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+.mx thead th { position: sticky; top: 0; background: var(--panel); z-index: 2; color: var(--muted); font-weight: 500; }
+.mx th.r { text-align: right; }
+.mx td.hd { max-width: 340px; overflow: hidden; text-overflow: ellipsis; position: sticky; left: 0; background: var(--panel); }
+.mx td.c { text-align: right; min-width: 64px; font-weight: 600; color: var(--ink); border-left: 2px solid var(--panel); }
+.mx tr.click { cursor: pointer; }
+.mx tr.click:hover td.hd { color: var(--gold-text); }
+.mx tr.done td.hd { color: var(--muted); }
+.mx-wrap { overflow: auto; max-height: calc(100vh - 220px); }
+
+/* small multiples */
+.multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.mini svg { display: block; width: 100%; height: auto; }
+.mstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 13px; }
+.mstats > span { display: grid; gap: 1px; }
+.mstats b { font-weight: 600; }
+
+.empty { color: var(--muted); padding: 20px; text-align: center; }
+textarea.input { min-height: 90px; font: 500 12px/1.4 var(--font-mono); word-break: break-all; resize: vertical; }
+.voided { font-size: 13px; display: grid; gap: 4px; margin: 0; padding-left: 18px; }
+.guide { font-family: var(--font-text); font-size: 17px; line-height: 1.6; max-width: 76ch; display: grid; gap: 12px; }
+.guide ol, .guide ul { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.guide h3 { font: 600 14px/1.3 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 10px; }
+.wide { max-width: 1200px; margin: 0 auto; display: grid; gap: 16px; }
+
+@media (max-width: 1280px) {
+  .ctl { grid-template-columns: 270px minmax(0, 1fr); }
+  .ctl > .side { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+}
+@media (max-width: 820px) {
+  .ctl { grid-template-columns: minmax(0, 1fr); }
+  .rounds { position: static; max-height: 360px; }
+  .tabs { margin-left: 0; }
+  .next .what { font-size: 21px; }
+}
+
+/* ---------- big screen ---------- */
+.screen { display: none; }
+body.on-screen .desk { display: none; }
+body.on-screen .screen { display: grid; }
+body.on-screen::before { background: var(--night, #070302); }
+.screen {
+  height: 100vh; overflow: hidden; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2.2vh;
+  padding-block: 3vh; padding-left: max(3vw, env(safe-area-inset-left, 0px)); padding-right: max(3vw, env(safe-area-inset-right, 0px));
+}
+.scr-top { display: flex; justify-content: space-between; align-items: center; gap: 2vw; flex-wrap: wrap; }
+.scr-top .eyebrow { font-size: clamp(14px, 1.4vw, 24px); }
+.scr-timer { display: flex; align-items: baseline; gap: 1vw; }
+.scr-timer .timer { font-size: clamp(36px, 5vw, 88px); }
+.scr-timer .lbl { font: 600 clamp(12px, 1.1vw, 20px)/1.2 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.scr-mid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 30vw); gap: 2.5vw; min-height: 0; }
+.scr-news { border: 2px solid var(--gold); border-radius: var(--r-md); background: var(--panel); padding: 3vh 2.4vw; display: grid; gap: 1.6vh; align-content: start; overflow: hidden; }
+.scr-news h2 { font: 600 clamp(26px, 3.1vw, 58px)/1.15 var(--font-text); }
+.scr-news .body { font: 400 clamp(16px, 1.45vw, 27px)/1.5 var(--font-text); columns: 2 26ch; column-gap: 2.4vw; min-height: 0; }
+.scr-news .body p { margin: 0 0 1.2vh; break-inside: avoid; }
+.scr-news ol { margin: 0; padding-left: 1.4em; display: grid; gap: 1.4vh; font: 500 clamp(18px, 1.9vw, 34px)/1.3 var(--font-text); }
+.scr-code { border: 2px solid var(--gold); border-radius: var(--r-md); background: var(--panel); padding: 3vh 2vw; display: grid; gap: 1.6vh; align-content: center; text-align: center; }
+.scr-code .code-big { font-size: clamp(30px, 3.6vw, 84px); white-space: nowrap; }
+body.on-screen .toasts { display: none; }
+.scr-code .what { font: 500 clamp(15px, 1.4vw, 26px)/1.35 var(--font-text); }
+.scr-code .code-sm { font-size: clamp(18px, 1.8vw, 34px); }
+.scr-code .eyebrow { font-size: clamp(12px, 1.1vw, 20px); }
+.scr-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1vw; }
+.tile { border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: 1.4vh 1vw; display: grid; gap: 0.4vh; background: var(--panel); }
+.tile .tk { font: 600 clamp(14px, 1.3vw, 24px)/1.1 var(--font-ui); letter-spacing: 0.04em; }
+.tile .px { font: 500 clamp(18px, 1.9vw, 36px)/1.1 var(--font-ui); }
+.tile .ch { font: 500 clamp(13px, 1.15vw, 21px)/1.1 var(--font-ui); }
+.tile.up { border-color: var(--up); }
+.tile.down { border-color: var(--down); }
+.movers { display: grid; gap: 1.4vh; }
+.mover { display: grid; grid-template-columns: minmax(5em, auto) minmax(0, 1fr) auto; gap: 1.5vw; align-items: baseline; font: 500 clamp(18px, 2vw, 38px)/1.2 var(--font-ui); padding-bottom: 1vh; border-bottom: 1px solid var(--line); }
+.mover .nm { font: 400 clamp(15px, 1.4vw, 26px)/1.2 var(--font-text); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leaders { width: 100%; font: 500 clamp(18px, 1.9vw, 36px)/1.3 var(--font-ui); }
+.leaders td, .leaders th { padding: 1.2vh 1vw; border-bottom: 1px solid var(--line); text-align: left; }
+.leaders th { font: 600 clamp(12px, 1vw, 18px)/1.2 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.leaders .r { text-align: right; }
+.leaders tr.hidden td { color: var(--line-strong); }
+.exit { position: fixed; right: calc(12px + env(safe-area-inset-right, 0px)); top: calc(12px + env(safe-area-inset-top, 0px)); opacity: 0.15; z-index: 30; }
+.exit:hover, .exit:focus-visible { opacity: 1; }
+@media (max-width: 900px) {
+  .screen { height: auto; min-height: 100vh; overflow: visible; }
+  .scr-mid { grid-template-columns: minmax(0, 1fr); }
+  .scr-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>
+
+<script type="application/json" id="game">/*@PAYLOAD@*/</script>
+
+<div class="desk">
+  <header class="top">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 28 28" aria-hidden="true">
+        <rect x="1" y="1" width="26" height="26" rx="6" fill="none" style="stroke: var(--gold)" stroke-width="2"/>
+        <rect x="6.5" y="11" width="3" height="7" rx="0.8" style="fill: var(--gold)"/>
+        <rect x="12.5" y="8" width="3" height="8" rx="0.8" style="fill: none; stroke: var(--gold)" stroke-width="1.2"/>
+        <rect x="18.5" y="10" width="3" height="6" rx="0.8" style="fill: var(--gold)"/>
+      </svg>
+      <span class="t">Event Head Desk</span>
+      <span class="secret-tag">Private · never project this window</span>
+    </div>
+    <div class="status" id="status"></div>
+    <nav class="tabs" aria-label="Desk sections">
+      <a href="#control" data-v="control">Control</a>
+      <a href="#matrix" data-v="matrix">Impact matrix</a>
+      <a href="#path" data-v="path">Price path</a>
+      <a href="#teams" data-v="teams">Teams</a>
+      <a href="#codes" data-v="codes">Codes</a>
+      <a href="#guide" data-v="guide">Guide</a>
+      <a href="#screen" data-v="screen">Big screen</a>
+    </nav>
+  </header>
+  <div class="page" id="page"></div>
+</div>
+
+<div class="screen" id="screen" aria-live="polite"></div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+/*@ENGINE@*/
+/*@CHART@*/
+
+const G = JSON.parse(document.getElementById('game').textContent);
+const ST = G.stocks, U = G.updates, TK = ST.map((s) => s.t);
+const MOVES = U.map((u) => u.moves.map((m) => [TK.indexOf(m.t), m.pct]));
+const PATHS = pricePaths(ST, MOVES);
+const KEY = 'desk:' + G.id;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cls = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : 'flat');
+const arrow = (x) => (x > 0 ? '▲' : x < 0 ? '▼' : '');
+const hhmm = (ms) => new Date(ms).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const code = (kind, i) => G.codes[kind][i - 1];
+
+// ---------- desk state (this browser; the big screen window reads the same copy) ----------
+const fresh = () => ({ a: 0, p: 0, log: [], mode: 'update', sel: 1, autoTimer: true, timer: { dur: 240000, endsAt: null, left: 240000 }, show: 'market', teams: [], reveal: 0, grace: 45, link: G.marketUrl || '' });
+let storageOK = true;
+function load() { try { const s = localStorage.getItem(KEY); return s ? { ...fresh(), ...JSON.parse(s) } : null; } catch { storageOK = false; return null; } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(D)); } catch { storageOK = false; } }
+let D = load() || fresh();
+
+const day = () => dayOf(D.a);
+const ltp = (k) => PATHS[k][D.p];
+const stat = (k) => dayStats(PATHS[k], D.a, D.p);
+const releasedAt = () => { const r = []; for (const e of D.log) if (e.kind === 'P') r[e.i] = e.at; return r; };
+const logOf = (kind, i) => D.log.find((e) => e.kind === kind && e.i === i);
+
+// ---------- the one-click steps ----------
+function nextStep() {
+  if (D.a > D.p) {
+    const to = D.mode === 'round' ? D.a : D.p + 1;
+    return { kind: 'P', from: D.p + 1, to };
+  }
+  if (D.a >= 45) return null;
+  const to = D.mode === 'round' ? Math.min(45, Math.ceil((D.a + 1) / 5) * 5) : D.a + 1;
+  return { kind: 'N', from: D.a + 1, to };
+}
+function stepLabel(s) {
+  const span = s.from === s.to ? `update ${pad2(s.from)}` : `updates ${pad2(s.from)}–${pad2(s.to)}`;
+  return s.kind === 'N' ? `Release news · ${span}` : `Move prices · ${span}`;
+}
+function doStep(s) {
+  const at = Date.now(), batch = at;
+  for (let i = s.from; i <= s.to; i++) {
+    if (s.kind === 'N' && i === D.a + 1) { D.a = i; D.log.push({ kind: 'N', i, at, batch }); }
+    if (s.kind === 'P' && i === D.p + 1 && i <= D.a) { D.p = i; D.log.push({ kind: 'P', i, at, batch }); }
+  }
+  D.sel = s.kind === 'N' ? s.from : Math.min(45, D.p + 1);
+  if (s.kind === 'N' && D.autoTimer) startTimer(true);
+  if (s.kind === 'P') stopTimer();
+  save();
+  const c = code(s.kind, s.to);
+  toast(s.kind === 'N' ? `News out · code ${prettyCode(c)}` : `Prices moved · code ${prettyCode(c)}`, 'Show the big screen so teams can type the code.');
+  render();
+}
+function undo() {
+  if (!D.log.length) return;
+  const b = D.log[D.log.length - 1].batch;
+  D.log = D.log.filter((e) => e.batch !== b);
+  D.a = Math.max(0, ...D.log.filter((e) => e.kind === 'N').map((e) => e.i));
+  D.p = Math.max(0, ...D.log.filter((e) => e.kind === 'P').map((e) => e.i));
+  save(); render();
+}
+// The code on the big screen is always the latest released one of the last kind clicked,
+// never one that has not been released (codes come from the counts, not from the log).
+function onScreenCodes() {
+  const last = D.log[D.log.length - 1];
+  if (!last) return null;
+  const main = { kind: last.kind, i: last.kind === 'N' ? D.a : D.p };
+  if (!main.i) return null;
+  const extra = main.kind === 'N' && D.p > 0 ? { kind: 'P', i: D.p } : main.kind === 'P' && D.a > D.p ? { kind: 'N', i: D.a } : null;
+  const batch = last.jump ? [last] : D.log.filter((e) => e.batch === last.batch && e.kind === last.kind);
+  return { main, extra, batch };
+}
+const when = (e) => (e.at ? hhmm(e.at) : 'a time set by hand');
+
+// ---------- timer ----------
+function timeLeft() { const t = D.timer; return t.endsAt ? t.endsAt - Date.now() : t.left; }
+function startTimer(reset) { const t = D.timer; const left = reset ? t.dur : Math.max(0, timeLeft()); t.endsAt = Date.now() + left; t.left = left; chimed = false; }
+function stopTimer() { const t = D.timer; if (t.endsAt) { t.left = Math.max(0, t.endsAt - Date.now()); t.endsAt = null; } }
+function fmtClock(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`; }
+let chimed = true;
+function tick() {
+  const left = timeLeft();
+  const running = !!D.timer.endsAt;
+  document.querySelectorAll('[data-timer]').forEach((el) => {
+    el.textContent = fmtClock(left);
+    el.classList.toggle('low', running && left <= 30000 && left > 0);
+    el.classList.toggle('over', left <= 0);
+  });
+  document.querySelectorAll('[data-timer-lbl]').forEach((el) => { el.textContent = left <= 0 ? 'Window closed' : running ? 'Trading window' : 'Window paused'; });
+  if (running && left <= 0 && !chimed) { chimed = true; beep(); }
+}
+let actx;
+function beep() {
+  if (document.body.classList.contains('on-screen')) return;
+  try {
+    actx = actx || new AudioContext();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = 660; g.gain.setValueAtTime(0.0001, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, actx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + 0.9);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.95);
+  } catch {}
+}
+setInterval(tick, 250);
+
+// ---------- routing ----------
+let view = 'control';
+function route() {
+  const h = (location.hash || '').slice(1);
+  view = ['control', 'matrix', 'path', 'teams', 'codes', 'guide', 'screen'].includes(h) ? h : 'control';
+  document.body.classList.toggle('on-screen', view === 'screen');
+  if (view === 'screen') $('#toasts').textContent = '';
+  render();
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', route);
+window.addEventListener('storage', (e) => { if (e.key === KEY) { D = load() || fresh(); render(); } });
+
+function render() {
+  if (view === 'screen') { renderScreen(); tick(); return; }
+  $('#status').innerHTML = `<span class="chip gold">Round ${pad2(day())} of 09</span><span class="chip">News ${pad2(D.a)}/45</span><span class="chip">Prices ${pad2(D.p)}/45</span>`;
+  document.querySelectorAll('.tabs a').forEach((a) => { if (a.dataset.v === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  const V = { control: vControl, matrix: vMatrix, path: vPath, teams: vTeams, codes: vCodes, guide: vGuide }[view];
+  $('#page').innerHTML = V();
+  after.forEach((f) => f()); after = [];
+  tick();
+}
+let after = [];
+
+// ---------- control ----------
+function statusOf(i) { return i <= D.p ? 'priced' : i <= D.a ? 'news' : 'locked'; }
+function vControl() {
+  const ns = nextStep();
+  const u = U[D.sel - 1];
+  const sc = onScreenCodes();
+  const stLabel = { priced: 'News out · prices moved', news: 'News out · prices not moved', locked: 'Not released' };
+  const canN = u.i === D.a + 1, canP = u.i === D.p + 1 && u.i <= D.a;
+  const nL = logOf('N', u.i), pL = logOf('P', u.i);
+  return `<div class="ctl">
+    <aside class="col"><div class="panel" style="padding:10px">
+      <div class="legend"><span><i class="dot"></i>Not released</span><span><i class="dot news"></i>News out</span><span><i class="dot priced"></i>Prices moved</span></div>
+      <div class="rounds" id="rounds">${Array.from({ length: 9 }, (_, r) => {
+        const us = U.slice(r * 5, r * 5 + 5);
+        const done = us.filter((x) => x.i <= D.p).length;
+        return `<div class="rnd-h"><span class="eyebrow">Round ${pad2(r + 1)}</span><span class="label">${done}/5 priced</span></div>` + us.map((x) => {
+          const st = statusOf(x.i);
+          const isNext = ns && x.i >= ns.from && x.i <= ns.to;
+          return `<button class="upd" type="button" data-sel="${x.i}" aria-current="${x.i === D.sel}"><span class="n">${pad2(x.i)}</span><span class="hl">${esc(x.head)}</span><i class="dot ${st === 'locked' ? '' : st} ${isNext ? 'next' : ''}" title="${stLabel[st]}"></i></button>`;
+        }).join('');
+      }).join('')}</div></div></aside>
+
+    <section class="col">
+      <div class="panel framed next">
+        <div class="sec-head"><span class="eyebrow">Next step</span>
+          <div class="row" role="group" aria-label="Release pace"><span class="label">Pace</span>
+            <button class="btn small ${D.mode === 'update' ? 'primary' : 'quiet'}" type="button" data-mode="update">One update</button>
+            <button class="btn small ${D.mode === 'round' ? 'primary' : 'quiet'}" type="button" data-mode="round">Whole round</button></div></div>
+        ${ns ? `<div class="what">${stepLabel(ns)}</div>
+          <p class="muted">${ns.kind === 'N'
+            ? `Teams get the story${ns.to > ns.from ? 'ies' : ''} when they type the code. Prices stay where they are, so this opens the trading window.`
+            : `Prices move by the effects below${ns.to > ns.from ? ' for each update in turn' : ''}. Close the trading window first: orders placed at the old prices after this are voided when you check teams.`}</p>
+          <div class="row"><button class="btn primary" type="button" id="goNext">${ns.kind === 'N' ? 'Release news' : 'Move prices'}</button>
+          ${ns.kind === 'N' ? `<label class="check"><input type="checkbox" id="autoT" ${D.autoTimer ? 'checked' : ''}> Start the ${fmtClock(D.timer.dur)} trading window too</label>` : ''}</div>`
+          : `<div class="what">All 45 updates are out</div><p class="muted">Collect each team's report code on the Teams tab, then reveal the standings on the big screen.</p><div class="row"><a class="btn primary" href="#teams">Go to Teams</a></div>`}
+      </div>
+
+      <article class="panel story stack">
+        <div class="sec-head"><span class="eyebrow">Update ${pad2(u.i)} · Round ${pad2(u.round)} · ${esc(u.cat)}</span><span class="chip ${statusOf(u.i) === 'locked' ? '' : 'gold'}">${stLabel[statusOf(u.i)]}</span></div>
+        <h2>${esc(u.head)}</h2>
+        <div class="tbl-wrap"><table class="tbl effect">
+          <thead><tr><th>Stock</th><th class="r">Effect</th><th class="r">Price before → after</th><th>Why the price moves</th></tr></thead>
+          <tbody>${u.moves.map((m) => { const k = TK.indexOf(m.t); return `<tr><td class="nw"><b>${m.t}</b><br><span class="muted">${esc(ST[k].name)}</span></td><td class="r mv num ${cls(m.pct)}">${arrow(m.pct)} ${fmtPct(m.pct, 1)}</td><td class="r num nw">${fmtPrice(PATHS[k][u.i - 1])} → <b>${fmtPrice(PATHS[k][u.i])}</b></td><td class="why">${esc(m.why)}</td></tr>`; }).join('')}</tbody>
+        </table></div>
+        <div class="row">
+          <button class="btn ${canN ? 'primary' : 'quiet'}" type="button" data-one="N" ${canN ? '' : 'disabled'}>Release news ${pad2(u.i)}</button>
+          <button class="btn ${canP ? 'primary' : 'quiet'}" type="button" data-one="P" ${canP ? '' : 'disabled'}>Move prices ${pad2(u.i)}</button>
+        </div>
+        <div class="done-line">${nL ? `News out at ${when(nL)} · code <span class="mono">${prettyCode(code('N', u.i))}</span>` : `News code <span class="mono">${prettyCode(code('N', u.i))}</span> · release order: news ${pad2(D.a + 1)} is next`}<br>
+          ${pL ? `Prices moved at ${when(pL)} · code <span class="mono">${prettyCode(code('P', u.i))}</span>` : `Price code <span class="mono">${prettyCode(code('P', u.i))}</span>${u.i <= D.a ? '' : ' · its news must go out first'}`}</div>
+        <div class="body clip">${u.body.map((p) => `<p>${esc(p)}</p>`).join('')}</div>
+        <button class="linkbtn" type="button" data-more>Read the full story (${u.body.length} paragraphs)</button>
+      </article>
+    </section>
+
+    <aside class="col side">
+      <section class="panel framed stack">
+        <div class="sec-head"><span class="eyebrow">On the big screen</span><a class="btn small" href="#screen">Open big screen</a></div>
+        ${sc ? `<div><div class="code-big">${prettyCode(code(sc.main.kind, sc.main.i))}</div>
+          <div class="muted" style="margin-top:6px">${sc.main.kind === 'N' ? 'News' : 'Prices'} for update ${pad2(sc.main.i)}${sc.batch.length > 1 ? ` (and the ${sc.batch.length - 1} before it in this round)` : ''}</div></div>
+          ${sc.extra ? `<div><div class="label">${sc.extra.kind === 'P' ? 'Latest price code, for teams who missed it' : 'Latest news code, for teams who missed it'}</div><div class="code-sm">${prettyCode(code(sc.extra.kind, sc.extra.i))}</div></div>` : ''}`
+          : '<p class="muted">Nothing released yet. The big screen shows the opening prices and how to join.</p>'}
+        ${D.log.length ? `<div id="undoBox"><button class="linkbtn" type="button" id="undo1">Undo the last step</button></div>` : ''}
+      </section>
+      <section class="panel stack">
+        <div class="sec-head"><span class="eyebrow">Trading window</span><span class="label" data-timer-lbl></span></div>
+        <div class="timer" data-timer>00:00</div>
+        <div class="row">
+          ${[2, 3, 4, 5].map((m) => `<button class="btn small ${D.timer.dur === m * 60000 ? 'primary' : 'quiet'}" type="button" data-dur="${m}">${m} min</button>`).join('')}
+        </div>
+        <div class="row">
+          <button class="btn small" type="button" data-t="start">${D.timer.endsAt ? 'Restart' : 'Start'}</button>
+          <button class="btn small" type="button" data-t="pause" ${D.timer.endsAt ? '' : 'disabled'}>Pause</button>
+          <button class="btn small" type="button" data-t="resume" ${!D.timer.endsAt && D.timer.left > 0 && D.timer.left < D.timer.dur ? '' : 'disabled'}>Resume</button>
+          <button class="btn small" type="button" data-t="add">+30 s</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="sec-head"><span class="eyebrow">Market now</span><span class="label">Day ${pad2(day())} change</span></div>
+        <div class="tbl-wrap"><table class="tbl board"><thead><tr><th>Stock</th><th class="r">Price</th><th class="r">Day</th><th class="r">Since start</th></tr></thead><tbody>
+          ${ST.map((s, k) => { const st = stat(k); return `<tr><td><b>${s.t}</b></td><td class="r num">${fmtPrice(st.ltp)}</td><td class="r num ${cls(st.chg)}">${fmtPct(st.chgPct)}</td><td class="r num ${cls(st.sinceStart)}">${fmtPct(st.sinceStart)}</td></tr>`; }).join('')}
+        </tbody></table></div>
+      </section>
+    </aside>
+  </div>`;
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  const sel = t.closest('[data-sel]');
+  if (sel) { D.sel = +sel.dataset.sel; save(); render(); return; }
+  if (t.id === 'goNext') { const ns = nextStep(); if (ns) doStep(ns); return; }
+  const one = t.closest('[data-one]');
+  if (one && !one.disabled) { doStep({ kind: one.dataset.one, from: D.sel, to: D.sel }); return; }
+  const md = t.closest('[data-mode]');
+  if (md) { D.mode = md.dataset.mode; save(); render(); return; }
+  if (t.closest('[data-more]')) { const b = t.closest('[data-more]'); b.previousElementSibling.classList.remove('clip'); b.remove(); return; }
+  const du = t.closest('[data-dur]');
+  if (du) { D.timer.dur = +du.dataset.dur * 60000; if (!D.timer.endsAt) D.timer.left = D.timer.dur; save(); render(); return; }
+  const tm = t.closest('[data-t]');
+  if (tm) {
+    const a = tm.dataset.t;
+    if (a === 'start') startTimer(true);
+    if (a === 'pause') stopTimer();
+    if (a === 'resume') startTimer(false);
+    if (a === 'add') { if (D.timer.endsAt) D.timer.endsAt = Math.max(Date.now(), D.timer.endsAt) + 30000; else D.timer.left += 30000; chimed = false; }
+    save(); render(); return;
+  }
+  if (t.id === 'undo1') {
+    const last = D.log[D.log.length - 1];
+    const n = D.log.filter((x) => x.batch === last.batch).length;
+    $('#undoBox').innerHTML = `<div class="confirm"><span>Undo ${last.kind === 'N' ? 'the news release' : 'the price move'} for ${n > 1 ? n + ' updates' : 'update ' + pad2(last.i)}? Teams who already typed its code keep what it showed them, so only undo a click that no one has seen.</span><div class="row"><button class="btn small sell" type="button" id="undo2">Undo it</button><button class="btn small quiet" type="button" data-rerender>Keep it</button></div></div>`;
+    return;
+  }
+  if (t.id === 'undo2') { undo(); toast('Last step undone', 'The desk and big screen are back one step.'); return; }
+  if (t.closest('[data-rerender]')) { render(); return; }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'autoT') { D.autoTimer = e.target.checked; save(); }
+  if (e.target.id === 'grace') { D.grace = Math.max(0, Math.min(600, Math.round(+e.target.value || 0))); save(); const st = $('#standings'); if (st) st.innerHTML = standingsHTML(); }
+  if (e.target.id === 'link') { D.link = e.target.value.trim(); save(); }
+});
+
+// ---------- impact matrix ----------
+function vMatrix() {
+  // diverging fill: cool for a rise, warm for a fall, stronger for a bigger move; the signed number carries the value
+  const wash = (pct) => `background: color-mix(in srgb, ${pct > 0 ? 'var(--up)' : 'var(--down)'} ${Math.round(12 + Math.min(1, Math.abs(pct) / 0.2) * 40)}%, transparent)`;
+  return `<div class="wide">
+    <div class="sec-head"><h1 class="h1">Impact matrix</h1><span class="muted">Each update moves exactly four stocks. Moves compound in release order. Click a row to open it.</span></div>
+    <div class="panel"><div class="mx-wrap"><table class="mx">
+      <thead><tr><th>#</th><th>Update</th>${TK.map((t) => `<th class="r">${t}</th>`).join('')}</tr></thead>
+      <tbody>${U.map((u) => {
+        const st = statusOf(u.i);
+        return `<tr class="click ${st === 'priced' ? 'done' : ''}" data-open="${u.i}"><td class="num"><i class="dot ${st === 'locked' ? '' : st}" style="display:inline-block;vertical-align:-1px;margin:0 6px 0 0"></i>${pad2(u.i)}</td><td class="hd" title="${esc(u.head)}">${esc(u.head)}</td>${TK.map((t) => {
+          const m = u.moves.find((x) => x.t === t);
+          return m ? `<td class="c num" style="${wash(m.pct)}" title="${esc(m.why)}">${fmtPct(m.pct, 1)}</td>` : '<td class="c"></td>';
+        }).join('')}</tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr><td></td><td class="hd"><b>Start → end of game</b></td>${ST.map((s, k) => { const ch = PATHS[k][45] / PATHS[k][0] - 1; return `<td class="c num ${cls(ch)}">${fmtPct(ch, 1)}</td>`; }).join('')}</tr></tfoot>
+    </table></div></div></div>`;
+}
+document.addEventListener('click', (e) => { const r = e.target.closest('[data-open]'); if (r) { D.sel = +r.dataset.open; save(); location.hash = 'control'; } });
+
+// ---------- price path (small multiples, one stock each) ----------
+function vPath() {
+  after.push(() => ST.forEach((s, k) => miniPath($('#mp' + k), PATHS[k], D.p)));
+  return `<div class="wide">
+    <div class="sec-head"><h1 class="h1">Price path</h1><span class="muted">Solid: prices so far. Dashed: what the rest of the script will do. Day lines every five updates.</span></div>
+    <div class="multi">${ST.map((s, k) => {
+      const now = PATHS[k][D.p], end = PATHS[k][45], st = PATHS[k][0];
+      return `<div class="panel mini stack" style="gap:6px"><div class="sec-head"><span><b>${s.t}</b> <span class="muted">${esc(s.name)}</span></span></div>
+        <div class="mstats"><span><span class="label">Start</span><b class="num">${fmtPrice(st)}</b></span><span><span class="label">Now</span><b class="num">${fmtPrice(now)}</b> <span class="num ${cls(now - st)}">${fmtPct(now / st - 1, 1)}</span></span><span><span class="label">End of game</span><b class="num">${fmtPrice(end)}</b> <span class="num ${cls(end - st)}">${fmtPct(end / st - 1, 1)}</span></span></div>
+        <div id="mp${k}"></div></div>`;
+    }).join('')}</div>
+    <div class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>After update</th>${TK.map((t) => `<th class="r">${t}</th>`).join('')}</tr></thead><tbody>
+      ${Array.from({ length: 46 }, (_, p) => `<tr${p === D.p ? ' style="background:var(--gold-wash)"' : ''}><td class="num">${p ? pad2(p) : 'Start'}${p === D.p ? ' · now' : ''}</td>${ST.map((s, k) => `<td class="r num">${fmtPrice(PATHS[k][p])}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div></div></div>`;
+}
+function miniPath(box, path, p) {
+  const NS = 'http://www.w3.org/2000/svg', W = 300, H = 110, pl = 4, pr = 4, pt = 8, pb = 8;
+  const lo = Math.min(...path) * 0.98, hi = Math.max(...path) * 1.02;
+  const X = (i) => pl + (i / 45) * (W - pl - pr), Y = (v) => pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb);
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `Price after each of the 45 updates; ${p} applied so far`);
+  const mk = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+  for (let d = 5; d < 45; d += 5) mk('line', { x1: X(d), x2: X(d), y1: pt, y2: H - pb, style: 'stroke: var(--line)', 'stroke-width': 1 });
+  mk('line', { x1: pl, x2: W - pr, y1: Y(path[0]), y2: Y(path[0]), style: 'stroke: var(--muted)', 'stroke-width': 1, 'stroke-dasharray': '3 4', opacity: 0.6 });
+  const seg = (a, b) => path.slice(a, b + 1).map((v, j) => (j ? 'L' : 'M') + X(a + j).toFixed(1) + ' ' + Y(v).toFixed(1)).join(' ');
+  if (p < 45) mk('path', { d: seg(p, 45), fill: 'none', style: 'stroke: var(--muted)', 'stroke-width': 1.5, 'stroke-dasharray': '3 3' });
+  if (p > 0) mk('path', { d: seg(0, p), fill: 'none', style: 'stroke: var(--gold)', 'stroke-width': 2, 'stroke-linejoin': 'round' });
+  mk('circle', { cx: X(p), cy: Y(path[p]), r: 4, style: 'fill: var(--gold); stroke: var(--panel)', 'stroke-width': 2 });
+  box.appendChild(svg);
+}
+
+// ---------- teams ----------
+function checkTeam(rpt) {
+  const r = decodeReport(rpt);
+  return { r, res: replay(r, { paths: PATHS, applied: D.p, releasedAt: releasedAt(), graceSec: D.grace, capital: G.capital }) };
+}
+function standings() {
+  const rows = [];
+  for (const t of D.teams) { try { const { res } = checkTeam(t.code); rows.push({ ...t, res }); } catch {} }
+  rows.sort((a, b) => b.res.value - a.res.value);
+  return rows;
+}
+let lastCheck = null;
+function standingsHTML() {
+  const rows = standings();
+  return `        <div class="sec-head"><h2 class="h2">Standings (${rows.length})</h2><span class="label">valued at prices after update ${pad2(D.p)}</span></div>
+        ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Team</th><th class="r">Value</th><th class="r">Return</th><th class="r">Trades</th><th></th></tr></thead><tbody>
+          ${rows.map((t, j) => `<tr><td class="num">${j + 1}</td><td><b>${esc(t.res.team)}</b>${t.res.voided.length ? `<br><span class="warn" style="font-size:12px">${t.res.voided.length} voided</span>` : ''}${t.res.capitalMismatch ? '<br><span class="warn" style="font-size:12px">wrong opening balance in code</span>' : ''}</td><td class="r num">${fmtRs(t.res.value, { whole: true })}</td><td class="r num ${cls(t.res.ret)}">${fmtPct(t.res.ret)}</td><td class="r num">${t.res.kept}</td><td class="r"><button class="btn small quiet" type="button" data-drop="${j}" data-name="${esc(t.res.team)}">Remove</button></td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="empty">No teams checked yet.</p>'}
+        <h2 class="h2" style="margin-top:8px">Big screen</h2>
+        <div class="row">
+          <button class="btn small ${D.show === 'market' ? 'primary' : 'quiet'}" type="button" data-show="market">Show the market</button>
+          <button class="btn small ${D.show === 'leaders' ? 'primary' : 'quiet'}" type="button" data-show="leaders">Show standings</button>
+        </div>
+        <div class="row">
+          <span class="label">Reveal from last place up: ${Math.min(D.reveal, rows.length)} of ${rows.length} shown</span>
+          <button class="btn small" type="button" data-rev="1" ${D.reveal >= rows.length ? 'disabled' : ''}>Reveal next place</button>
+          <button class="btn small quiet" type="button" data-rev="all">Reveal all</button>
+          <button class="btn small quiet" type="button" data-rev="0">Hide all</button>
+        </div>`;
+}
+function vTeams() {
+  const lc = lastCheck;
+  return `<div class="wide">
+    <div class="sec-head"><h1 class="h1">Teams</h1><span class="muted">Check a team by replaying its trades at the official prices.</span></div>
+    <div class="ctl" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)">
+      <section class="panel stack">
+        <h2 class="h2">Check a report code</h2>
+        <p class="muted">Each team copies its report code from Funds in the app and sends it to you. Paste one here.</p>
+        <textarea class="input" id="rpt" placeholder="RPT-…" aria-label="Report code"></textarea>
+        <label class="field" style="max-width:280px"><span>Grace for typing a price code (seconds)</span><input class="input num" id="grace" type="number" min="0" max="600" value="${D.grace}"></label>
+        <div class="row"><button class="btn primary" type="button" id="chk">Check</button></div>
+        <div id="chkOut">${lc ? lc : ''}</div>
+      </section>
+      <section class="panel stack" id="standings">${standingsHTML()}</section>
+    </div></div>`;
+}
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t.id === 'chk') {
+    const val = $('#rpt').value.trim();
+    try {
+      const { r, res } = checkTeam(val);
+      lastCheck = `<div class="panel framed stack" style="padding:14px">
+        <div class="sec-head"><b style="font-size:16px">${esc(r.team)}</b><span class="num ${cls(res.ret)}">${fmtPct(res.ret)}</span></div>
+        <div>Account value <b class="num">${fmtRs(res.value)}</b> <span class="muted">(${res.kept} of ${res.fills} trades kept)</span></div>
+        ${res.capitalMismatch ? `<div class="warn">The code says the opening balance was ${fmtRs(r.capital * 100, { whole: true })}; the desk uses ${fmtRs(G.capital * 100, { whole: true })}.</div>` : ''}
+        ${res.voided.length ? `<div><span class="warn">Voided trades</span><ol class="voided">${res.voided.map((v) => `<li>Trade ${v.n}: ${v.side === 'B' ? 'buy' : 'sell'} ${fmtQty(v.qty)} ${TK[v.k] || '?'} at ${hhmm(v.t * 1000)}: ${esc(v.why)}</li>`).join('')}</ol></div>` : '<div class="muted">Every trade checks out.</div>'}
+        <div class="row"><button class="btn primary small" type="button" id="keep">Save to standings</button></div>
+      </div>`;
+      pending = val;
+    } catch (x) { lastCheck = `<p class="warn">${esc(x.message)}</p>`; pending = null; }
+    $('#chkOut').innerHTML = lastCheck;
+  }
+  if (t.id === 'keep' && pending) {
+    const { r } = checkTeam(pending);
+    D.teams = D.teams.filter((x) => { try { return decodeReport(x.code).team !== r.team; } catch { return false; } });
+    D.teams.push({ code: pending, at: Date.now() });
+    save(); lastCheck = null; pending = null;
+    toast(`${r.team} saved`, 'A newer code from the same team replaces the older one.');
+    render();
+  }
+  const dr = t.closest('[data-drop]');
+  if (dr) {
+    if (dr.dataset.confirm !== '1') { dr.dataset.confirm = '1'; dr.textContent = 'Remove?'; dr.classList.add('sell'); return; }
+    const name = dr.dataset.name;
+    D.teams = D.teams.filter((x) => { try { return decodeReport(x.code).team !== name; } catch { return false; } });
+    save(); render();
+  }
+  const sh = t.closest('[data-show]');
+  if (sh) { D.show = sh.dataset.show; save(); render(); }
+  const rv = t.closest('[data-rev]');
+  if (rv) { const n = standings().length; D.reveal = rv.dataset.rev === 'all' ? n : rv.dataset.rev === '0' ? 0 : Math.min(n, D.reveal + 1); D.show = 'leaders'; save(); render(); }
+});
+let pending = null;
+
+// ---------- codes ----------
+function vCodes() {
+  return `<div class="wide">
+    <div class="sec-head"><h1 class="h1">Release codes</h1><span class="secret-tag">Never project this page</span></div>
+    <p class="muted">The desk shows the right code after each click. This list is for emergencies, for example if this laptop fails and you carry on from another one (Guide → Carry on from another device).</p>
+    <div class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Update</th><th>News code</th><th>Price code</th><th>Status</th></tr></thead><tbody>
+      ${U.map((u) => `<tr><td class="num">${pad2(u.i)}</td><td>${esc(u.head)}</td><td class="mono nw">${prettyCode(code('N', u.i))}</td><td class="mono nw">${prettyCode(code('P', u.i))}</td><td class="nw muted">${{ priced: 'Prices moved', news: 'News out', locked: '—' }[statusOf(u.i)]}</td></tr>`).join('')}
+    </tbody></table></div></div></div>`;
+}
+
+// ---------- guide ----------
+function vGuide() {
+  return `<div class="wide"><div class="sec-head"><h1 class="h1">How to run the game</h1></div>
+    <div class="panel guide">
+      <h3>Before the event</h3>
+      <ol>
+        <li>Share the <b>team app link</b> (the Markets page) with every team. Never share this desk's link.</li>
+        <li>Each team opens it on one device, names its team, and starts with ${fmtRs(G.capital * 100, { whole: true })}.</li>
+        <li>On this laptop, open this desk twice: this window stays on your screen, and a second window, set to <b>Big screen</b>, goes on the projector. Both follow your clicks. With one screen only, use the Big screen tab and press Exit to come back.</li>
+      </ol>
+      <h3>Each update</h3>
+      <ol>
+        <li>Press <b>Release news</b>. The big screen shows the story and a news code, and the trading window starts.</li>
+        <li>Teams type the code, read the story and trade at the current prices.</li>
+        <li>When the window closes, press <b>Move prices</b>. The big screen shows the moves and a price code. Teams type it and the prices change in their app.</li>
+      </ol>
+      <p>Prefer whole rounds? Set the pace to <b>Whole round</b>: one click releases all five stories of the round, and one click moves all five sets of prices. The code shown then opens all five.</p>
+      <h3>Fair play</h3>
+      <ul>
+        <li>Every team's app holds the whole game, locked. Without a code nobody can read ahead.</li>
+        <li>A team that keeps trading at old prices after a price code is on the screen gains nothing: when you check its report code, those trades are voided. The grace period (now ${D.grace} seconds) allows for typing the code.</li>
+        <li>The report code is checked against the official prices, so edited cash or holdings do not count.</li>
+      </ul>
+      <h3>At the end</h3>
+      <ol>
+        <li>After update 45's prices, ask every team to send its report code (Funds → Copy report code).</li>
+        <li>Paste each into <b>Teams</b> and save it. The standings are valued at the latest prices.</li>
+        <li>Choose <b>Show standings</b>, then <b>Reveal next place</b> to count down from last place to the winner.</li>
+      </ol>
+    </div>
+    <div class="panel stack">
+      <h2 class="h2">Team app link for the big screen</h2>
+      <label class="field"><span>Paste the Markets link to show it on the welcome screen</span><input class="input" id="link" value="${esc(D.link)}" placeholder="https://claude.ai/artifact/…"></label>
+    </div>
+    <div class="panel stack">
+      <h2 class="h2">Carry on from another device</h2>
+      <p class="muted">This desk remembers its place in this browser only. On another device, set how far the game has gone and carry on.</p>
+      <div class="row">
+        <label class="field" style="width:140px"><span>News released</span><input class="input num" id="jA" type="number" min="0" max="45" value="${D.a}"></label>
+        <label class="field" style="width:140px"><span>Prices moved</span><input class="input num" id="jP" type="number" min="0" max="45" value="${D.p}"></label>
+        <button class="btn" type="button" id="jump" style="align-self:end">Set</button>
+      </div>
+      <p class="muted" style="font-size:13px">Times for voiding late trades come from this device's clicks, so a jumped-over update has no time and its trades are not checked for lateness.</p>
+    </div>
+    <div class="panel stack">
+      <h2 class="h2">Start over</h2>
+      <p class="muted">Clears releases, the timer and saved teams on this device. Teams' apps are not affected; they would need a fresh browser to start again.</p>
+      <div id="resetBox"><button class="btn quiet" type="button" id="reset1">Start the game over</button></div>
+    </div></div>`;
+}
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t.id === 'jump') {
+    const a = Math.max(0, Math.min(45, Math.round(+$('#jA').value || 0)));
+    const p = Math.max(0, Math.min(a, Math.round(+$('#jP').value || 0)));
+    const at = Date.now();
+    D.log = D.log.filter((x) => (x.kind === 'N' ? x.i <= a : x.i <= p));
+    for (let i = 1; i <= a; i++) if (!logOf('N', i)) D.log.push({ kind: 'N', i, at: null, batch: at, jump: true });
+    for (let i = 1; i <= p; i++) if (!logOf('P', i)) D.log.push({ kind: 'P', i, at: null, batch: at, jump: true });
+    D.a = a; D.p = p; D.sel = Math.min(45, Math.max(1, p + 1));
+    save(); toast('Desk set', `News ${pad2(a)} and prices ${pad2(p)}.`); render();
+  }
+  if (t.id === 'reset1') { $('#resetBox').innerHTML = `<div class="confirm"><span>Clear everything on this desk and start from update 01?</span><div class="row"><button class="btn small sell" type="button" id="reset2">Start over</button><button class="btn small quiet" type="button" data-rerender>Keep the game</button></div></div>`; }
+  if (t.id === 'reset2') { D = fresh(); save(); toast('Game reset', 'The desk is back at the opening bell.'); render(); }
+});
+
+// ---------- big screen ----------
+function renderScreen() {
+  const sc = onScreenCodes();
+  const tiles = ST.map((s, k) => { const st = stat(k); return `<div class="tile ${cls(st.chg)}"><span class="tk">${s.t}</span><span class="px num">${fmtPrice(st.ltp)}</span><span class="ch num ${cls(st.chg)}">${arrow(st.chg)} ${fmtPct(st.chgPct)}</span></div>`; }).join('');
+  let left, right;
+  if (D.show === 'leaders') {
+    const rows = standings();
+    const n = rows.length, shown = Math.min(D.reveal, n);
+    left = `<div class="scr-news"><span class="eyebrow">Standings · valued after update ${pad2(D.p)}</span>
+      ${n ? `<table class="leaders"><thead><tr><th>Place</th><th>Team</th><th class="r">Account value</th><th class="r">Return</th></tr></thead><tbody>
+      ${rows.map((t, j) => { const vis = j >= n - shown; return `<tr class="${vis ? '' : 'hidden'}"><td class="num">${j + 1}</td><td>${vis ? esc(t.res.team) : '· · ·'}</td><td class="r num">${vis ? fmtRs(t.res.value, { whole: true }) : ''}</td><td class="r num ${vis ? cls(t.res.ret) : ''}">${vis ? fmtPct(t.res.ret) : ''}</td></tr>`; }).join('')}
+      </tbody></table>` : '<h2>Standings appear here once teams are checked.</h2>'}</div>`;
+    const over = D.a >= 45 && D.p >= 45;
+    right = `<div class="scr-code"><span class="eyebrow">${over ? 'The closing bell' : 'Round ' + pad2(day())}</span><div class="what">${shown >= n && n ? (over ? 'Congratulations to ' : 'Leading after update ' + pad2(D.p) + ': ') + esc(rows[0].res.team) : 'Counting down from last place'}</div></div>`;
+  } else if (!sc) {
+    left = `<div class="scr-news"><span class="eyebrow">The opening bell</span><h2>Ten companies. Forty-five updates. Nine trading days.</h2>
+      <div class="body"><p>Open the Markets app${D.link ? ` at <b>${esc(D.link.replace(/^https?:\/\//, ''))}</b>` : ''} and name your team. You start with ${fmtRs(G.capital * 100, { whole: true })}.</p><p>When news breaks, a code appears here. Type it into <b>Enter code</b> to read the story, then trade before the prices move.</p><p>When prices move, a new code appears. Type it and your app shows the new prices. Orders made at old prices after that do not count.</p></div></div>`;
+    right = `<div class="scr-code"><span class="eyebrow">Market code</span><div class="what">The first code appears when the first story breaks.</div></div>`;
+  } else {
+    const mainU = U[sc.main.i - 1];
+    if (sc.main.kind === 'N') {
+      const ids = sc.batch.map((e) => e.i);
+      left = ids.length > 1
+        ? `<div class="scr-news"><span class="eyebrow">Round ${pad2(mainU.round)} · ${ids.length} updates</span><ol start="${ids[0]}">${ids.map((i) => `<li>${esc(U[i - 1].head)}</li>`).join('')}</ol><div class="body" style="columns:auto"><p class="muted">Read the full stories in the app.</p></div></div>`
+        : `<div class="scr-news"><span class="eyebrow">Update ${pad2(mainU.i)} · ${esc(mainU.cat)}</span><h2>${esc(mainU.head)}</h2><div class="body">${mainU.body.map((p) => `<p>${esc(p)}</p>`).join('')}</div></div>`;
+    } else {
+      const ids = sc.batch.map((e) => e.i), from = Math.min(...ids) - 1, to = Math.max(...ids);
+      const moved = ST.map((s, k) => ({ k, a: PATHS[k][from], b: PATHS[k][to] })).filter((m) => m.a !== m.b).sort((x, y) => (y.b / y.a) - (x.b / x.a));
+      left = `<div class="scr-news"><span class="eyebrow">Prices moved · ${ids.length > 1 ? `updates ${pad2(from + 1)}–${pad2(to)}` : `update ${pad2(to)}`}</span>
+        ${ids.length === 1 ? `<h2 style="font-size:clamp(20px,2.2vw,40px)">${esc(mainU.head)}</h2>` : ''}
+        <div class="movers">${moved.map((m) => { const ch = m.b / m.a - 1; return `<div class="mover"><b>${TK[m.k]}</b><span class="nm">${esc(ST[m.k].name)} · ${fmtPrice(m.a)} → ${fmtPrice(m.b)}</span><span class="num ${cls(ch)}">${arrow(ch)} ${fmtPct(ch)}</span></div>`; }).join('')}</div></div>`;
+    }
+    right = `<div class="scr-code"><span class="eyebrow">Enter this code</span><div class="code-big">${prettyCode(code(sc.main.kind, sc.main.i))}</div>
+      <div class="what">${sc.main.kind === 'N' ? 'Opens the news. Prices have not moved yet.' : 'Moves your prices.'}</div>
+      ${sc.extra ? `<div><div class="eyebrow" style="color:var(--muted)">Missed the last ${sc.extra.kind === 'P' ? 'price' : 'news'} code?</div><div class="code-sm">${prettyCode(code(sc.extra.kind, sc.extra.i))}</div></div>` : ''}</div>`;
+  }
+  $('#screen').innerHTML = `
+    <div class="scr-top"><span class="eyebrow">Round ${pad2(day())} of 09 · News ${pad2(D.a)}/45 · Prices ${pad2(D.p)}/45</span>
+      <div class="scr-timer"><span class="lbl" data-timer-lbl></span><span class="timer" data-timer>00:00</span></div></div>
+    <div class="scr-mid">${left}${right}</div>
+    <div class="scr-board">${tiles}</div>
+    <a class="btn small quiet exit" href="#control">Exit big screen</a>`;
+  fitStory();
+}
+// Shrink the story's type until it fits the panel, so the price board below always shows.
+function fitStory() {
+  const panel = $('#screen .scr-news'), body = panel && $('.leaders, .movers, ol, .body', panel);
+  if (!body) return;
+  body.style.fontSize = '';
+  let size = parseFloat(getComputedStyle(body).fontSize);
+  for (let n = 0; n < 40 && panel.scrollHeight > panel.clientHeight + 1 && size > 13; n++) {
+    size -= 0.5;
+    body.style.fontSize = size + 'px';
+    if (size < 19 && body.classList.contains('body')) body.style.columns = '3 22ch';
+  }
+}
+window.addEventListener('resize', () => { if (view === 'screen') fitStory(); });
+
+// ---------- toasts ----------
+function toast(title, body) {
+  if (view === 'screen') return;
+  const t = document.createElement('div');
+  t.className = 'toast';
+  const b = document.createElement('b'); b.textContent = title;
+  const s = document.createElement('span'); s.className = 'muted'; s.textContent = body || '';
+  t.append(b, s);
+  const box = $('#toasts');
+  box.appendChild(t);
+  while (box.children.length > 3) box.firstElementChild.remove();
+  setTimeout(() => t.remove(), 5200);
+}
+
+route();
+})();
+</script>

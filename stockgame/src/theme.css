@@ -1,0 +1,149 @@
+/* Shared by the broker app and the Event Head desk.
+   Layout: a trading terminal — a watchlist rail beside a working area; black holds, gold draws.
+   JACO CORP Night is the primary theme; Parchment is the light theme. */
+:root {
+  --bg: #070302;
+  --panel: #121619;
+  --panel-2: #0c0f11;
+  --hover: #1b2024;
+  --line: #2c2823;
+  --line-strong: #504434;
+  --ink: #fcf0de;
+  --muted: #b3a48b;
+  --gold: #d8b870;
+  --gold-bright: #e2bf7b;
+  --gold-text: #d8b870;
+  --on-gold: #121619;
+  --up: #7fd0a8;
+  --down: #f2877a;
+  --on-up: #0b1410;
+  --on-down: #1c0c09;
+  --up-wash: rgba(127, 208, 168, 0.13);
+  --down-wash: rgba(242, 135, 122, 0.14);
+  --gold-wash: rgba(216, 184, 112, 0.10);
+  --warn: #f2c46b;
+  --focus: #e2bf7b;
+  --shade: rgba(0, 0, 0, 0.62);
+  --font-display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --font-text: "EB Garamond", Garamond, Georgia, serif;
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --r-sm: 4px;
+  --r-md: 8px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f7f1e6; --panel: #fffdf8; --panel-2: #f1e9db; --hover: #f2eadb;
+    --line: #e6dccb; --line-strong: #d9ccb5; --ink: #121619; --muted: #5e5344;
+    --gold-text: #7a5c1e; --up: #1d6b4d; --down: #a3352a; --on-up: #fffdf8; --on-down: #fffdf8;
+    --up-wash: rgba(29, 107, 77, 0.10); --down-wash: rgba(163, 53, 42, 0.09); --gold-wash: rgba(122, 92, 30, 0.08);
+    --warn: #7a5200; --focus: #7a5c1e; --shade: rgba(18, 22, 25, 0.45);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f7f1e6; --panel: #fffdf8; --panel-2: #f1e9db; --hover: #f2eadb;
+  --line: #e6dccb; --line-strong: #d9ccb5; --ink: #121619; --muted: #5e5344;
+  --gold-text: #7a5c1e; --up: #1d6b4d; --down: #a3352a; --on-up: #fffdf8; --on-down: #fffdf8;
+  --up-wash: rgba(29, 107, 77, 0.10); --down-wash: rgba(163, 53, 42, 0.09); --gold-wash: rgba(122, 92, 30, 0.08);
+  --warn: #7a5200; --focus: #7a5c1e; --shade: rgba(18, 22, 25, 0.45);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 400 14px/1.45 var(--font-ui);
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+a { color: var(--gold-text); }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+table { border-collapse: collapse; }
+
+.num { font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.flat { color: var(--muted); }
+.muted { color: var(--muted); }
+.gold { color: var(--gold-text); }
+.eyebrow {
+  font: 600 11px/1.35 var(--font-display); letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold-text);
+}
+.label { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
+.mono { font-family: var(--font-mono); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 38px; padding: 0 16px; border-radius: var(--r-sm);
+  font: 600 12px/1 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase;
+  border: 1px solid var(--gold); background: transparent; color: var(--gold-text);
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn:hover:not(:disabled) { background: var(--gold-wash); }
+.btn.primary { background: var(--gold); color: var(--on-gold); }
+.btn.primary:hover:not(:disabled) { background: var(--gold-bright); }
+.btn.buy { background: var(--up); border-color: var(--up); color: var(--on-up); }
+.btn.sell { background: var(--down); border-color: var(--down); color: var(--on-down); }
+.btn.buy:hover:not(:disabled), .btn.sell:hover:not(:disabled) { filter: brightness(1.06); }
+.btn.quiet { border-color: var(--line-strong); color: var(--ink); }
+.btn.small { min-height: 30px; padding: 0 10px; font-size: 11px; }
+.btn:disabled { opacity: 0.45; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; line-height: 18px; border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap;
+}
+.chip.up { color: var(--up); border-color: currentColor; background: var(--up-wash); }
+.chip.down { color: var(--down); border-color: currentColor; background: var(--down-wash); }
+.chip.gold { color: var(--gold-text); border-color: var(--gold); background: var(--gold-wash); }
+
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > span { font-size: 12px; color: var(--muted); }
+.input {
+  width: 100%; min-height: 40px; padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--ink);
+}
+.input:focus { border-color: var(--gold); outline: none; box-shadow: 0 0 0 1px var(--gold); }
+.input:disabled { opacity: 0.5; }
+
+.toasts {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 60;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px;
+  width: min(440px, calc(100% - 32px)); pointer-events: none;
+}
+.toast {
+  pointer-events: auto; background: var(--panel); border: 1px solid var(--gold); border-radius: var(--r-md);
+  padding: 12px 14px; display: grid; gap: 2px; animation: rise 0.2s ease-out;
+}
+.toast.bad { border-color: var(--down); }
+.err:empty { display: none; }
+.toast b { font-weight: 600; }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes flash-up { 0% { background: var(--up-wash); } 100% { background: transparent; } }
+@keyframes flash-down { 0% { background: var(--down-wash); } 100% { background: transparent; } }
+.flash-up { animation: flash-up 1.6s ease-out; }
+.flash-down { animation: flash-down 1.6s ease-out; }
+
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart .tip {
+  position: absolute; top: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm); padding: 6px 8px; font-size: 12px; line-height: 1.35; white-space: nowrap; z-index: 2;
+}
+.chart .tip strong { display: block; font-size: 14px; font-weight: 600; }
+.chart:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: var(--r-sm); }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
