@@ -25,6 +25,6 @@
 - `npm run sim` — the big simulation: 10,000 hands and five full tournaments (about 2 minutes)
 - `npm run dev` — build, then play at http://localhost:8888 (live push and background clock on)
 - `npm run e2e` — build, then the browser test: Event Head, two players, Big Screen, a dropped connection, the chip audit, a tournament
-- `npm run zip` — `artha-vyuha-netlify.zip` for drag-and-drop
+- `npm run zip` — `artha-vyuha-netlify.zip`: the built site and its server function in one file, for drag-and-drop on Netlify (see DEPLOY.md)
 
 No real money: no deposits, no withdrawals, no wagering, no prizes of cash value. Tournament prizes are points or virtual chips.

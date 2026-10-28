@@ -4,3 +4,4 @@ test-results/
 .data/
 *.log
 artha-vyuha-netlify.zip
+.zip-stage/

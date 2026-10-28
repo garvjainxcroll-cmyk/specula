@@ -53,6 +53,18 @@ This makes a **second Netlify project**, separate from SPECULA. SPECULA is not c
 
 Phones at a table ask the server for news about once a second during a hand (less often otherwise). Each ask is one Netlify function call. A rough guide: **30 players for 2 hours ≈ 150,000–200,000 calls**. Netlify plans have monthly limits, so check **Usage** after the rehearsal and compare with your plan. If you expect a very large event, the option below has no per-call cost.
 
+## The other way: drag and drop the zip
+
+`artha-vyuha-netlify.zip` (made with `npm run zip`) is the finished website plus its server function in one file. Nothing needs building.
+
+1. Sign in to Netlify **first**.
+2. **Add new project** → **Deploy manually** (drag and drop), or open an existing project's **Deploys** page.
+3. Drag the zip file onto it (do not unzip it). Wait until it says **Published**.
+4. Do the check in Step 2: open `/api/health`.
+   - `{"ok":true,"app":"artha",...}` → the live game works. Carry on with Step 2.
+   - “Page not found” → drag-and-drop did not set up the server function on your account. The site still opens, but shows **Single device** (practice only). Use Step 1 (connect GitHub) instead; that way always works.
+5. To update later, drag the new zip onto the same project's **Deploys** page. Your games and accounts stay (they are stored in Netlify Blobs, not in the zip).
+
 ## The other way: any Node.js host (instant updates)
 
 The same project can run as an ordinary server. Tables then update instantly (the server pushes changes) and time-outs happen on the dot. Services such as Render, Railway or Fly.io can run it:
