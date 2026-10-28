@@ -20,6 +20,8 @@ const dataDir = process.env.ARTHA_DATA_DIR || join(root, '.data');
 const file = process.env.ARTHA_STORE === 'memory' ? null : join(dataDir, `artha-store-${port}.json`);
 const store = memoryStore({ file, kind: file ? 'file' : 'memory' });
 const env = { ADMIN_PASSWORD: process.env.ARTHA_ADMIN_PASSWORD || '' };
+// the same Content-Security-Policy as netlify.toml: scripts only from this site
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
 const types = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 
 // ---- live push ----
@@ -73,7 +75,7 @@ http.createServer(async (req, res) => {
     if (!f.startsWith(dist)) { res.writeHead(403); res.end(); return; }
     try { if ((await stat(f)).isDirectory()) f = join(f, 'index.html'); } catch { f = join(dist, 'index.html'); }
     const data = await readFile(f);
-    res.writeHead(200, { 'content-type': types[extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff' });
+    res.writeHead(200, { 'content-type': types[extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': CSP });
     res.end(data);
   } catch (e) {
     res.writeHead(500); res.end(String(e));

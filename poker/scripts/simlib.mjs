@@ -1,7 +1,7 @@
 // Simulation driver used by the tests and by `npm run sim`: plays whole tables and tournaments
 // through the same room code the server runs, with a fake clock. "Human" seats act randomly
 // (sometimes they time out, sit out, leave and come back); bots play as in practice mode.
-// After every step the chips must balance and no view may show a card it should not.
+// After every step the chips must balance; at random steps the views are checked for hidden cards.
 import { createRoom, sit, tick, playerAct, leave, sitOut, topUp, addBot, registerTournament, startTournament, checkBooks, findSeat, isLive } from '../src/room/room.mjs';
 import { viewRoom } from '../src/room/view.mjs';
 import { legalActions } from '../src/engine/hand.mjs';

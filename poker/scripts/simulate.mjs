@@ -35,4 +35,4 @@ for (const [i, t] of [{ entrants: 30, seats: 9 }, { entrants: 45, seats: 9 }, { 
 }
 console.log('Tournaments: every one finished, every place awarded, the whole prize pool paid.');
 console.table(tours);
-console.log(`Done: ${hands.toLocaleString()} hands in ${((Date.now() - t0) / 1000).toFixed(1)} s. No chip was created or lost; no view showed a hidden card.`);
+console.log(`Done: ${hands.toLocaleString()} hands in ${((Date.now() - t0) / 1000).toFixed(1)} s. No chip was created or lost; no view checked (about one step in ten) showed a hidden card.`);

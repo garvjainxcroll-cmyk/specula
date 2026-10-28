@@ -11,3 +11,7 @@ Six rounds, one ten-minute trading window each. Every crisis is the Event Head�
 Screens: Home `/`, How to Play `/#/learn`, Practice `/#/practice`, Team Desk `/#/desk`, Big Screen `/#/display`, Event Head `/#/admin`.
 
 > Keep this repository **private**: it contains the secret script.
+
+---
+
+**Also in this repository:** [`poker/`](poker/README.md) — *Artha Vyūha*, the live No-Limit Texas Hold’em game (virtual chips only) with its own Event Head desk, Player Desk and Big Screen. It is a separate project with its own Netlify site; see [poker/DEPLOY.md](poker/DEPLOY.md).

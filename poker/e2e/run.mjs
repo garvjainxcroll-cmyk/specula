@@ -2,15 +2,19 @@
 // sit down and play each other, the Big Screen watches, a player loses their connection and
 // comes back, a player leaves with their chips, the chip audit balances, and a tournament is
 // registered and started. Run: npm run e2e  (builds first). Screenshots: test-results/.
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-let chromium;
-try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('@playwright/test')); }
+function loadPlaywright() {
+  for (const name of ['playwright', '@playwright/test']) { try { return require(name); } catch { /* next */ } }
+  try { const g = execSync('npm root -g').toString().trim(); return createRequire(join(g, 'noop.js'))('playwright'); } catch { /* none */ }
+  throw new Error('Playwright is not installed. Run: npm i -D playwright && npx playwright install chromium');
+}
+const { chromium } = loadPlaywright();
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = join(root, 'test-results');

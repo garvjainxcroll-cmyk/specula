@@ -25,7 +25,7 @@ export class Felt {
     this.potEl = h('div', { class: 'potline' });
     this.streetEl = h('div', { class: 'street' });
     this.msgEl = h('div', {});
-    this.center = h('div', { class: 'center' }, this.streetEl, this.potEl, this.boardEl, this.msgEl);
+    this.center = h('div', { class: 'felt-center' }, this.streetEl, this.potEl, this.boardEl, this.msgEl);
     this.wrap.appendChild(this.center);
     this.dealer = h('div', { class: 'dealer', 'aria-label': 'Dealer button' }, 'D');
     this.wrap.appendChild(this.dealer);
