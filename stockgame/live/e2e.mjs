@@ -63,37 +63,41 @@ const until = async (p, fn, arg, what) => {
 };
 const teamState = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('jaco-live:team')));
 
-// the Event Head signs in; the big screen shows the PIN
-const desk = await open('/desk');
-await desk.fill('#gk', 'WRONG-KEY');
-await desk.click('#gkGo');
-await until(desk, () => document.querySelector('#gkErr')?.textContent.includes('wrong'), null, 'a wrong game key is refused');
-await desk.fill('#gk', KEY.toLowerCase());
-await desk.click('#gkGo');
-await until(desk, () => document.querySelector('#goNext'), null, 'the Event Head is signed in and sees the desk');
+// the home page shows the three desks; the Event Head signs in from it
+const desk = await open('/');
+await until(desk, () => ['Team desk', 'Event Head desk', 'Big screen'].every((t) => document.body.textContent.includes(t)), null, 'home shows the team desk, the Event Head desk and the big screen');
+await shot(desk, 'live-home');
+await desk.fill('#gkey', 'WRONG-KEY');
+await desk.click('#hGo');
+await until(desk, () => document.querySelector('#hErr')?.textContent.includes('wrong'), null, 'a wrong game key is refused');
+await desk.fill('#gkey', KEY.toLowerCase());
+await desk.click('#hGo');
+await until(desk, () => location.pathname === '/desk/' && document.querySelector('#goNext'), null, 'signing in on the home page opens the Event Head desk');
 const pin = await desk.evaluate(() => document.querySelector('.code-big')?.textContent.trim());
 check(/^\d{4}$/.test(pin), `the desk shows a 4-digit join PIN (${pin})`);
 const screen = await open('/screen', { viewport: { width: 1440, height: 900 } });
 await until(screen, (pin) => document.querySelector('#screen').textContent.includes(pin), pin, 'the big screen shows the PIN without signing in');
 await shot(screen, 'live-screen-join');
 
-// two teams join; a teammate signs in on a phone with the team code
+// two teams join (one from the home page, one on the team desk); a teammate signs in with the team code
 const alpha = await open('/');
-await alpha.fill('#oPin', '0000'); await alpha.fill('#oName', 'Alpha Capital'); await alpha.click('#oGo2');
-await until(alpha, () => document.querySelector('#oErr2')?.textContent.includes('PIN'), null, 'a wrong PIN is refused');
-await alpha.fill('#oPin', pin); await alpha.click('#oGo2');
-await until(alpha, () => document.querySelector('#teamName')?.textContent === 'Alpha Capital', null, 'Alpha joined');
+await alpha.fill('#pin', '0000'); await alpha.fill('#tname', 'Alpha Capital'); await alpha.click('#tGo');
+await until(alpha, () => document.querySelector('#tErr')?.textContent.includes('PIN'), null, 'a wrong PIN is refused');
+await alpha.fill('#pin', pin); await alpha.click('#tGo');
+await until(alpha, () => location.pathname === '/team/' && document.querySelector('#teamName')?.textContent === 'Alpha Capital', null, 'Alpha joined from the home page and landed on its team desk');
 const alphaCode = (await teamState(alpha)).code;
-const beta = await open('/', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'light' });
+const beta = await open('/team/', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'light' });
 await beta.fill('#oPin', pin); await beta.fill('#oName', 'Beta Bears'); await beta.click('#oGo2');
 await until(beta, () => JSON.parse(localStorage.getItem('jaco-live:team') || '{}').team === 'Beta Bears', null, 'Beta joined on a phone');
 const alpha2 = await open('/', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-await alpha2.click('#oRestore'); await alpha2.fill('#sIn', alphaCode); await alpha2.click('#sGo');
+await shot(alpha2, 'live-home-phone');
+await alpha2.click('[data-tm=code]'); await alpha2.fill('#tcode', alphaCode); await alpha2.click('#tGo');
+await alpha2.waitForURL('**/team/**');
 await until(alpha2, () => JSON.parse(localStorage.getItem('jaco-live:team') || '{}').team === 'Alpha Capital', null, 'a teammate signed in with the team code');
 await shot(alpha, 'live-team-waiting');
 
 // the market is closed until news goes out
-await alpha.goto(`${base}/#stock-${TK[riser]}`);
+await alpha.goto(`${base}/team/#stock-${TK[riser]}`);
 await alpha.click('#main .quote [data-buy]');
 check(await alpha.locator('#oGo').isDisabled(), 'orders cannot be placed while the market is closed');
 await alpha.click('#oX');
@@ -123,7 +127,7 @@ const a1 = await teamState(alpha), b1 = await teamState(beta);
 check(a1.book.holdings[riser]?.qty === 100 && a1.book.orders.some((o) => o.status === 'OPEN'), 'Alpha bought 100 and has a limit order waiting');
 check(b1.book.holdings[riser]?.qty === -40 && b1.book.holdings[faller]?.qty === 30, 'Beta is short 40 and long 30');
 await until(alpha2, (k) => JSON.parse(localStorage.getItem('jaco-live:team')).book.holdings[k]?.qty === 100, riser, "the teammate's phone shows the same position");
-await alpha.goto(`${base}/#holdings`);
+await alpha.goto(`${base}/team/#holdings`);
 await shot(alpha, 'live-team-positions');
 
 // prices move: confirm closing the window early; the limit fills; trading stops
@@ -133,7 +137,7 @@ await until(alpha, (px) => document.querySelector('#wl').textContent.includes(px
 await until(alpha, () => document.querySelector('#mkt')?.textContent === 'Market closed', null, 'moving prices closed the market');
 const a2 = await teamState(alpha);
 check(a2.book.orders.every((o) => o.status !== 'OPEN') && a2.book.holdings[faller]?.qty === 50, 'the limit order filled at the new price');
-await alpha.goto(`${base}/#stock-${TK[riser]}`);
+await alpha.goto(`${base}/team/#stock-${TK[riser]}`);
 await alpha.click('#main .quote [data-sell]');
 check(await alpha.locator('#oGo').isDisabled(), 'no trading at the new prices until the market reopens');
 await alpha.click('#oX');
@@ -166,7 +170,7 @@ check(!pub.includes(game.updates[1].head) && !pub.includes(game.updates[0].moves
 
 await desk.goto(`${base}/desk#control`);
 await shot(desk, 'live-desk-control');
-await beta.goto(`${base}/#holdings`);
+await beta.goto(`${base}/team/#holdings`);
 await shot(beta, 'live-team-phone');
 const o = await beta.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 check(o <= 0, `no sideways scroll on the phone (${o}px)`);

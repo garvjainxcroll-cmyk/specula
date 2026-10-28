@@ -2,13 +2,16 @@
 
 You do not need to be a programmer. Allow 15 minutes the first time.
 
-The live game has three addresses on one website:
+The live game is one website. Its home page shows the three desks side by side:
 
 | Address | Who opens it |
 |---|---|
-| `https://YOUR-SITE.netlify.app/` | Every team, on phones or laptops. They join with the PIN and a team name. |
-| `https://YOUR-SITE.netlify.app/screen` | The projector. No sign-in. Shows the join PIN, the news, the countdown and the prices. |
-| `https://YOUR-SITE.netlify.app/desk` | You, the Event Head. Sign in with the **game key**. |
+| `https://YOUR-SITE.netlify.app/` | **Home.** Teams join here with the PIN and a team name (or sign in with a team code). The Event Head signs in here with the game key. A button opens the big screen. |
+| `https://YOUR-SITE.netlify.app/team/` | The **team desk** (the broker app). Teams land here after joining. |
+| `https://YOUR-SITE.netlify.app/desk/` | The **Event Head desk**. You land here after signing in. |
+| `https://YOUR-SITE.netlify.app/screen/` | The **big screen** for the projector. No sign-in. Shows the join PIN, the news, the countdown and the prices. |
+
+Every page links back to the home page through the gold mark at the top left, and the Event Head desk has a **Team desk** tab to see what teams see.
 
 ## The game key
 
@@ -54,9 +57,9 @@ It asks you to log in to Netlify and to create or pick a site.
 ## Step 2: check it is live
 
 1. Open `https://YOUR-SITE.netlify.app/api/health`. You should see `{"ok":true,"storage":"blobs",...}`. If you see "Page not found", the function did not deploy: check the Base directory is `stockgame` and redeploy.
-2. Open `/desk` and sign in with the game key. The first sign-in opens the sealed game on the server; after that the same key works from any device.
-3. Open `/screen` on the projector laptop. It shows the address and the join PIN.
-4. Open the site on a phone and join with the PIN.
+2. Open the site's home page, and under **Event Head desk** sign in with the game key. The first sign-in opens the sealed game on the server; after that the same key works from any device.
+3. Open the **big screen** (`/screen/`) on the projector laptop. It shows the address and the join PIN.
+4. Open the site on a phone and join with the PIN from the home page.
 
 ## Step 3: a dress rehearsal (the day before, 15 minutes)
 
@@ -70,12 +73,12 @@ It asks you to log in to Netlify and to create or pick a site.
 
 ## On the day
 
-- Projector: `/screen`, full screen (F11), sleep turned off.
-- Your laptop: `/desk`, plugged in.
-- Teams: the site address and the PIN (both on the big screen).
+- Projector: the big screen (`/screen/`), full screen (F11), sleep turned off.
+- Your laptop: the Event Head desk (home page → sign in), plugged in.
+- Teams: the site address and the PIN (both on the big screen). They join on the home page.
 - When every team is in, **close joining** on the Teams tab.
 - Wi-Fi: test it in the hall. Mobile data works as a backup on phones.
-- If your laptop crashes: open `/desk` on any device and sign in with the game key. The game lives on the server, so nothing is lost.
+- If your laptop crashes: open the home page on any device and sign in with the game key. The game lives on the server, so nothing is lost.
 - If a team loses its phone: its team code (Teams tab) signs it in on any device.
 - After the event: Teams tab → **Download a backup of every account**.
 

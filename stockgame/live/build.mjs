@@ -1,5 +1,6 @@
 // Build the live stock game website into live/dist/ (Netlify runs this; it needs no secrets).
-//   live/dist/index.html          the team broker app
+//   live/dist/index.html          home: the three desks side by side (join, Event Head sign-in, big screen)
+//   live/dist/team/index.html     the team desk (broker app)
 //   live/dist/desk/index.html     the Event Head desk (signs in with the game key)
 //   live/dist/screen/index.html   the big screen for the projector (public)
 // The game itself stays sealed in live/server/game-sealed.mjs and reaches pages only through
@@ -34,11 +35,13 @@ ${html.slice(cut)}
 
 const dist = join(here, 'dist');
 rmSync(dist, { recursive: true, force: true });
-for (const d of ['', 'desk', 'screen']) mkdirSync(join(dist, d), { recursive: true });
-const team = page('market.html', { live: true, stocks: pub.stocks, capital: pub.capital, margin: pub.margin });
+for (const d of ['', 'team', 'desk', 'screen']) mkdirSync(join(dist, d), { recursive: true });
+const home = page('home.html', {});
+const team = page('market.html', { live: true, stocks: pub.stocks, capital: pub.capital, margin: pub.margin }).replace('<title>Markets</title>', '<title>Team Desk</title>');
 const desk = page('desk.html', { live: true });
 const screen = page('desk.html', { live: true, screenOnly: true }).replace('<title>Event Head Desk</title>', '<title>Big Screen</title>');
-writeFileSync(join(dist, 'index.html'), team);
+writeFileSync(join(dist, 'index.html'), home);
+writeFileSync(join(dist, 'team', 'index.html'), team);
 writeFileSync(join(dist, 'desk', 'index.html'), desk);
 writeFileSync(join(dist, 'screen', 'index.html'), screen);
 
@@ -49,9 +52,9 @@ if (existsSync(secretFile)) {
   const secrets = [];
   for (const u of g.updates) { secrets.push(u.head); for (const p of u.body) secrets.push(p.slice(0, 48)); for (const m of u.moves) secrets.push(m.why); }
   const sealed = readFileSync(join(here, 'server', 'game-sealed.mjs'), 'utf8');
-  for (const [name, txt] of [['index.html', team], ['desk', desk], ['screen', screen], ['game-sealed.mjs', sealed]]) {
+  for (const [name, txt] of [['home', home], ['team', team], ['desk', desk], ['screen', screen], ['game-sealed.mjs', sealed]]) {
     const hit = secrets.find((s) => txt.includes(s) || txt.includes(JSON.stringify(s).slice(1, -1)));
     if (hit) { console.error(`Build refused: secret text in ${name}: "${hit.slice(0, 60)}"`); process.exit(1); }
   }
 }
-console.log('Built live/dist: index.html (teams), desk/ (Event Head), screen/ (big screen).');
+console.log('Built live/dist: / (home), team/ (team desk), desk/ (Event Head), screen/ (big screen).');

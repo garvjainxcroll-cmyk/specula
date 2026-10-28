@@ -4,7 +4,7 @@ A stock-market trading game in the JACO CORP style, separate from SPECULA. Ten m
 
 It comes in two versions that share the same engine and screens:
 
-- **Live (Netlify):** a website where teams join with a PIN and play together in real time. News and prices reach every phone by themselves, orders go to the server, and the Event Head sees live standings. See **[DEPLOY.md](DEPLOY.md)** to put it online. Addresses: `/` for teams, `/desk` for the Event Head (game key), `/screen` for the projector.
+- **Live (Netlify):** a website where teams join with a PIN and play together in real time. News and prices reach every phone by themselves, orders go to the server, and the Event Head sees live standings. See **[DEPLOY.md](DEPLOY.md)** to put it online. The home page (`/`) shows the three desks side by side: teams join there and land on the team desk (`/team/`), the Event Head signs in there with the game key and lands on the Event Head desk (`/desk/`), and the big screen (`/screen/`) is a button away.
 - **Single file (Claude artifact):** two pages that need no server. Teams type a code from the big screen to open each update, and send a report code at the end.
 
 In both, teams can **buy, sell or short** any stock. A short sells shares you do not own: the money from the sale goes into your cash, and the short's value plus 100% margin is held from your cash while it is open. If the price falls you buy back cheaper and gain; if it rises you lose. A team whose short goes badly can still buy it back, but cannot open new positions until it has free cash again.
@@ -71,7 +71,7 @@ If `stockgame/secret/` is lost, the desk page holds the same data: the game JSON
 | `src/vault.mjs` | Sealing and opening the updates with the release codes. |
 | `src/chart.mjs` | The line chart used by both pages. |
 | `src/theme.css` | JACO CORP colours and type: black, charcoal and one gold; Cinzel, EB Garamond, IBM Plex. |
-| `src/market.html`, `src/desk.html` | The two pages. |
+| `src/home.html`, `src/market.html`, `src/desk.html` | The live home page, the team desk and the Event Head desk (the last two also make the single-file pages). |
 | `build.mjs` | Seals the updates and writes `dist/`. |
 | `tools/make-data.py` | Turns the price-impact sheet and the updates text into `secret/game.json`. |
 | `e2e.mjs` | A full desk-and-team run of the single-file version in a real browser. |

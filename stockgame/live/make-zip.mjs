@@ -10,7 +10,7 @@ const out = resolve(process.argv[2] || join(root, 'jaco-stock-game-netlify.zip')
 execFileSync('node', [join(root, 'live', 'build.mjs')], { stdio: 'inherit' });
 const items = ['package.json', 'package-lock.json', 'netlify.toml', 'DEPLOY.md', 'README.md',
   'live/build.mjs', 'live/dev-server.mjs', 'live/seal.mjs', 'live/make-zip.mjs', 'live/public-game.json', 'live/server', 'live/netlify', 'live/dist',
-  'src/engine.mjs', 'src/vault.mjs', 'src/chart.mjs', 'src/theme.css', 'src/market.html', 'src/desk.html'];
+  'src/engine.mjs', 'src/vault.mjs', 'src/chart.mjs', 'src/theme.css', 'src/home.html', 'src/market.html', 'src/desk.html'];
 execFileSync('python3', ['-I', '-c', `
 import zipfile, os, sys
 root, out, items = sys.argv[1], sys.argv[2], sys.argv[3:]

@@ -1,0 +1,234 @@
+<title>Trading Floor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/*@THEME@*/
+
+/* Home of the live site: the three desks side by side. Team desk first and largest. */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; min-height: 56px;
+  padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.mark { width: 28px; height: 28px; flex: none; display: block; }
+.nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.nav a { text-decoration: none; color: var(--muted); padding: 8px 12px; border-radius: var(--r-sm); font-weight: 500; }
+.nav a:hover { color: var(--ink); background: var(--hover); }
+.page { padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 32px; }
+.hero { display: grid; gap: 14px; max-width: 820px; }
+.hero h1 { font: 600 clamp(30px, 4.6vw, 52px)/1.12 var(--font-display); letter-spacing: 0.03em; }
+.hero p { font: 400 clamp(18px, 1.6vw, 21px)/1.55 var(--font-text); color: var(--ink); max-width: 64ch; }
+.live { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.desks { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.8fr); gap: 18px; align-items: start; }
+.desk-card { background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: 24px; display: grid; gap: 14px; min-width: 0; }
+.desk-card.main { border: 2px solid var(--gold); }
+.desk-card h2 { font: 600 20px/1.2 var(--font-display); letter-spacing: 0.05em; }
+.desk-card p { font: 400 16px/1.5 var(--font-text); color: var(--ink); }
+.desk-card .muted { color: var(--muted); }
+#teamBody, #headBody { display: grid; gap: 14px; }
+.tabs2 { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px; gap: 2px; justify-self: start; }
+.tabs2 button { border: 0; background: none; color: var(--muted); padding: 6px 14px; border-radius: 999px; font-weight: 500; font-size: 13px; }
+.tabs2 button[aria-pressed="true"] { background: var(--gold); color: var(--on-gold); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.row > .field { flex: 1 1 140px; }
+.pin { max-width: 130px; flex: 0 1 130px !important; }
+.big-input { font: 600 18px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.err { color: var(--down); font-size: 13px; min-height: 18px; }
+.check { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.check input { accent-color: var(--gold); width: 16px; height: 16px; margin: 0; }
+.signed { display: grid; gap: 10px; }
+.signed .who { font: 600 22px/1.2 var(--font-text); }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--gold-text); text-decoration: underline; text-underline-offset: 3px; font-size: 13px; justify-self: start; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 0; padding: 0; list-style: none; counter-reset: s; }
+.steps li { counter-increment: s; border-top: 2px solid var(--gold); padding-top: 14px; display: grid; gap: 6px; }
+.steps li::before { content: "0" counter(s); font: 600 12px/1 var(--font-display); letter-spacing: 0.16em; color: var(--gold-text); }
+.steps b { font: 600 16px/1.3 var(--font-display); letter-spacing: 0.04em; }
+.steps span { font: 400 16px/1.5 var(--font-text); color: var(--ink); }
+.foot { color: var(--muted); font-size: 13px; }
+@media (max-width: 980px) {
+  .desks { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .desks .desk-card.main { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .desks, .steps { grid-template-columns: minmax(0, 1fr); }
+  .nav { margin-left: 0; }
+  .page { padding-block: 24px 48px; }
+}
+</style>
+
+<script type="application/json" id="payload">/*@PAYLOAD@*/</script>
+
+<header class="top">
+  <a href="/" aria-label="Home"><svg class="mark" viewBox="0 0 28 28" aria-hidden="true">
+    <rect x="1" y="1" width="26" height="26" rx="6" fill="none" style="stroke: var(--gold)" stroke-width="2"/>
+    <rect x="6.5" y="11" width="3" height="7" rx="0.8" style="fill: var(--gold)"/>
+    <rect x="12.5" y="8" width="3" height="8" rx="0.8" style="fill: none; stroke: var(--gold)" stroke-width="1.2"/>
+    <rect x="18.5" y="10" width="3" height="6" rx="0.8" style="fill: var(--gold)"/>
+  </svg></a>
+  <div class="live" id="live"><span class="chip">Connecting…</span></div>
+  <nav class="nav" aria-label="Desks">
+    <a href="/team/">Team desk</a>
+    <a href="/desk/">Event Head desk</a>
+    <a href="/screen/" target="_blank" rel="noopener">Big screen</a>
+  </nav>
+</header>
+
+<main class="page">
+  <div class="wrap">
+    <section class="hero">
+      <span class="eyebrow">Stock market game · nine trading days</span>
+      <h1>Ten companies. Forty-five updates. One market.</h1>
+      <p>News breaks, prices move. Read each story while the market is open, buy what you think will rise, and sell or short what you think will fall. Every team starts with <b id="cap">₹10,00,000</b>.</p>
+    </section>
+
+    <section class="desks" aria-label="Choose your desk">
+      <article class="desk-card main" id="teamCard">
+        <span class="eyebrow">For teams</span>
+        <h2>Team desk</h2>
+        <div id="teamBody"></div>
+      </article>
+
+      <article class="desk-card" id="headCard">
+        <span class="eyebrow">For the Event Head</span>
+        <h2>Event Head desk</h2>
+        <div id="headBody"></div>
+      </article>
+
+      <article class="desk-card">
+        <span class="eyebrow">For the projector</span>
+        <h2>Big screen</h2>
+        <p>The join PIN, each story as it breaks, the market countdown and all ten prices. Needs no sign-in.</p>
+        <div><a class="btn" href="/screen/" target="_blank" rel="noopener">Open the big screen</a></div>
+      </article>
+    </section>
+
+    <ol class="steps" aria-label="How a round works">
+      <li><b>News breaks</b><span>The Event Head releases an update. It appears on every team desk and on the big screen at once.</span></li>
+      <li><b>The market opens</b><span>While the countdown runs, buy, sell or short at the current prices. Orders work only while the market is open.</span></li>
+      <li><b>Prices move</b><span>The Event Head moves the prices for that news. The market closes, open orders fill, and the next story follows.</span></li>
+    </ol>
+    <p class="foot">One account per team. Teammates sign in on other devices with the team code shown after joining.</p>
+  </div>
+</main>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+/*@ENGINE@*/
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const TEAM_KEY = 'jaco-live:team', HEAD_KEY = 'jaco-live:desk:key';
+const get = (store, k) => { try { return store.getItem(k); } catch { return null; } };
+const set = (store, k, v) => { try { store.setItem(k, v); } catch {} };
+const del = (k) => { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch {} };
+async function api(path, body) {
+  const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+  return r.json();
+}
+const team = () => { try { return JSON.parse(get(localStorage, TEAM_KEY) || 'null'); } catch { return null; } };
+let started = false, polled = false, state = null, offset = 0;
+const NOT_YET = 'The market has not opened yet. Wait for the Event Head, then join.';
+
+// ---------- team desk card ----------
+let teamMode = 'join';
+function renderTeam() {
+  const t = team();
+  const box = $('#teamBody');
+  if (t?.token) {
+    box.innerHTML = `<div class="signed"><span class="muted">This device is signed in as</span><span class="who">${esc(t.team)}</span>
+      <div><a class="btn primary" href="/team/">Open the team desk</a></div>
+      <button class="linkbtn" type="button" id="tOut">Not your team? Sign out of this device</button></div>`;
+    $('#tOut').addEventListener('click', () => { del(TEAM_KEY); renderTeam(); });
+    return;
+  }
+  box.innerHTML = `<p>Type the PIN from the big screen and your team name. You get a team code so teammates can join you on their devices.</p>
+    <div class="tabs2" role="group" aria-label="Join or sign in"><button type="button" data-tm="join" aria-pressed="${teamMode === 'join'}">Join</button><button type="button" data-tm="code" aria-pressed="${teamMode === 'code'}">I have a team code</button></div>
+    ${teamMode === 'join' ? `<form id="joinF" novalidate style="display:grid;gap:12px">
+      <div class="row"><label class="field pin"><span>Join PIN</span><input class="input big-input" id="pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="0000"></label>
+      <label class="field"><span>Team name</span><input class="input" id="tname" maxlength="40" autocomplete="off" placeholder="e.g. Bulls of Dalal Street"></label></div>
+      <div class="err" id="tErr" role="alert">${started || !polled ? '' : NOT_YET}</div>
+      <div><button class="btn primary" type="submit" id="tGo">Join the market</button></div></form>`
+    : `<form id="codeF" novalidate style="display:grid;gap:12px">
+      <label class="field" style="max-width:260px"><span>Team code (on the Funds page of a teammate's device)</span><input class="input big-input" id="tcode" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="XXXXXX"></label>
+      <div class="err" id="tErr" role="alert"></div>
+      <div><button class="btn primary" type="submit" id="tGo">Sign in to my team</button></div></form>`}`;
+  box.querySelectorAll('[data-tm]').forEach((b) => b.addEventListener('click', () => { teamMode = b.dataset.tm; renderTeam(); }));
+  const form = $('#joinF') || $('#codeF');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const go = $('#tGo'); go.disabled = true;
+    const r = await (teamMode === 'join' ? api('join', { pin: $('#pin').value, name: $('#tname').value }) : api('signin', { code: $('#tcode').value }))
+      .catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+    go.disabled = false;
+    if (!r.ok) { $('#tErr').textContent = r.error; return; }
+    set(localStorage, TEAM_KEY, JSON.stringify({ token: r.token, team: r.me.name, code: r.me.code, book: null, readNews: 0 }));
+    location.href = '/team/';
+  });
+}
+
+// ---------- Event Head card ----------
+function renderHead() {
+  const box = $('#headBody');
+  const key = get(sessionStorage, HEAD_KEY) || get(localStorage, HEAD_KEY);
+  if (key) {
+    box.innerHTML = `<div class="signed"><span class="muted">This device is signed in as the Event Head.</span>
+      <div><a class="btn primary" href="/desk/">Open the Event Head desk</a></div>
+      <button class="linkbtn" type="button" id="hOut">Sign out of this device</button></div>`;
+    $('#hOut').addEventListener('click', () => { del(HEAD_KEY); renderHead(); });
+    return;
+  }
+  box.innerHTML = `<p>Release the news, move the prices, run the countdown and reveal the standings. Sign in with the game key.</p>
+    <form id="headF" novalidate style="display:grid;gap:12px">
+      <label class="field"><span>Game key</span><input class="input big-input" id="gkey" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX"></label>
+      <label class="check"><input type="checkbox" id="remember"> Remember on this device</label>
+      <div class="err" id="hErr" role="alert"></div>
+      <div><button class="btn" type="submit" id="hGo">Sign in</button></div>
+    </form>`;
+  $('#headF').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const go = $('#hGo'); go.disabled = true; go.textContent = 'Opening…';
+    const key = $('#gkey').value;
+    const r = await api('admin', { key, action: 'login' }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+    go.disabled = false; go.textContent = 'Sign in';
+    if (!r.ok) { $('#hErr').textContent = r.error; return; }
+    set($('#remember').checked ? localStorage : sessionStorage, HEAD_KEY, key);
+    location.href = '/desk/';
+  });
+}
+
+// ---------- the market right now ----------
+function renderLive() {
+  const el = $('#live');
+  if (!state) { el.innerHTML = `<span class="chip">${polled ? 'Market not started yet' : 'Connecting…'}</span>`; return; }
+  const t = state.timer, left = t.endsAt ? t.endsAt - (Date.now() + offset) : 0;
+  const open = state.open && left > 0;
+  const clock = `${pad2(Math.floor(left / 60000))}:${pad2(Math.floor((left % 60000) / 1000))}`;
+  el.innerHTML = `<span class="chip gold">Round ${pad2(dayOf(state.a))} of 09</span><span class="chip">News ${pad2(state.a)}/45</span>
+    <span class="chip ${open ? 'up' : ''}">${open ? 'Market open · ' + clock : 'Market closed'}</span><span class="chip">${state.teams} team${state.teams === 1 ? '' : 's'}</span>`;
+}
+async function poll() {
+  try {
+    const r = await api('poll');
+    offset = r.now - Date.now();
+    state = r.state; started = !!r.state; polled = true;
+    if (state) $('#cap').textContent = fmtRs(state.capital * 100, { whole: true });
+    // update the join hint in place, so a half-typed form is never wiped
+    const err = $('#joinF #tErr');
+    if (err && (!err.textContent || err.textContent === NOT_YET)) err.textContent = started ? '' : NOT_YET;
+  } catch {}
+  renderLive();
+  setTimeout(poll, document.hidden ? 20000 : 6000);
+}
+setInterval(renderLive, 1000);
+
+renderTeam();
+renderHead();
+poll();
+})();
+</script>

@@ -859,6 +859,11 @@ function openCode() {
   });
   setTimeout(() => inp.focus(), 30);
 }
+if (LIVE) {
+  const mark = $('.top .mark'), home = document.createElement('a');
+  home.href = '/'; home.setAttribute('aria-label', 'Home'); home.style.display = 'flex';
+  mark.replaceWith(home); home.appendChild(mark);
+}
 if (LIVE) { $('#codeBtn').hidden = true; $('#mkt').hidden = false; $('#railFoot').textContent = 'Prices change only when the Event Head moves them. Orders work while the market is open.'; } else $('#codeBtn').addEventListener('click', openCode);
 
 async function enterCode(c) {

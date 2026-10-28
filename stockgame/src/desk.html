@@ -394,7 +394,17 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 if (!LIVE) window.addEventListener('storage', (e) => { if (e.key === KEY) { D = load() || fresh(); render(); } });
-if (LIVE) $('a[data-v="codes"]').remove();
+if (LIVE) {
+  $('a[data-v="codes"]').remove();
+  // one website: the mark goes home, and the team desk is a tab away
+  const mark = $('.brand .mark'), home = document.createElement('a');
+  home.href = '/'; home.setAttribute('aria-label', 'Home'); home.style.display = 'flex';
+  mark.replaceWith(home); home.appendChild(mark);
+  const tabs = $('.tabs');
+  tabs.insertAdjacentHTML('beforeend', '<a href="/team/" target="_blank" rel="noopener">Team desk ↗</a>');
+  $('a[data-v="screen"]', tabs).href = '/screen/';
+  $('a[data-v="screen"]', tabs).target = '_blank';
+}
 
 function render() {
   if (view === 'screen') { renderScreen(); tick(); return; }
@@ -786,8 +796,8 @@ function vGuide() {
     <div class="panel guide">
       <h3>Before the event</h3>
       <ol>
-        <li>Put <b>${esc(location.host)}/screen</b> on the projector. It shows the address, the join PIN and the prices, and needs no sign-in.</li>
-        <li>Teams open <b>${esc(location.host)}</b>, type the PIN and a team name, and start with ${fmtRs(capital() * 100, { whole: true })}. Each team gets a team code so teammates can sign in on other devices.</li>
+        <li>Put the big screen (<b>${esc(location.host)}/screen</b>) on the projector. It shows the address, the join PIN and the prices, and needs no sign-in.</li>
+        <li>Teams open <b>${esc(location.host)}</b> and join on the home page with the PIN and a team name. They start with ${fmtRs(capital() * 100, { whole: true })}. Each team gets a team code so teammates can sign in on other devices.</li>
         <li>When every team is in, close joining on the Teams tab.</li>
       </ol>
       <h3>Each update</h3>
@@ -811,7 +821,7 @@ function vGuide() {
       </ol>
       <h3>If something goes wrong</h3>
       <ul>
-        <li>This laptop crashed: open <b>${esc(location.host)}/desk</b> anywhere and sign in with the game key. Nothing is lost; the server holds the game.</li>
+        <li>This laptop crashed: open <b>${esc(location.host)}</b> anywhere and sign in with the game key on the home page. Nothing is lost; the server holds the game.</li>
         <li>A team lost its phone: its team code (shown on the Teams tab) signs it in on any device.</li>
         <li>A news release was clicked by mistake: undo it from the Control tab. Price moves cannot be undone, because orders have filled at them.</li>
       </ul>
