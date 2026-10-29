@@ -94,6 +94,7 @@ export function defaultConfig() {
     auction: {
       poolSize: 20,
       teamSize: 5,
+      allowShortTeams: false, // true = Event Control lets a team with fewer than teamSize employees go into Round 2
       budgetEnabled: true,
       budgetBasis: 'bids', // 'bids' = winning bids only; 'initialHiringCost' = bids + recruitment + onboarding
       budgetEnforcement: 'warn', // 'warn' = the operator must acknowledge; 'block' = the sale is refused

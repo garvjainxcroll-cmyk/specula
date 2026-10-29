@@ -78,7 +78,8 @@ export function round1Issues(ctx) {
   const size = cfg.auction.teamSize;
   for (const t of ctx.teams) {
     const n = (ctx.roster[t.id] || []).length;
-    if (n !== size) out.push(issue(cfg, 'R1_TEAM_SIZE', `${t.label} has ${n} of ${size} employees.`, { kind: 'team', id: t.id }));
+    if (n < size && cfg.auction.allowShortTeams) out.push(issue(cfg, 'R1_TEAM_SHORT', `${t.label} has ${n} of ${size} employees and goes into Round 2 short-handed (Event Control has allowed this).`, { kind: 'team', id: t.id }));
+    else if (n !== size) out.push(issue(cfg, 'R1_TEAM_SIZE', `${t.label} has ${n} of ${size} employees.`, { kind: 'team', id: t.id }));
   }
   for (const r of doc.auction?.records || []) {
     const e = ctx.employees.get(r.employeeId);

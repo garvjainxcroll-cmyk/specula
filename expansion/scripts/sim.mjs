@@ -44,7 +44,7 @@ export function randomAuction(doc, rand) {
 export function applyDeployments(doc, plan) {
   let n = doc.deployments.length;
   for (const [t, list] of Object.entries(plan)) for (const d of list) {
-    doc.deployments.push({ id: `D${String(++n).padStart(3, '0')}`, teamId: t, timeShare: 100, approval: { state: 'approved' }, ...d });
+    doc.deployments.push({ id: `D${String(++n).padStart(3, '0')}`, teamId: t, timeShare: 100, approval: { state: 'approved' }, ...structuredClone(d) });
   }
   doc.depSeq = n;
   return doc;

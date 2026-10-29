@@ -55,7 +55,8 @@ export function render(ctx) {
     ],
     rules: () => [
       sectionForm(ctx, 'auction', [
-        { key: 'poolSize', label: 'CVs in the auction', min: 1, max: 60, step: 1 }, { key: 'teamSize', label: 'Employees each team must hire', min: 1, max: 10, step: 1, help: 'Round 1 cannot be locked until every team has exactly this many.' },
+        { key: 'poolSize', label: 'CVs in the auction', min: 1, max: 60, step: 1 }, { key: 'teamSize', label: 'Employees each team must hire', min: 1, max: 10, step: 1, help: 'Round 1 cannot be locked until every team has exactly this many, unless the next setting is on.' },
+        { key: 'allowShortTeams', label: 'Allow a team with fewer employees to go into Round 2', type: 'bool', help: 'Off = every team must have exactly the number above. Turn on only by Event Control decision (for example after a CV is withdrawn and left unallocated). A team can never have more.' },
         { key: 'budgetEnabled', label: 'Use an acquisition budget', type: 'bool' },
         { key: 'budgetBasis', label: 'Budget counts', type: 'select', options: [['bids', 'Winning bids only'], ['initialHiringCost', 'Bids + recruitment + onboarding']] },
         { key: 'budgetEnforcement', label: 'When a sale exceeds the budget', type: 'select', options: [['warn', 'Warn — the operator must acknowledge'], ['block', 'Block — the sale is refused']] },

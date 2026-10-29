@@ -181,6 +181,7 @@ export const CHECKS = {
   CFG_REAL_LAW: { stage: 'config', fixed: false, severity: 'blocking', title: 'Rules based on real law record who verified them' },
   // round 1
   R1_TEAM_SIZE: { stage: 'round1', fixed: true, severity: 'blocking', title: 'Each team has exactly the required number of employees' },
+  R1_TEAM_SHORT: { stage: 'round1', fixed: true, severity: 'warning', title: 'A team goes into Round 2 short-handed (allowed by Event Control)' },
   R1_UNRESOLVED: { stage: 'round1', fixed: true, severity: 'blocking', title: 'Every CV is sold or explicitly resolved' },
   R1_UNCONFIRMED: { stage: 'round1', fixed: true, severity: 'blocking', title: 'Every sale is confirmed' },
   R1_BUDGET: { stage: 'round1', fixed: false, severity: 'warning', title: 'Teams within their acquisition budget' },
