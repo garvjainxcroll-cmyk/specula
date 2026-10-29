@@ -86,6 +86,13 @@ function noNewConfigBlockers(before, after) {
 }
 function configIssuesOf(doc) { return configIssues(buildContext(doc)); }
 
+// operators cannot see hidden regional values, so they must not save region forms
+function regionsGuard(x) {
+  const v = x.doc.config.visibility || {};
+  const hidden = Object.values(v.operators || {}).some((shown) => shown === false) || (v.hiddenRegions || []).length > 0;
+  need(!(hidden && x.user.role !== 'super'), 'CONFIDENTIAL', 'Some regional information is hidden from operators, so only a Super Administrator can edit continents and cities.');
+}
+
 function recordRevert(coll, id, before, after) { return { kind: 'record', coll, id, before: clone(before), after: clone(after) }; }
 
 // ---------------- the handlers ----------------
@@ -193,6 +200,7 @@ H['revenueModel.update'] = { perm: 'formulas.edit', run(x) {
 H['continent.update'] = { perm: 'config.edit', run(x) {
   const { doc, p } = x;
   configGuard(x);
+  regionsGuard(x);
   const c = findIn(doc, 'continents', p.id);
   need(c, 'NOT_FOUND', 'That continent does not exist.');
   expectRev(c, p);
@@ -207,6 +215,7 @@ H['continent.update'] = { perm: 'config.edit', run(x) {
 H['city.update'] = { perm: 'config.edit', run(x) {
   const { doc, p } = x;
   configGuard(x);
+  regionsGuard(x);
   const c = findIn(doc, 'cities', p.id);
   need(c, 'NOT_FOUND', 'That city does not exist.');
   expectRev(c, p);
