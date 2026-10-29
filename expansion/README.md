@@ -37,9 +37,13 @@ Round 1 (CV Auction) and Round 2 (Global Business Expansion).
 4. **Preserve** — download the complete event archive; backups are taken automatically at every lock and finalisation.
 
 ## How the numbers work
-The full method, every formula and every range is in [MODEL.md](MODEL.md) (to follow). In short: each deployment's productivity comes from the employee's capability fit for the role, how much the role matters in that city, and the city's conditions; revenue follows from the city's opportunity, market strength, growth and the months actually worked; costs are counted month by month in clear categories; every total is the sum of rounded lines, so all reports reconcile exactly.
+The full method, every formula and every range is in [MODEL.md](MODEL.md); how to run the event is in [ADMIN_GUIDE.md](ADMIN_GUIDE.md). In short: each deployment's productivity comes from the employee's capability fit for the role, how much the role matters in that city, and the city's conditions; revenue follows from the city's opportunity, market strength, growth and the months actually worked; costs are counted month by month in clear categories; every total is the sum of rounded lines, so all reports reconcile exactly.
+
+## Tests
+`npm test` runs 57 automated tests, including the brief's **25 acceptance tests** (`tests/acceptance.test.mjs`, numbered AT01–AT25 as in the brief). The rest cover the calculation engine, sign-in and permissions, confidentiality, simultaneous edits, finalisation, versions, backups and reverting. `npm run e2e` walks a full rehearsal in a real browser.
 
 ## For developers
-- `npm install`, then `npm run dev` (http://localhost:8890), `npm test`, `npm run balance`, `npm run e2e`.
+- `npm install`, then `npm run dev` (http://localhost:8890), `npm test`, `npm run balance`, `npm run e2e`, `npm run zip` (a downloadable copy of the project).
+- Record every formula or default change in [CHANGELOG.md](CHANGELOG.md), with its reason.
 - `src/engine/` is the pure, deterministic calculation engine (no clock, no random numbers; money in integer paise). `src/data/` is the fictional sample data (server-only). `server/` is the API, permissions, audit and exports. `web/` is the console.
 - The build (`scripts/build.mjs`) refuses to finish if any sample data would appear in the public files.
