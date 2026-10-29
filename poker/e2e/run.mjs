@@ -170,6 +170,15 @@ async function main() {
   await asha.screenshot({ path: join(shots, '06-tournament.png') });
   await host.screenshot({ path: join(shots, '07-host-tournament.png') });
 
+  console.log('The Server check');
+  const { page: check } = await newPage('check', { width: 390, height: 844 });
+  await check.goto(`${base}/#/status`);
+  await check.waitForSelector('textarea', { timeout: 20000 });
+  const statusMarks = await check.$$eval('.okline .mark', (els) => els.map((e) => e.textContent));
+  const titles = await check.$$eval('.okline b', (els) => els.map((e) => e.textContent));
+  ok(titles.includes('The game server answers') && titles.includes('Storage works') && !statusMarks.includes('Problem'), `server check: ${titles.map((t, i) => `${statusMarks[i]} ${t}`).join(', ')}`);
+  await check.screenshot({ path: join(shots, '08-server-check.png') });
+
   ok(errors.length === 0, `no errors in the pages${errors.length ? `: ${errors.slice(0, 5).join(' | ')}` : ''}`);
   await browser.close();
 }

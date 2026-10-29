@@ -230,19 +230,41 @@ export default async function host(app, { band }) {
     const pw = h('input', { type: 'password', minlength: 6, autocomplete: 'new-password', style: { maxWidth: '260px' } });
     mount(pane, h('div', { class: 'grid g2' },
       h('div', { class: 'card stack' }, h('h3', { style: { marginTop: 0 } }, 'Backup'), h('p', { class: 'muted small' }, 'Download every table, tournament result, hand history and account (without passwords) as one file.'),
-        h('button', { class: 'btn', onclick: async () => {
-          const r = await hostGet('host/backup');
-          if (!r.ok) return toast(r.error, 'bad');
-          const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(r, null, 1)], { type: 'application/json' })), download: `artha-backup-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json` });
+        h('button', { class: 'btn', onclick: async (e) => {
+          // the server sends the backup in parts so no single request runs too long
+          const btn = e.currentTarget; btn.disabled = true;
+          const docs = {}; let from = 0; let total = 0; let at = null;
+          for (let k = 0; k < 500 && from !== null; k++) {
+            const r = await hostGet(`host/backup?from=${from}`);
+            if (!r.ok) { btn.disabled = false; return toast(r.error || 'The backup stopped — try again', 'bad'); }
+            Object.assign(docs, r.docs); from = r.next; total = r.total; at = r.at;
+            btn.textContent = from === null ? 'Download backup' : `Collecting… ${from}/${total}`;
+          }
+          btn.disabled = false; btn.textContent = 'Download backup';
+          const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify({ ok: true, at, docs }, null, 1)], { type: 'application/json' })), download: `artha-backup-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json` });
           document.body.appendChild(a); a.click(); a.remove();
+          toast(`Backup saved: ${Object.keys(docs).length} records`, 'good');
         } }, 'Download backup')),
       h('div', { class: 'card stack' }, h('h3', { style: { marginTop: 0 } }, 'Reset everything'), h('p', { class: 'muted small' }, 'Deletes all tables, tournaments and hand histories. With “keep accounts”, players keep their names and chips (chips at cash tables are returned first).'),
         h('label', { class: 'check' }, keep, 'Keep accounts'), conf,
-        h('button', { class: 'btn danger', onclick: async () => {
+        h('button', { class: 'btn danger', onclick: async (e) => {
           if (conf.value !== 'RESET') return toast('Type RESET first', 'bad');
-          const r = await hostSend('host/reset', { confirm: 'RESET', keepAccounts: keep.checked });
-          if (r.ok) toast(`Reset: ${r.deleted} records deleted`, 'good'); else toast(r.error, 'bad');
+          // the server works in steps (so no request runs too long): ask again until it is done
+          const btn = e.currentTarget; btn.disabled = true;
+          let deleted = 0;
+          for (let k = 0; k < 300; k++) {
+            const r = await hostSend('host/reset', { confirm: 'RESET', keepAccounts: keep.checked });
+            if (!r.ok) { btn.disabled = false; btn.textContent = 'Reset'; return toast(`${r.error || 'The reset stopped'} — press Reset again to continue`, 'bad'); }
+            deleted += r.deleted || 0;
+            btn.textContent = r.more ? `Resetting… ${deleted} deleted` : 'Reset';
+            if (!r.more) break;
+          }
+          btn.disabled = false; btn.textContent = 'Reset';
+          conf.value = '';
+          toast(`Reset done: ${deleted} records deleted`, 'good');
         } }, 'Reset')),
+      h('div', { class: 'card stack' }, h('h3', { style: { marginTop: 0 } }, 'Server check'), h('p', { class: 'muted small' }, 'Tests the connection to the server and its storage, with timings, in plain words. Use it whenever something seems wrong.'),
+        h('a', { class: 'btn ghost', href: '#/status' }, 'Run the server check')),
       h('div', { class: 'card stack' }, h('h3', { style: { marginTop: 0 } }, 'Event Head password'), h('label', { class: 'field' }, h('span', {}, 'New password'), pw),
         h('button', { class: 'btn ghost', onclick: async () => { const r = await hostSend('host/password', { password: pw.value }); if (r.ok) { auth.setHost(r.token); toast('Password changed', 'good'); } else toast(r.error, 'bad'); } }, 'Change password'))));
   }

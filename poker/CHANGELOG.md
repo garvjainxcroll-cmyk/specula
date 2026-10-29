@@ -2,6 +2,29 @@
 
 Every rule or setting change is recorded here with its reason.
 
+## 1.0.1 — October 2026: server fixes
+
+Reported: “server issue”. No game rule changed.
+
+**The main cause: storage changes were not always protected**
+- Every change to a table is meant to be a conditional write: “save this only if nobody else changed the table since I read it”. That needs the record’s version tag from the read. Some Netlify Blobs servers do not send the tag on reads; the write then quietly became an ordinary one, and two phones acting at the same moment could overwrite each other (a seat given twice, a click lost, chips out of step). The storage adapter now takes the tag from the store’s listing when a read has none, checks it before and after reading, and refuses to save at all rather than save unprotected.
+- New test (`tests/blobs.test.mjs`) runs the real game on Netlify’s own Blobs client and reference server: a seat race, twenty identical clicks at once, a balanced chip audit, and the reset.
+
+**Other server fixes**
+- Shared Wi-Fi: everyone at an event usually shares one internet address, and the old per-address limits could lock a whole room out (“too many requests”). Limits are now per account for players, and much higher per address: sign-ins 400 per 10 minutes, any request 20,000 per minute, table updates 400 per minute per player.
+- A buy-in that timed out after the seat was already taken was refunded *and* seated (chips counted twice). The server now re-reads the table and finishes the buy-in if it went through.
+- Chips stuck after a table closed or a tournament ended are now delivered the next time the player opens the site, and old table links are cleared from their account.
+- Leaving your own practice table now closes it (it used to keep running with the bots).
+- The Event Head’s **Download backup** and **Reset everything** now work in parts, so they finish on Netlify instead of timing out with many accounts. The reset with “keep accounts” first returns every chip on the tables.
+- The website no longer says “Single device” when the server is only busy or slow; it slows its updates and shows a gold “the server is having trouble” bar with a link to the Server check.
+
+**Also fixed**
+- On phones most pages (Lobby, Practice, How to Play, Profile, the hand replay) had no margin at the sides: the text touched the screen edge. They now keep 16 px at each side, with no sideways scrolling.
+- The browser test now also opens the Server check on a phone-sized screen.
+
+**New: Server check** (`/#/status`, also on the Event Head desk)
+- Says in plain words whether the game server is there, whether its storage works (including the protection against two changes at once), how fast it is, and what to do about each problem. It makes a report that can be copied and sent.
+
 ## 1.0.0 — October 2026
 
 First version, built in stages: rules engine and tests → tables → multiplayer server → website.

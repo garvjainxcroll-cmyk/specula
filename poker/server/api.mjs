@@ -29,7 +29,7 @@ import { BOT_LEVELS } from '../src/bots/bot.mjs';
 
 const DAY = 86400000;
 const MIN = 60000;
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.1';
 
 export const DEFAULT_SETTINGS = Object.freeze({
   formats: { quickPlay: true, cash: true, private: true, tournament: true, practice: true, headsUp: true },
@@ -47,6 +47,19 @@ class Refusal extends Error { constructor(code, message, status = 200) { super(m
 const no = (code, msg, status) => { throw new Refusal(code, msg, status); };
 
 // ---------------- rate limits (per server instance; best effort on Netlify) ----------------
+// At an event everyone shares the venue's Wi-Fi, so the server sees one address for the whole
+// hall. Limits per address are therefore only flood guards; the real limits are per account.
+export const LIMITS = {
+  ip: [20000, MIN], // any request, per address
+  auth: [400, 10 * MIN], // guest / sign-in / new account, per address
+  host: [40, 10 * MIN], // Event Head password tries, per address
+  hostAll: [80, 10 * MIN], // Event Head password tries, everyone together
+  poll: [400, MIN], // table updates, per signed-in account
+  watch: [5000, MIN], // table updates for watchers who are not signed in (Big Screen, spectators), per address and table
+  act: [30, 10000], // actions, per account
+  selftest: [20, MIN],
+};
+const over = (name, key, now) => !limit(`${name}:${key}`, LIMITS[name][0], LIMITS[name][1], now);
 
 const buckets = new Map();
 export function limit(key, max, windowMs, now = Date.now()) {
@@ -73,6 +86,18 @@ async function mutate(store, key, fn, tries = 12) {
   }
   throw new Refusal('busy', 'The table is very busy — please try again', 503);
 }
+
+/** Run fn over items with at most n at a time (storage calls in parallel, not one by one). */
+async function mapLimit(items, n, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
+  }));
+  return out;
+}
+/** Long Event Head jobs stop after this long and report "more to do", so no request hits Netlify's time limit. */
+const BUDGET_MS = 6500;
 
 const keys = new WeakMap();
 async function signingKey(store) {
@@ -203,6 +228,10 @@ async function resolveHolds(ctx, acct) {
 
 const touched = new Map(); // roomId → last request time (for the Node server's background clock)
 const retried = new Map(); // roomId → last outbox retry
+function touch(id, now) {
+  touched.set(id, now);
+  if (touched.size > 2000) for (const [k, t] of touched) if (now - t > 30 * MIN) { touched.delete(k); retried.delete(k); }
+}
 export function activeRooms(now = Date.now(), within = 10 * MIN) { return [...touched.entries()].filter(([, t]) => now - t < within).map(([id]) => id); }
 
 async function roomIdFrom(ctx, q) {
@@ -227,7 +256,7 @@ async function withRoom(ctx, id, fn) {
     result = await fn(room);
     return room;
   });
-  touched.set(id, ctx.now);
+  touch(id, ctx.now);
   if (changed) await after(ctx, room);
   return { room, result };
 }
@@ -366,7 +395,19 @@ async function buyIn(ctx, acct, roomId, amount, apply) {
   try {
     out = await withRoom(ctx, roomId, (room) => apply(room, xferId));
   } catch (e) {
-    if (!free) await mutate(ctx.store, `acct/${acct.id}`, (a) => { const h = a.holds[xferId]; if (!h) return undefined; a.bankroll += h.amount; delete a.holds[xferId]; return a; });
+    if (!free) {
+      // a failed reply does not always mean a failed write: refund only if the table never took the chips
+      const r = await ctx.store.get(`room/${roomId}`).catch(() => null);
+      const took = !!r && r.applied.includes(xferId);
+      await mutate(ctx.store, `acct/${acct.id}`, (a) => {
+        const h = a.holds[xferId];
+        if (!h) return undefined;
+        if (took) { a.ledger.boughtIn += h.amount; a.at[roomId] = { name: r.name, code: r.code, kind: r.kind, at: ctx.now }; } else a.bankroll += h.amount;
+        delete a.holds[xferId];
+        return a;
+      });
+      if (took) return { room: r, result: null };
+    }
     throw e;
   }
   await mutate(ctx.store, `acct/${acct.id}`, (a) => {
@@ -387,7 +428,7 @@ route('GET', 'health', async (ctx) => json({ ok: true, app: 'artha', version: VE
 
 // --- accounts ---
 route('POST', 'auth/register', async (ctx, b) => {
-  if (!limit(`auth:${ctx.ip}`, 30, 10 * MIN)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
+  if (over('auth', ctx.ip, ctx.now)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
   const s = await settingsOf(ctx.store);
   if (!s.registration) no('closed', 'New accounts are switched off by the Event Head');
   const name = cleanPlayerName(b.name);
@@ -403,7 +444,7 @@ route('POST', 'auth/register', async (ctx, b) => {
 });
 
 route('POST', 'auth/guest', async (ctx, b) => {
-  if (!limit(`auth:${ctx.ip}`, 30, 10 * MIN)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
+  if (over('auth', ctx.ip, ctx.now)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
   const s = await settingsOf(ctx.store);
   if (!s.guests) no('closed', 'Guest play is switched off: please make an account');
   const base = cleanPlayerName(b.name) || `Guest ${100 + Math.floor(Math.random() * 900)}`;
@@ -418,7 +459,7 @@ route('POST', 'auth/guest', async (ctx, b) => {
 });
 
 route('POST', 'auth/login', async (ctx, b) => {
-  if (!limit(`auth:${ctx.ip}`, 30, 10 * MIN)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
+  if (over('auth', ctx.ip, ctx.now)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
   const s = await settingsOf(ctx.store);
   const name = cleanPlayerName(b.name);
   const ref = name ? await ctx.store.get(`name/${name.toLowerCase()}`) : null;
@@ -461,9 +502,32 @@ route('POST', 'auth/logout', async (ctx) => {
   return json({ ok: true });
 });
 
+/**
+ * Make sure nothing is stuck for this player: chips or results still waiting in a table's
+ * outbox are delivered now, and tables they are no longer at are taken off their list.
+ */
+async function tidyTables(ctx, acct) {
+  const entries = Object.entries(acct.at || {});
+  if (!entries.length) return acct;
+  const gone = [];
+  let delivered = false;
+  await mapLimit(entries, 6, async ([roomId]) => {
+    const room = await ctx.store.get(`room/${roomId}`);
+    if (room && room.outbox.some((o) => o.acct === acct.id)) { await deliver(ctx, roomId).catch(() => null); delivered = true; return; }
+    if (!room || room.status === 'closed') { gone.push(roomId); return; }
+    if (room.kind === 'tournament') {
+      const e = room.tour.entrants.find((x) => x.acct === acct.id);
+      if (!e || e.status === 'out' || (room.tour.status === 'finished' && !R.findSeat(room, acct.id))) gone.push(roomId);
+    } else if (!R.findSeat(room, acct.id)) gone.push(roomId);
+  });
+  if (gone.length) await mutate(ctx.store, `acct/${acct.id}`, (a) => { let ch = false; for (const id of gone) if (a.at[id]) { delete a.at[id]; ch = true; } return ch ? a : undefined; });
+  return gone.length || delivered ? (await ctx.store.get(`acct/${acct.id}`)) || acct : acct;
+}
+
 route('GET', 'me', async (ctx) => {
   let acct = await needUser(ctx);
   acct = await resolveHolds(ctx, acct);
+  acct = await tidyTables(ctx, acct);
   return json({ ok: true, me: meView(acct, await settingsOf(ctx.store), ctx.now), now: ctx.now });
 });
 
@@ -578,20 +642,22 @@ route('GET', 'room', async (ctx, _b, q) => {
   const id = await roomIdFrom(ctx, Object.fromEntries(q));
   const w = await who(ctx);
   const viewer = { acct: w?.acct?.id || null, host: !!w?.host };
-  touched.set(id, ctx.now);
-  let room;
+  touch(id, ctx.now);
+  if (viewer.acct ? over('poll', viewer.acct, ctx.now) : over('watch', `${ctx.ip}:${id}`, ctx.now)) no('slow-down', 'Too many updates — slowing down', 429);
+  let room; let ticked = false;
   try {
     ({ data: room } = await mutate(ctx.store, `room/${id}`, (r) => {
       if (!r) no('no-room', 'That table no longer exists');
-      const a = R.tick(r, ctx.now, ctx.rng);
+      ticked = R.tick(r, ctx.now, ctx.rng);
       const b2 = viewer.acct ? R.touch(r, viewer.acct, ctx.now) : false;
-      return a || b2 ? r : undefined;
+      return ticked || b2 ? r : undefined;
     }, 6));
   } catch (e) {
-    if (e instanceof Refusal && e.code === 'busy') room = await ctx.store.get(`room/${id}`); // show the last saved state
+    if (e instanceof Refusal && e.code === 'busy') { room = await ctx.store.get(`room/${id}`); ticked = false; } // show the last saved state
     else throw e;
   }
-  if (room.outbox.length && ctx.now - (retried.get(id) || 0) > 5000) { retried.set(id, ctx.now); await deliver(ctx, id).catch(() => null); } // finish an interrupted delivery
+  if (ticked) await after(ctx, room); // a time-out, a bot or a new hand: tell the others, update the lobby, deliver
+  else if (room.outbox.length && ctx.now - (retried.get(id) || 0) > 5000) { retried.set(id, ctx.now); await deliver(ctx, id).catch(() => null); } // finish an interrupted delivery
   const v = Number(q.get('v'));
   if (v && v === room.v) return json({ ok: true, same: true, v: room.v, now: ctx.now });
   return json({ ok: true, view: viewRoom(room, viewer, ctx.now), now: ctx.now });
@@ -618,7 +684,15 @@ route('POST', 'room/topup', async (ctx, b) => {
 
 route('POST', 'room/leave', async (ctx, b) => {
   const { acct, id } = await roomBody(ctx, b);
-  const { room, result } = await withRoom(ctx, id, (r) => R.leave(r, acct.id, ctx.now, ctx.rng));
+  const { room, result } = await withRoom(ctx, id, (r) => {
+    if (r.kind === 'practice' && r.owner === acct.id) {
+      // leaving your own practice table ends it (practice chips are not kept)
+      for (const t of r.tables) if (R.isLive(t)) R.voidHand(r, t.i, ctx.now);
+      R.closeRoom(r, ctx.now);
+      return { pending: false, amount: 0 };
+    }
+    return R.leave(r, acct.id, ctx.now, ctx.rng);
+  });
   if (room.kind === 'practice' || (room.kind === 'tournament' && !result.pending)) await mutate(ctx.store, `acct/${acct.id}`, (a) => { if (!a.at[id]) return undefined; delete a.at[id]; return a; });
   return json({ ok: true, ...result, view: viewRoom(room, { acct: acct.id }, ctx.now), now: ctx.now });
 });
@@ -637,7 +711,7 @@ route('POST', 'room/automuck', async (ctx, b) => {
 
 route('POST', 'room/act', async (ctx, b) => {
   const { acct, id } = await roomBody(ctx, b);
-  if (!limit(`act:${acct.id}`, 30, 10000)) no('slow-down', 'Too many clicks — slow down a little', 429);
+  if (over('act', acct.id, ctx.now)) no('slow-down', 'Too many clicks — slow down a little', 429);
   const type = String(b.type || '');
   if (!['fold', 'check', 'call', 'bet', 'raise', 'allin'].includes(type)) no('illegal', 'Unknown action');
   const to = b.to === undefined || b.to === null ? undefined : Number(b.to);
@@ -715,6 +789,30 @@ route('GET', 'hand', async (ctx, _b, q) => {
   return json({ ok: true, hand: redactRecord(rec, viewer) });
 });
 
+/** Server check: can this server store, read and safely change a record? With timings. */
+route('GET', 'selftest', async (ctx) => {
+  if (over('selftest', ctx.ip, ctx.now)) no('slow-down', 'Wait a minute before checking again', 429);
+  const steps = [];
+  const key = `selftest/${randomId(10)}`;
+  const step = async (name, fn) => {
+    const t = Date.now();
+    try { const ok = await fn(); steps.push({ name, ok: ok !== false, ms: Date.now() - t }); return ok; } catch (e) { steps.push({ name, ok: false, ms: Date.now() - t, error: String(e?.message || e).slice(0, 300) }); return false; }
+  };
+  let etag = null;
+  await step('write a test record', async () => (await ctx.store.set(key, { at: ctx.now }, { onlyIfNew: true })).modified);
+  await step('read it back', async () => { const m = await ctx.store.getMeta(key); etag = m?.etag; return m?.data?.at === ctx.now && !!etag; });
+  await step('refuse a write from an out-of-date copy', async () => !(await ctx.store.set(key, { at: 1 }, { onlyIfMatch: '"stale-etag"' })).modified);
+  await step('accept a write from the current copy', async () => (await ctx.store.set(key, { at: 2 }, { onlyIfMatch: etag })).modified);
+  await step('let only one of two simultaneous changes through', async () => {
+    const m = await ctx.store.getMeta(key);
+    const both = await Promise.all([ctx.store.set(key, { at: 3 }, { onlyIfMatch: m.etag }), ctx.store.set(key, { at: 4 }, { onlyIfMatch: m.etag })]);
+    return both.filter((w) => w.modified).length === 1;
+  });
+  await step('delete the test record', async () => { await ctx.store.del(key); return (await ctx.store.get(key)) === null; });
+  await step('read the game settings', async () => !!(await settingsOf(ctx.store)));
+  return json({ ok: steps.every((x) => x.ok), storage: ctx.store.kind, steps, node: typeof process !== 'undefined' ? process.version : null, region: typeof process !== 'undefined' ? process.env.AWS_REGION || null : null, now: ctx.now });
+});
+
 route('GET', 'stream', async () => refuse('no-stream', 'Live push is not available on this server; the page will poll instead'));
 
 // --- the Event Head ---
@@ -724,7 +822,7 @@ route('GET', 'host/status', async (ctx) => {
 });
 
 route('POST', 'host/setup', async (ctx, b) => {
-  if (!limit(`auth:${ctx.ip}`, 30, 10 * MIN)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
+  if (over('host', ctx.ip, ctx.now)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
   if (ctx.env.ADMIN_PASSWORD) no('exists', 'The Event Head password is set on the server');
   const pw = String(b.password || '');
   if (pw.length < 6 || pw.length > 200) no('password', 'Choose a password of at least 6 characters');
@@ -735,7 +833,7 @@ route('POST', 'host/setup', async (ctx, b) => {
 });
 
 route('POST', 'host/login', async (ctx, b) => {
-  if (!limit(`auth:${ctx.ip}`, 30, 10 * MIN) || !limit('hostlogin', 40, 10 * MIN)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
+  if (over('host', ctx.ip, ctx.now) || over('hostAll', 'all', ctx.now)) no('slow-down', 'Too many attempts — wait a few minutes', 429);
   const host = await ctx.store.get('host');
   const pw = String(b.password || '');
   let ok = false;
@@ -767,8 +865,7 @@ route('GET', 'host/overview', async (ctx) => {
 route('GET', 'host/accounts', async (ctx) => {
   await needHost(ctx);
   const list = [];
-  for (const k of await ctx.store.list('acct/')) {
-    const a = await ctx.store.get(k);
+  for (const a of await mapLimit(await ctx.store.list('acct/'), 24, (k) => ctx.store.get(k))) {
     if (!a) continue;
     list.push({ id: a.id, name: a.name, guest: a.guest, bankroll: a.bankroll, inTransit: Object.values(a.holds || {}).reduce((x, h) => x + h.amount, 0), hands: a.stats.hands, net: a.stats.net, points: a.stats.points, tournaments: a.stats.tournaments, at: Object.values(a.at || {}).map((x) => x.name), createdAt: a.createdAt, lastLogin: a.lastLogin, ledger: a.ledger });
   }
@@ -816,10 +913,8 @@ route('POST', 'host/room', async (ctx, b) => {
 /** The chip audit: every account's books, every table's books, and the transfers between them. */
 route('GET', 'host/audit', async (ctx) => {
   await needHost(ctx);
-  const rooms = [];
-  for (const k of await ctx.store.list('room/')) { const r = await ctx.store.get(k); if (r) rooms.push(r); }
-  const accts = [];
-  for (const k of await ctx.store.list('acct/')) { const a = await ctx.store.get(k); if (a) accts.push(a); }
+  const rooms = (await mapLimit(await ctx.store.list('room/'), 24, (k) => ctx.store.get(k))).filter(Boolean);
+  const accts = (await mapLimit(await ctx.store.list('acct/'), 24, (k) => ctx.store.get(k))).filter(Boolean);
   const appliedAll = new Set(rooms.flatMap((r) => r.applied));
   const acctProblems = [];
   let bankrolls = 0; let holds = 0; let holdsApplied = 0; let boughtIn = 0; let cashedOut = 0; let issued = 0;
@@ -850,47 +945,72 @@ route('GET', 'host/audit', async (ctx) => {
   });
 });
 
-route('GET', 'host/backup', async (ctx) => {
+/** The backup, in parts (?from=N): the page asks again until `next` is null. */
+route('GET', 'host/backup', async (ctx, _b, q) => {
   await needHost(ctx);
+  const all = (await ctx.store.list('')).filter((k) => k !== 'secrets' && k !== 'host' && !k.startsWith('selftest/'));
+  const from = Math.max(0, Number(q.get('from')) || 0);
+  const t0 = Date.now();
   const out = {};
-  for (const k of await ctx.store.list('')) {
-    if (k === 'secrets' || k === 'host') continue;
-    const d = await ctx.store.get(k);
-    if (k.startsWith('acct/') && d) { delete d.pass; delete d.failed; }
-    out[k] = d;
+  let i = from;
+  while (i < all.length && Date.now() - t0 < BUDGET_MS) {
+    const part = all.slice(i, i + 48);
+    const docs = await mapLimit(part, 24, (k) => ctx.store.get(k));
+    part.forEach((k, j) => { const d = docs[j]; if (k.startsWith('acct/') && d) { delete d.pass; delete d.failed; } out[k] = d; });
+    i += part.length;
   }
-  return json({ ok: true, at: ctx.now, docs: out });
+  return json({ ok: true, at: ctx.now, docs: out, next: i < all.length ? i : null, total: all.length });
 });
+
+/** Settle every buy-in still in flight for an account (any age): finished if a table took it, refunded if not. */
+async function settleHolds(ctx, key, appliedAll) {
+  await mutate(ctx.store, key, (a) => {
+    if (!a || !a.holds || !Object.keys(a.holds).length) return undefined;
+    for (const [id, h] of Object.entries(a.holds)) { if (appliedAll.has(id)) a.ledger.boughtIn += h.amount; else a.bankroll += h.amount; }
+    a.holds = {};
+    return a;
+  });
+}
 
 route('POST', 'host/reset', async (ctx, b) => {
   await needHost(ctx);
   if (b.confirm !== 'RESET') no('confirm', 'Type RESET to confirm');
   const keepAccounts = !!b.keepAccounts;
+  const t0 = Date.now();
+  const left = () => BUDGET_MS - (Date.now() - t0);
   if (keepAccounts) {
-    // give every player back the chips they have at cash tables before the tables go
-    for (const k of await ctx.store.list('room/')) {
-      const id = k.slice(5);
+    // 1. every chip back where it belongs before the tables go: cash tables close (their chips go
+    //    to the outbox and are delivered), then buy-ins still in flight are finished or refunded
+    const roomKeys = await ctx.store.list('room/');
+    const rooms = (await mapLimit(roomKeys, 24, (k) => ctx.store.get(k))).filter(Boolean);
+    await mapLimit(rooms.filter((r) => r.kind === 'cash' && (r.status === 'open' || r.outbox.length)), 8, async (r0) => {
       try {
-        await withRoom(ctx, id, (r) => {
-          if (r.kind !== 'cash' || r.status !== 'open') return;
-          for (const t of r.tables) if (R.isLive(t)) R.voidHand(r, t.i, ctx.now);
-          R.closeRoom(r, ctx.now);
-        });
-        await deliver(ctx, id);
-      } catch (e) { console.error('reset', id, e); }
-    }
+        if (r0.status === 'open') {
+          await withRoom(ctx, r0.id, (r) => {
+            if (r.status !== 'open') return;
+            for (const t of r.tables) if (R.isLive(t)) R.voidHand(r, t.i, ctx.now);
+            R.closeRoom(r, ctx.now);
+          });
+        }
+        await deliver(ctx, r0.id);
+      } catch (e) { console.error('reset', r0.id, e); }
+    });
+    const stuck = (await mapLimit(roomKeys, 24, (k) => ctx.store.get(k))).filter((r) => r && r.outbox.some((o) => o.kind === 'cashout'));
+    if (stuck.length) return json({ ok: true, deleted: 0, more: true, note: 'Returning chips from the tables first…' });
+    const appliedAll = new Set(rooms.flatMap((r) => r.applied));
+    await mapLimit(await ctx.store.list('acct/'), 16, (k) => settleHolds(ctx, k, appliedAll));
   }
+  // 2. delete, in parallel, until the time budget runs out (the page asks again if there is more)
+  const doomed = (await ctx.store.list('')).filter((k) => !['secrets', 'host', 'settings'].includes(k) && !(keepAccounts && (k.startsWith('acct/') || k.startsWith('name/'))));
   let n = 0;
-  for (const k of await ctx.store.list('')) {
-    if (k === 'secrets' || k === 'host' || k === 'settings') continue;
-    if (keepAccounts && (k.startsWith('acct/') || k.startsWith('name/'))) continue;
-    await ctx.store.del(k); n++;
+  for (let i = 0; i < doomed.length && left() > 0; i += 64) {
+    await mapLimit(doomed.slice(i, i + 64), 32, (k) => ctx.store.del(k));
+    n += Math.min(64, doomed.length - i);
   }
-  if (keepAccounts) {
-    for (const k of await ctx.store.list('acct/')) await mutate(ctx.store, k, (a) => { if (!a) return undefined; a.at = {}; a.holds = {}; return a; });
-  }
-  touched.clear();
-  return json({ ok: true, deleted: n });
+  const more = n < doomed.length;
+  if (!more && keepAccounts) await mapLimit(await ctx.store.list('acct/'), 16, (k) => mutate(ctx.store, k, (a) => (a && Object.keys(a.at || {}).length ? { ...a, at: {} } : undefined)));
+  if (!more) touched.clear();
+  return json({ ok: true, deleted: n, more });
 });
 
 // ---------------- entry point ----------------
@@ -907,7 +1027,7 @@ export async function handle(request, store, env = {}, opts = {}) {
   const path = url.pathname.replace(/^\/api\/?/, '').replace(/\/$/, '');
   const ctx = { store, env, now: opts.now ? opts.now() : Date.now(), rng: opts.rng || secureRng, url, request, ip: clientIp(request), publish: opts.publish || (() => {}), defer: opts.defer || null, streaming: !!opts.streaming };
   try {
-    if (!limit(`ip:${ctx.ip}`, opts.ipLimit || 1200, MIN, ctx.now)) return fail(429, 'Too many requests — slow down a little');
+    if (!limit(`ip:${ctx.ip}`, opts.ipLimit || LIMITS.ip[0], LIMITS.ip[1], ctx.now)) return fail(429, 'Too many requests — slow down a little');
     const fn = ROUTES[`${request.method} ${path}`];
     if (!fn) return fail(404, 'Not found');
     let body = {};

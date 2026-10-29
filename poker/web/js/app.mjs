@@ -13,6 +13,7 @@ const ROUTES = {
   host: () => import('./views/host.mjs'),
   screen: () => import('./views/screen.mjs'),
   learn: () => import('./views/learn.mjs'),
+  status: () => import('./views/status.mjs'),
 };
 const NAV = [['', 'Home'], ['lobby', 'Lobby'], ['practice', 'Practice'], ['learn', 'How to Play']];
 
@@ -42,7 +43,8 @@ function banners() {
   const el = document.getElementById('banner');
   const kids = [];
   if (!net.online) kids.push(h('div', { class: 'offline', role: 'status' }, 'Connection lost — reconnecting… Your seat and chips are safe on the server; the table catches up by itself.'));
-  if (net.mode === 'single' && ['lobby', 't', 'host', 'screen'].includes(current)) kids.push(h('div', { class: 'single' }, 'Single device mode: this copy of the site has no live game server, so players cannot play together. Practice against bots still works. (Event Head: see DEPLOY.md, “It says Single device”.)'));
+  else if (net.trouble >= 3) kids.push(h('div', { class: 'single', role: 'status' }, `The server is ${net.troubleStatus === 429 ? 'very busy' : 'having trouble'} (code ${net.troubleStatus}) — retrying by itself. Your seat and chips are safe. `, h('a', { href: '#/status', style: { color: '#d8b870' } }, 'Server check')));
+  if (net.mode === 'single' && ['lobby', 't', 'host', 'screen', 'profile'].includes(current)) kids.push(h('div', { class: 'single' }, 'Single device mode: this copy of the site has no live game server, so players cannot play together. Practice against bots still works. ', h('a', { href: '#/status', style: { color: '#d8b870' } }, 'Server check: what is wrong and how to fix it')));
   mount(el, kids);
 }
 

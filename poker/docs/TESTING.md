@@ -1,8 +1,8 @@
 # What was tested
 
-Run from the `poker` folder. Results below are from 28 October 2026.
+Run from the `poker` folder. Results below are from 29 October 2026.
 
-## `npm test` — 78 automated tests, all passing (about 35 seconds)
+## `npm test` — 81 automated tests, all passing (about 40 seconds)
 
 | File | What it proves |
 |---|---|
@@ -15,6 +15,11 @@ Run from the `poker` folder. Results below are from 28 October 2026.
 | `sim.test.mjs` | 2,000 hands at a 6-seat table with players timing out, leaving and coming back; 1,000 heads-up; 1,000 at a full 9-seat table; a 30-player and a 45-player tournament on four and five tables (balanced, every place awarded, the prize pool paid exactly); heads-up and 6-max tournaments. |
 | `api.test.mjs` | Accounts (unique names, hashed passwords, lockout after 8 wrong passwords), guests and claiming an account, logging out ending old tokens, Quick Play, buy-ins within limits and refunded when refused, only the player to act may act, **twenty identical clicks at once applied once**, **two players racing for one seat** (one gets it, the other is refunded), leaving returns the chips and the audit balances, interrupted buy-ins finished or refunded, time-outs on the server clock, practice with bots, private-table permissions, the Event Head password, tournaments played to the end with results delivered to accounts, chip grants, settings, hand-history privacy, rate limits. |
 | `rng.test.mjs` | The live (crypto) random source stays in range; 20,000 shuffles are full decks with every card in every position about equally often; a practice table runs on the live source. |
+| `blobs.test.mjs` | The real Netlify storage path: Netlify's own Blobs library talking to Netlify's reference Blobs server. Create-only and “only if unchanged” writes are honoured; a stale copy can never be saved; the Server check passes; two players play several hands, **two players race for one seat** and **twenty identical clicks arrive at once** (each applied once); the chip audit balances; the reset in parts keeps every account's chips. |
+
+## On the live site: the Server check
+
+Open `https://YOUR-SITE/#/status` (or Event Head desk → **Server check**). It runs the same storage checks on the real Netlify storage — write, read back, refuse a stale write, let only one of two simultaneous changes through, delete — and measures the speed from that device. Run it after every deploy and before the event.
 
 ## `npm run sim` — 10,460 hands
 
@@ -27,10 +32,12 @@ Run from the `poker` folder. Results below are from 28 October 2026.
 
 Five full tournaments (30, 45, 13, 2 and 18 players): every one finished, every player got a place, the whole prize pool was paid, and no hand ever started at a table more than one player above the emptiest table. After every step of every simulation the chips balanced. At random steps (about one in ten) the views of a player and of the Big Screen were checked: none ever contained a card it should not.
 
-## `npm run e2e` — the browser test, all 13 checks passing
+## `npm run e2e` — the browser test, all 14 checks passing
 
-The Event Head sets the password and opens a table → two players (one on a laptop, one on a phone-sized screen) join by code, choose guest names and sit down → they play 24 actions, including a pot-size raise from the preset button → the Big Screen never shows a hole card during a hand → one player's connection is cut: the red bar appears, then clears by itself and the seat is still there → the other player leaves and the chips are back in their account → the chip audit shows four "Balanced" lines → a tournament with 3 test bots is created, a player registers from the lobby, the Event Head starts it and the player is seated. No errors in any page.
+The Event Head sets the password and opens a table → two players (one on a laptop, one on a phone-sized screen) join by code, choose guest names and sit down → they play 24 actions, including a pot-size raise from the preset button → the Big Screen never shows a hole card during a hand → one player's connection is cut: the red bar appears, then clears by itself and the seat is still there → the other player leaves and the chips are back in their account → the chip audit shows four "Balanced" lines → a tournament with 3 test bots is created, a player registers from the lobby, the Event Head starts it and the player is seated → the Server check, on a phone-sized screen, says the server answers and storage works. No errors in any page.
 
 ## Found and fixed by testing
 - The live random float overflowed Node's range limit (bots crashed on the real server; the seeded tests could not see it). Fixed, and `rng.test.mjs` now tests the live source.
 - Tournament balancing: a table that still showed knocked-out players had no free seat, and a table about to break up could receive players. Fixed; the 45-player test pins it.
+- Netlify storage: reads from some Blobs servers carry no version tag, so the protected write turned into an ordinary one and two simultaneous changes could both be saved. Found by running the game on Netlify's reference Blobs server; fixed in `server/storage-blobs.mjs`; `blobs.test.mjs` pins it.
+- A buy-in that timed out after it had gone through was refunded as well (chips counted twice). Fixed in `server/api.mjs`.

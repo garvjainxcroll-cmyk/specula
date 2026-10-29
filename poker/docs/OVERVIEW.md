@@ -11,11 +11,11 @@ Artha Vyūha is a self-contained project in `poker/` of the SPECULA repository. 
 | `src/bots/bot.mjs` | Practice opponents (easy / medium / hard). Monte Carlo equity from the bot's own view only. |
 | `server/api.mjs` | The server: accounts, tokens, rooms, actions, outbox delivery, the Event Head, rate limits. `handle(request, store, env, opts)`. |
 | `server/auth.mjs`, `server/rng.mjs` | scrypt password hashes and HMAC tokens; the crypto random source. |
-| `server/storage-*.mjs` | Netlify Blobs (strong consistency, conditional writes) and an in-memory/file store with the same interface. |
+| `server/storage-*.mjs` | Netlify Blobs (strong consistency, conditional writes) and an in-memory/file store with the same interface. `getMeta` must always return a version tag: when a Blobs read carries none, the adapter takes it from the listing (checked before and after the read) or throws, so a change is never saved unprotected. `GET /api/selftest` checks this on the live storage. |
 | `netlify/functions/api.mjs` | The Netlify function for `/api/*`. |
 | `scripts/dev-server.mjs` | Local / stand-alone Node server: static files, the API, **Server-Sent Events** push (`/api/stream?id=`) and a background clock (every 0.5 s) for active rooms. |
-| `web/` | The website (no framework): `felt.mjs` (table drawing and animations), `betpanel.mjs`, `net.mjs` (requests, session, live rooms via SSE or polling), `local.mjs` (offline practice running the room code in the browser), `sound.mjs` (Web Audio), views under `web/js/views/`. |
-| `tests/`, `e2e/run.mjs`, `scripts/simulate.mjs` | Unit and API tests, the browser test, the big simulation. |
+| `web/` | The website (no framework): `felt.mjs` (table drawing and animations), `betpanel.mjs`, `net.mjs` (requests, session, live rooms via SSE or polling), `local.mjs` (offline practice running the room code in the browser), `sound.mjs` (Web Audio), views under `web/js/views/` (`status.mjs` is the Server check at `#/status`). |
+| `tests/`, `e2e/run.mjs`, `scripts/simulate.mjs` | Unit and API tests (`blobs.test.mjs` runs the game on Netlify's reference Blobs server), the browser test, the big simulation. |
 
 ## Storage keys
 

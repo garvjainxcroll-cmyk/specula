@@ -3,11 +3,19 @@
 // server supports it (Server-Sent Events), otherwise polled about once a second.
 import { store, sstore } from './ui.mjs';
 
-export const net = { mode: 'unknown', online: true, offset: 0, stream: false, now: () => Date.now() + net.offset };
+export const net = { mode: 'unknown', online: true, offset: 0, stream: false, trouble: 0, troubleStatus: null, now: () => Date.now() + net.offset };
 const netListeners = new Set();
 export function onNet(fn) { netListeners.add(fn); return () => netListeners.delete(fn); }
 function emitNet() { for (const fn of netListeners) { try { fn(net); } catch (e) { console.warn(e); } } }
 function setOnline(v) { if (net.online !== v) { net.online = v; emitNet(); } }
+/** Count answers that mean the server is struggling (too busy, crashed, timed out); the banner shows after three in a row. */
+function noteServer(status) {
+  const bad = status === 429 || status >= 500;
+  const was = net.trouble >= 3;
+  net.trouble = bad ? net.trouble + 1 : 0;
+  net.troubleStatus = bad ? status : null;
+  if ((net.trouble >= 3) !== was) emitNet();
+}
 
 let token = store('artha-token');
 let hostToken = sstore('artha-host');
@@ -31,15 +39,16 @@ async function raw(method, path, body, { timeout = 9000, host = false } = {}) {
     const res = await fetch(`/api/${path}`, { method, signal: ctl.signal, cache: 'no-store', headers, body: body ? JSON.stringify(body) : undefined });
     let data = null;
     try { data = await res.json(); } catch { data = null; }
+    setOnline(true); // the network is fine: we got an answer
+    noteServer(res.status);
     if (res.status === 404 && !data) { const e = new Error('not-found'); e.status = 404; throw e; }
     if (res.status >= 500 && !data) { const e = new Error('server'); e.status = res.status; throw e; }
     if (data && typeof data.now === 'number') net.offset = data.now - Date.now();
-    setOnline(true);
     if (res.status === 401 && !host && token && data?.code === 'signed-out') auth.clear();
     if (res.status === 401 && host) auth.clearHost();
     return { status: res.status, ...(data || {}) };
   } catch (e) {
-    if (e.name === 'AbortError' || e instanceof TypeError || e.message === 'server') setOnline(false);
+    if (e.name === 'AbortError' || e instanceof TypeError) setOnline(false); // no answer at all: the connection
     throw e;
   } finally { clearTimeout(t); }
 }
@@ -97,7 +106,7 @@ export function setMe(me) { session.me = me; session.loaded = true; emitSession(
  */
 export function remoteRoom(ref, onView, { host = false, screen = false, onError = null } = {}) {
   let stopped = false; let v = 0; let id = ref.id || null; const code = ref.code || null;
-  let es = null; let esFails = 0; let timer = null; let inflight = false; let again = false; let last = null;
+  let es = null; let esFails = 0; let timer = null; let inflight = false; let again = false; let last = null; let slow = 0;
   let readyResolve; const ready = new Promise((r) => { readyResolve = r; });
   const show = (view) => { if (stopped || !view) return; if (last && view.v < last.v) return; v = view.v; id = view.id; last = view; readyResolve(view); if (net.stream && !es && !stopped) openStream(); onView(view); };
   async function fetchNow() {
@@ -107,9 +116,10 @@ export function remoteRoom(ref, onView, { host = false, screen = false, onError 
     try {
       const q = id ? `id=${encodeURIComponent(id)}` : `code=${encodeURIComponent(code)}`;
       const r = await get(`room?${q}&v=${last ? v : 0}`, { host });
+      slow = r.status === 429 || r.status >= 500 ? Math.min(slow + 1, 3) : 0; // a busy server: ask less often for a while
       if (r.ok && r.view) show(r.view);
-      else if (!r.ok && onError) onError(r);
-    } catch { /* offline: the banner says so */ } finally {
+      else if (!r.ok && onError && r.status < 429) onError(r);
+    } catch (e) { if (e.status >= 500) slow = Math.min(slow + 1, 3); /* offline: the banner says so */ } finally {
       inflight = false;
       if (again) { again = false; fetchNow(); }
     }
@@ -122,7 +132,7 @@ export function remoteRoom(ref, onView, { host = false, screen = false, onError 
     const live = last?.tables?.some((t) => t.hand && t.hand.status === 'betting');
     return mine && live ? 900 : live ? 1500 : 2500;
   }
-  function loop() { clearTimeout(timer); if (stopped) return; timer = setTimeout(async () => { await fetchNow(); loop(); }, interval()); }
+  function loop() { clearTimeout(timer); if (stopped) return; timer = setTimeout(async () => { await fetchNow(); loop(); }, interval() * 2 ** slow); }
   function openStream() {
     if (!window.EventSource || esFails > 3) return;
     es = new EventSource(`/api/stream?id=${encodeURIComponent(id)}`);

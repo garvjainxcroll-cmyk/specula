@@ -22,8 +22,7 @@ This makes a **second Netlify project**, separate from SPECULA. SPECULA is not c
 
 ## Step 2 — check it is live
 
-1. Open `https://YOUR-SITE.netlify.app/api/health`. You should see `{"ok":true,"app":"artha",...}`.
-   If you see “Page not found”, the server function did not deploy: check the **Base directory** is `poker` and redeploy.
+1. Open `https://YOUR-SITE.netlify.app/#/status` — the **Server check**. Every line should say **OK**: the game server answers, storage works, and the speed. If a line says **Problem**, it tells you what to do. (The quick version: `/api/health` should show `{"ok":true,"app":"artha",...}`.)
 2. Open `https://YOUR-SITE.netlify.app/#/host`. The first time, it asks you to **choose the Event Head password** (at least 6 characters). Write it down.
    - Alternative: in Netlify → **Project configuration → Environment variables**, add `ARTHA_ADMIN_PASSWORD`, then redeploy. That password then always works.
 3. Open `https://YOUR-SITE.netlify.app/#/lobby` on a phone: you should see the lobby.
@@ -60,9 +59,9 @@ Phones at a table ask the server for news about once a second during a hand (les
 1. Sign in to Netlify **first**.
 2. **Add new project** → **Deploy manually** (drag and drop), or open an existing project's **Deploys** page.
 3. Drag the zip file onto it (do not unzip it). Wait until it says **Published**.
-4. Do the check in Step 2: open `/api/health`.
-   - `{"ok":true,"app":"artha",...}` → the live game works. Carry on with Step 2.
-   - “Page not found” → drag-and-drop did not set up the server function on your account. The site still opens, but shows **Single device** (practice only). Use Step 1 (connect GitHub) instead; that way always works.
+4. Do the check in Step 2: open `/#/status`.
+   - All **OK** → the live game works. Carry on with Step 2.
+   - “The game server is missing” → drag-and-drop did not set up the server function on your account. The site still opens, but shows **Single device** (practice only). Use Step 1 (connect GitHub) instead; that way always works.
 5. To update later, drag the new zip onto the same project's **Deploys** page. Your games and accounts stay (they are stored in Netlify Blobs, not in the zip).
 
 ## The other way: any Node.js host (instant updates)
@@ -74,12 +73,19 @@ The same project can run as an ordinary server. Tables then update instantly (th
 - Start command: `npm start`
 - Settings: `PORT` (the service usually sets it), `ARTHA_ADMIN_PASSWORD` (optional), and `ARTHA_DATA_DIR` pointing to a **persistent disk** (otherwise the games are lost when the service restarts).
 
-## It says “Single device”
+## If something is wrong with the server
 
-A gold bar saying **Single device mode** means the website cannot reach its server (`/api/...`). Practice against bots still works on that device, but people cannot play together. Fixes, in order:
-1. Was it drag-and-drop? Use “connect GitHub” (Step 1); it always sets up the function.
-2. Is the **Base directory** `poker`? Without it Netlify builds SPECULA instead.
-3. Open `/api/health` again after the deploy finishes. It must show `"app":"artha"`.
+**First, open `/#/status` (the Server check)** on the device that has the problem. It names the problem and the fix. Press **Copy the report** and send it to whoever maintains the game.
+
+| What you see | What it means | What to do |
+|---|---|---|
+| Gold bar: **Single device mode** | The website cannot find its server at all. Practice against bots still works, but people cannot play together. | Usually the site was deployed by drag-and-drop and the server was not set up. Use Step 1 (connect GitHub, Base directory `poker`). |
+| Server check: “A different app answered” | Netlify built SPECULA instead of the poker game. | Project configuration → Build & deploy → **Base directory** `poker` → redeploy. |
+| Gold bar: **The server is having trouble** (or **very busy**) | The server is there but busy or failing. The tables slow their updates and keep trying. | Wait a minute. If it stays, run the Server check and look at Netlify → **Logs → Functions → api**. |
+| Server check: “Storage: could not …” | Netlify Blobs is not working for this project. | Redeploy once. If it still fails, send the report and the red lines from the function log. |
+| Red bar: **Connection lost — reconnecting** | That phone has lost its internet. | Its seat and chips stay. Move nearer the Wi-Fi or switch to mobile data. |
+
+Everyone on one Wi-Fi is fine: the server counts requests per player, not per network.
 
 ## Updating the site later
 

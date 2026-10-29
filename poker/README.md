@@ -18,6 +18,7 @@
 | How to Play | `/#/learn` | first-timers |
 | Event Head desk | `/#/host` | the organiser (password) |
 | Big Screen | `/#/screen/CODE` | the projector |
+| Server check | `/#/status` | anyone: is the server working, and what to do if not |
 
 ## Commands (in the `poker` folder)
 
