@@ -61,6 +61,9 @@ It asks you to log in to Netlify and to create or pick a site.
 3. Open the **big screen** (`/screen/`) on the projector laptop. It shows the address and the join PIN.
 4. Open the site on a phone and join with the PIN from the home page.
 
+### If something says "Netlify Blobs has generated an internal error"
+Older versions of this site kept one storage connection for many requests, and its access token expired after a few minutes. The current version opens a fresh connection for every request. Redeploy the latest version (Netlify: **Deploys → Trigger deploy → Deploy site**, or it redeploys by itself when the GitHub branch updates). Nothing saved is lost; sign in again on the home page if asked.
+
 ## Step 3: a dress rehearsal (the day before, 15 minutes)
 
 1. Join with two or three test teams on phones and a laptop. On one phone, use **I have a team code** with a code from another device of the same team.

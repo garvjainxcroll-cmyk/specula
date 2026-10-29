@@ -251,13 +251,14 @@ try { gameKey = sessionStorage.getItem(KEY + ':key') || localStorage.getItem(KEY
 let standingsRows = null, connected = true;
 async function call(path, body) {
   const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+  if (r.status >= 500) throw new Error('server'); // a server problem reads as "reconnecting", never as an answer
   return r.json();
 }
 function setState(st) { if (st) D = { ...st, sel: D.sel || 1, grace: D.grace, link: location.origin }; }
 async function admin(action, extra = {}, quiet = false) {
   let r;
   try { r = await call('admin', { key: gameKey, action, ...extra }); connected = true; }
-  catch { connected = false; if (!quiet) toast('No connection', 'Check the Wi-Fi; nothing was changed.', true); render(); return { ok: false }; }
+  catch { connected = false; if (!quiet) toast('Could not reach the market', 'Check the Wi-Fi and try again in a few seconds; nothing was changed.', true); render(); return { ok: false }; }
   if (r.now) OFF = r.now - Date.now();
   if (r.state) setState(r.state);
   if (r.standings) standingsRows = r.standings;
@@ -438,7 +439,7 @@ function renderLogin() {
     gameKey = $('#gk').value;
     const r = await admin('login', {}, true);
     btn.disabled = false; btn.textContent = 'Sign in';
-    if (!r.ok) { $('#gkErr').textContent = r.error || 'No connection. Check the Wi-Fi.'; return; }
+    if (!r.ok) { $('#gkErr').textContent = r.error || 'Could not reach the market. Check the Wi-Fi and try again in a few seconds.'; return; }
     try { (($('#gkRemember').checked) ? localStorage : sessionStorage).setItem(KEY + ':key', gameKey); } catch {}
     setGame(r.game);
     D.sel = Math.min(45, D.p + 1);

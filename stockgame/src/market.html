@@ -787,7 +787,7 @@ function openOrder(k, side) {
     let o;
     if (LIVE) {
       busy = true; paint();
-      const r = await api('order', { token: S.token, p: P, ...req }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+      const r = await api('order', { token: S.token, p: P, ...req }).catch(() => ({ ok: false, error: 'Could not reach the market. Check the Wi-Fi and try again in a few seconds.' }));
       busy = false;
       if (r.me) { S.book = r.me.book; save(); }
       if (!r.ok) { $('#oErr').textContent = r.error; paint(); if (r.code === 409 || r.code === 423) pollOnce(); return; }
@@ -887,6 +887,7 @@ async function enterCode(c) {
 // ---------- the live market ----------
 async function api(path, body) {
   const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+  if (r.status >= 500) throw new Error('server'); // a server problem reads as "reconnecting", never as an answer
   return r.json();
 }
 let lastSeen = '', firstPoll = true, polling = false;
@@ -969,7 +970,7 @@ function showOnboard() {
     if (name.length < 2) { $('#oErr2').textContent = 'Type a team name of at least two characters.'; return; }
     if (LIVE) {
       const btn = $('#oGo2'); btn.disabled = true;
-      const r = await api('join', { pin: $('#oPin').value, name }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+      const r = await api('join', { pin: $('#oPin').value, name }).catch(() => ({ ok: false, error: 'Could not reach the market. Check the Wi-Fi and try again in a few seconds.' }));
       btn.disabled = false;
       if (!r.ok) { $('#oErr2').textContent = r.error; return; }
       S.token = r.token; S.team = r.me.name; S.code = r.me.code; S.book = r.me.book; save();
@@ -997,7 +998,7 @@ function showSignin() {
   $('#sX').addEventListener('click', () => { obStage = 'name'; layer.innerHTML = ''; showOnboard(); });
   $('#sF').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const r = await api('signin', { code: $('#sIn').value }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+    const r = await api('signin', { code: $('#sIn').value }).catch(() => ({ ok: false, error: 'Could not reach the market. Check the Wi-Fi and try again in a few seconds.' }));
     if (!r.ok) { $('#sErr').textContent = r.error; return; }
     S.token = r.token; S.team = r.me.name; S.code = r.me.code; S.book = r.me.book; save();
     obStage = 'name'; layer.innerHTML = '';

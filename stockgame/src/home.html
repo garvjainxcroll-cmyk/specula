@@ -129,6 +129,7 @@ const set = (store, k, v) => { try { store.setItem(k, v); } catch {} };
 const del = (k) => { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch {} };
 async function api(path, body) {
   const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+  if (r.status >= 500) throw new Error('server'); // a server problem reads as "reconnecting", never as an answer
   return r.json();
 }
 const team = () => { try { return JSON.parse(get(localStorage, TEAM_KEY) || 'null'); } catch { return null; } };
@@ -164,7 +165,7 @@ function renderTeam() {
     e.preventDefault();
     const go = $('#tGo'); go.disabled = true;
     const r = await (teamMode === 'join' ? api('join', { pin: $('#pin').value, name: $('#tname').value }) : api('signin', { code: $('#tcode').value }))
-      .catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+      .catch(() => ({ ok: false, error: 'Could not reach the market. Check the Wi-Fi and try again in a few seconds.' }));
     go.disabled = false;
     if (!r.ok) { $('#tErr').textContent = r.error; return; }
     set(localStorage, TEAM_KEY, JSON.stringify({ token: r.token, team: r.me.name, code: r.me.code, book: null, readNews: 0 }));
@@ -194,7 +195,7 @@ function renderHead() {
     e.preventDefault();
     const go = $('#hGo'); go.disabled = true; go.textContent = 'Opening…';
     const key = $('#gkey').value;
-    const r = await api('admin', { key, action: 'login' }).catch(() => ({ ok: false, error: 'No connection. Check the Wi-Fi and try again.' }));
+    const r = await api('admin', { key, action: 'login' }).catch(() => ({ ok: false, error: 'Could not reach the market. Check the Wi-Fi and try again in a few seconds.' }));
     go.disabled = false; go.textContent = 'Sign in';
     if (!r.ok) { $('#hErr').textContent = r.error; return; }
     set($('#remember').checked ? localStorage : sessionStorage, HEAD_KEY, key);
