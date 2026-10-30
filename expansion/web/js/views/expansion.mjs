@@ -5,7 +5,7 @@ import { PACKAGES, FUNCTION_LABELS } from '../../engine/model.mjs';
 import { fmtNum } from '../../engine/money.mjs';
 import { ymOf, ymLabel } from '../../engine/months.mjs';
 import { teamColor } from '../charts.mjs';
-import { names, depStatus, formulaModal, goToRef, sourceNote } from './common.mjs';
+import { names, depStatus, formulaModal, goToRef, sourceNote, placeBenefits } from './common.mjs';
 
 export function render(ctx) {
   const { doc, res } = ctx;
@@ -98,9 +98,23 @@ function depForm(ctx, team, empId, raw) {
   const cur = raw?.cityId ? n.cities[raw.cityId]?.continentId : null;
   const contSel = select(doc.continents.map((c) => [c.id, `${c.name}${c.id === doc.teams.find((t) => t.id === team).homeContinentId ? ' (home)' : ''}`]), cur || '', { empty: 'Choose a continent…' });
   const citySel = select([], '', { empty: 'Choose a city…' });
-  const fillCities = () => { const v = citySel.value; citySel.replaceChildren(h('option', { value: '' }, 'Choose a city…'), ...doc.cities.filter((c) => c.continentId === contSel.value).map((c) => h('option', { value: c.id }, c.name))); citySel.value = v && doc.cities.find((c) => c.id === v)?.continentId === contSel.value ? v : ''; };
-  contSel.addEventListener('change', fillCities); fillCities(); if (raw) citySel.value = raw.cityId;
+  const hq = doc.teams.find((t) => t.id === team).profile.hqCityId;
+  const oneCity = !cfg.deployment.allowSameCity;
+  // cities this team already uses for another employee (one employee per city unless Event Control allows more)
+  const takenBy = (cityId) => [...new Set(doc.deployments.filter((d) => d.teamId === team && d.cityId === cityId && d.employeeId !== empId && d.id !== raw?.id).map((d) => d.employeeId))];
+  const fillCities = () => {
+    const v = citySel.value;
+    citySel.replaceChildren(h('option', { value: '' }, 'Choose a city…'), ...doc.cities.filter((c) => c.continentId === contSel.value).map((c) => {
+      const tk = takenBy(c.id);
+      return h('option', { value: c.id, disabled: oneCity && tk.length > 0 }, `${c.name}${c.id === hq ? ' (headquarters)' : ''}${tk.length ? ` — ${oneCity ? 'already used by' : 'also'} ${tk.join(', ')}` : ''}`);
+    }));
+    citySel.value = v && doc.cities.find((c) => c.id === v)?.continentId === contSel.value && !(oneCity && takenBy(v).length) ? v : '';
+  };
+  const place = h('div');
+  const showPlace = () => place.replaceChildren(placeBenefits(ctx, citySel.value, roleSel.value || null));
+  contSel.addEventListener('change', () => { fillCities(); showPlace(); }); fillCities(); if (raw) citySel.value = raw.cityId;
   const roleSel = select(cfg.roles.map((r) => [r.id, `${r.name} (${FUNCTION_LABELS[r.function]}) — fit ${ctx.res.employees[empId].roles.find((x) => x.roleId === r.id)?.fit ?? '…'}`]), raw?.roleId || '', { empty: 'Choose a job role…' });
+  citySel.addEventListener('change', showPlace); roleSel.addEventListener('change', showPlace); showPlace();
   const typeSel = select(cfg.assignmentTypes.filter((t) => cfg.deployment.allowedAssignmentTypes.includes(t.id)).map((t) => [t.id, `${t.name}${t.maxMonths ? ` (≤ ${t.maxMonths} months)` : ''}${t.minSeniority ? ` (${t.minSeniority}+)` : ''}`]), raw?.assignmentTypeId || '', { empty: 'Choose an assignment type…' });
   const salary = moneyInput(raw?.salary?.amount ?? e.employment.expectedSalary);
   const salCur = select([['base', `Base currency (${cfg.currency.code})`], ['local', 'Destination’s local currency']], raw?.salary?.currency || 'base');
@@ -117,7 +131,8 @@ function depForm(ctx, team, empId, raw) {
   const resp = text(raw?.responsibility); const unit = text(raw?.businessUnit); const contrib = text(raw?.contribution); const permits = text(raw?.permitsObtained); const notes = area(raw?.notes, { rows: 2 });
   modal(raw ? `Edit ${raw.id}: ${e.id} ${e.name}` : `Record a deployment: ${e.id} ${e.name}`, (close) => [
     h('div', { class: 'note' }, `Enter the allocation exactly as ${doc.teams.find((t) => t.id === team).label} submitted it. The server checks every value and every event rule.`),
-    h('div', { class: 'fields' }, field('Destination continent', contSel), field('Destination city', citySel), field('Proposed job role', roleSel), field('Assignment type', typeSel, 'Only types permitted by the event rules')),
+    h('div', { class: 'fields' }, field('Destination continent', contSel), field('Destination city', citySel, oneCity ? 'One employee per city for each team: cities already used are greyed out' : null), field('Proposed job role', roleSel), field('Assignment type', typeSel, 'Only types permitted by the event rules')),
+    place,
     h('div', { class: 'fields' }, field('Annual salary at destination', salary), field('Salary entered in', salCur, null), field('Contract duration (months)', months), field('Planned deployment month', start, `Evaluation period ${ymLabel(ymOf(per, 1))} – ${ymLabel(ymOf(per, per.months))}`), field('Relocation package', pkg, `Employee needs: ${e.employment.relocationNeeds}`), field('Time share (%)', share, cfg.deployment.splitAssignments ? 'Split assignments are enabled' : 'Split assignments are not enabled')),
     salHint,
     h('div', { class: 'row' }, training.el, partner.el, office.el),

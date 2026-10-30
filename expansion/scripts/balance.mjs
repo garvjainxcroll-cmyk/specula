@@ -2,7 +2,8 @@
 // combined outcome is compared. Usage: node scripts/balance.mjs [trials]
 //
 // What we want to see: thoughtful international strategies ("cluster", "earners") beat
-// staying at home, scattering people, or piling everyone into one city; random play loses.
+// staying at home or scattering people; random play loses. Every plan obeys the event rule
+// of one employee per city.
 import { blankDoc, randomAuction, applyAuction, applyDeployments, applyCompliance, strategyPlan, rng, STRATEGIES } from './sim.mjs';
 import { computeAll } from '../src/engine/index.mjs';
 import { fmtCompact } from '../src/engine/money.mjs';

@@ -1,7 +1,7 @@
 // Helpers shared by the screens.
 import { h, modal, m, fmtNum, pct, pill, table, moneyEl } from '../ui.mjs';
 import { fmtKind } from '../../engine/money.mjs';
-import { CATEGORIES, COMPLIANCE_STATUS } from '../../engine/model.mjs';
+import { CATEGORIES, COMPLIANCE_STATUS, FUNCTION_LABELS } from '../../engine/model.mjs';
 import { CATEGORY_FORMULAS, STATEMENT_FORMULAS } from '../../engine/trace.mjs';
 import { currency } from '../ui.mjs';
 
@@ -74,6 +74,40 @@ export function sourceNote(ctx) {
   if (!view.calc.draft) return h('div', { class: 'note' }, 'Live preview: these figures update with every change, but no calculation has been recorded yet. Run the calculation on the Financial Calculation Engine screen.');
   if (!view.calc.current) return h('div', { class: 'note bad' }, 'Live preview: inputs changed after the last recorded calculation, so that calculation is outdated. Run it again before finalising.');
   return h('div', { class: 'note info' }, 'Draft result: the recorded calculation matches the current inputs. It becomes official only when a Super Administrator finalises Round 2.');
+}
+
+/**
+ * What a destination offers: the continent's benefits and disadvantages, then the city's own,
+ * and the regional role bonus they give together. Hidden values arrive as null or •••.
+ */
+export function placeBenefits(ctx, cityId, roleId = null) {
+  const { doc, res } = ctx;
+  const city = doc.cities.find((c) => c.id === cityId);
+  if (!city) return h('div', { class: 'small muted' }, 'Choose a city to see what it offers.');
+  const cont = doc.continents.find((c) => c.id === city.continentId) || {};
+  const items = (list, minus = false) => (list || []).map((b) => h('li', { class: minus ? 'minus' : '' }, b.label, b.effect ? h('span', { class: 'muted' }, ` — ${b.effect}`) : null));
+  const block = (title, sub, x) => h('div', {}, h('h4', {}, title), sub ? h('div', { class: 'tiny muted' }, sub) : null,
+    (x.benefits || []).length || (x.disadvantages || []).length ? h('ul', {}, items(x.benefits), items(x.disadvantages, true)) : h('div', { class: 'small muted' }, 'No particular benefits listed.'),
+    x.special?.active && x.special.label ? h('div', { class: 'tiny', style: { marginTop: '4px' } }, `Special: ${x.special.label}`) : null);
+  const bonusLine = () => {
+    if (cont.functionBonus === null || city.functionBonus === null) return 'Role bonuses: confidential.';
+    const fb = (o) => Object.entries(o || {}).filter(([, v]) => Number(v)).map(([k, v]) => `${FUNCTION_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}%`);
+    const all = [...new Set([...Object.keys(cont.functionBonus || {}), ...Object.keys(city.functionBonus || {})])];
+    const role = roleId ? doc.config.roles.find((r) => r.id === roleId) : null;
+    const parts = [`Continent: ${fb(cont.functionBonus).join(', ') || 'none'}`, `${city.name}: ${fb(city.functionBonus).join(', ') || 'none'}`];
+    if (role) {
+      const a = Number(cont.functionBonus?.[role.function]) || 0; const b = Number(city.functionBonus?.[role.function]) || 0;
+      const cap = doc.config.productivity.functionBonusCap;
+      const tot = Math.max(-cap, Math.min(cap, a + b));
+      parts.push(`for a ${role.name} (${FUNCTION_LABELS[role.function]}): ${a} + ${b} = ${tot > 0 ? '+' : ''}${tot}% productivity${a + b !== tot ? ` (capped at ±${cap}%)` : ''}`);
+    } else if (!all.length) parts.push('no role bonus here');
+    return `Regional role bonus — ${parts.join(' · ')}`;
+  };
+  const score = res.regions[cityId]?.opportunity?.score;
+  return h('div', { class: 'place' },
+    block(`${cont.name || ''} (continent)`, cont.description, cont),
+    block(`${city.name} (city)`, city.description, city),
+    h('div', { class: 'bonus small' }, bonusLine(), score !== undefined && score !== null ? h('span', { class: 'muted' }, ` · City opportunity score ${fmtNum(score, 1)} / 100`) : null));
 }
 
 export { m, fmtNum, pct, table, moneyEl };

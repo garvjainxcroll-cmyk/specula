@@ -118,6 +118,7 @@ function cities(ctx) {
   const val = (c, k, dp = 0) => { const v = res.regions[c.id]?.attrs?.[k]; return v === null || v === undefined ? 'Confidential' : fmtNum(v, dp); };
   const list = table([
     { label: 'City', get: (c) => c.name }, { label: 'Continent', get: (c) => contName(c.continentId) },
+    { label: 'City role bonus', get: (c) => (c.functionBonus === null ? 'Confidential' : Object.entries(c.functionBonus || {}).filter(([, v]) => Number(v)).map(([k, v]) => `${FUNCTION_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}%`).join(', ')), wrap: true },
     { label: 'Demand', num: true, get: (c) => res.regions[c.id]?.attrs?.marketDemand, render: (c) => val(c, 'marketDemand') },
     { label: 'Purchasing', num: true, get: (c) => res.regions[c.id]?.attrs?.purchasingPower, render: (c) => val(c, 'purchasingPower') },
     { label: 'Growth %', num: true, get: (c) => res.regions[c.id]?.attrs?.growthRate, render: (c) => val(c, 'growthRate', 1) },
@@ -128,7 +129,7 @@ function cities(ctx) {
     { label: 'Opportunity score', num: true, get: (c) => res.regions[c.id]?.opportunity?.score, render: (c) => fmtNum(res.regions[c.id]?.opportunity?.score ?? 0, 1) },
     { label: 'Special', get: (c) => (res.regions[c.id]?.specialLabels || []).join('; '), wrap: true },
   ], doc.cities, { id: 'cities', onRow: (c) => ctx.go('setup', { tab: 'cities', focus: c.id }), selected: (c) => c.id === focus, filters: [{ label: 'All continents', options: doc.continents.map((c) => [c.id, c.name]), get: (c) => c.continentId }] });
-  return [card('Cities: effective values (continent + city adjustment)', [h('p', { class: 'small muted' }, 'These are the exact values the engine applies to each destination. Click a city to edit its adjustments.'), list]), focus ? cityEditor(ctx, doc.cities.find((c) => c.id === focus)) : null];
+  return [card('Cities: effective values (continent + city adjustment)', [h('p', { class: 'small muted' }, 'These are the exact values the engine applies to each destination: the continent’s figures adjusted by the city’s own. Each city adds its own benefits, including a role bonus of its own, to the continent’s. A team may place only one employee in each city. Click a city to edit it.'), list]), focus ? cityEditor(ctx, doc.cities.find((c) => c.id === focus)) : null];
 }
 
 function cityEditor(ctx, c) {

@@ -2,6 +2,21 @@
 
 Every change to a formula, a default value or a rule of play is recorded here with its reason. The model version is shown on the Financial Calculation Engine screen and in every report.
 
+## 1.1.0 — one employee per city; every city with benefits of its own (model version 1.1.0)
+
+Asked for by the Event Head: *each continent is divided into five cities; a team cannot allot more than one employee per city; each continent has its own benefits, and each city's benefits differ within the continent.*
+
+| Change | Was | Now | Reason |
+|---|---|---|---|
+| One employee of a team per city (`deployment.allowSameCity`) | allowed | **not allowed** (headquarters included); refused on entry; check R2_SAME_CITY always blocks | The event rule. A team's five employees go to five different cities. Other teams may use the same city. A Super Administrator can relax it as a logged scenario change. |
+| City role bonuses | some cities had none, some shared one | in every continent the five cities favour five different job areas (+5% to +15%, added to the continent's bonus, capped at ±20%) | Each city's benefits must differ within its continent, and with one employee per city the choice of city should reward the right person in the right place. Full table: MODEL.md section 8. |
+| Ironvale role bonus | supply chain −5% | supply chain +10% (supplier park; long shipment times kept as logistics −12) | Every city now has a strength; its disadvantage stays in its figures. |
+| Customer Relations, Marketing, Product Development, Operations Manager effects | city scope: +6%, +30%, +10%, +15% (and 15% operating-cost saving) | continent scope: +5%, +15%, +8%, +10% (and 15% operating-cost saving in the continent) | With one employee per city a city-scoped effect could never reach a colleague, so these roles were worthless. Continent scope reaches colleagues in the other cities; the strengths were lowered because they now reach more people. |
+| Practice sample allocations | several employees in one city | every team uses five different cities | They must obey the rule. |
+| Balance strategies | "concentrated" put everyone in one city | replaced by "one continent" (the five cities of one foreign continent); every strategy uses five different cities | Plans the rule forbids cannot be tested. |
+
+Balance pass after the change (20 auctions, 80 team-plans): "earners" (each earner in the best free foreign city) is best for 49 teams, "cluster" (three earners and two specialists in one continent) for 16 and "one continent" for 15. Home-only, scattered and random plans never win.
+
 ## 1.0.0 — first release (model version 1.0.0)
 
 The organiser-only platform for JACO CORP 2026 Round 4: Round 1 (CV auction) and Round 2 (global business expansion). Built to the development brief: server-enforced roles, a deterministic engine, a configurable compliance engine, an audit log, backups, practice sessions, Excel/PDF/JSON exports, and the brief's 25 acceptance tests (`tests/acceptance.test.mjs`).

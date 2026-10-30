@@ -30,8 +30,8 @@ Give each person their own account. Never share a password. Settings and Backup 
    - create a **Practice** session for rehearsals. Practice sessions are labelled with a yellow **PRACTICE** band on every screen; nothing done in them can touch the official session.
 3. **Review the configuration** in the official session, in this order. Everything starts as fictional sample data and can be edited:
    1. *Event Configuration → Event and period* — event name, currency, the evaluation period (12 months from January 2027).
-   2. *Event Configuration → Rules of play* — team size (5), acquisition budget rules, deployment limits.
-   3. *Team and Continent Setup* — team labels, home continents, headquarters, business profiles; every continent and city figure.
+   2. *Event Configuration → Rules of play* — team size (5), acquisition budget rules, deployment limits. The event rule *one employee of a team per city* is on from the start.
+   3. *Team and Continent Setup* — team labels, home continents, headquarters, business profiles; every continent and city figure. Each continent has its own benefits, and each of its five cities adds benefits of its own (the *City role bonus* column shows which job area each city favours). MODEL.md section 8 lists them all.
    4. *Employee CV Repository* — the twenty CVs and their starting bids.
    5. *Legal and Compliance Engine → Rules* — read each rule, then **Approve** it (or *Approve all drafts*). In the official session every rule starts as a draft and does not apply until approved.
    6. *Event Configuration → Financial assumptions* and *Scoring and ranking* — the costs, the ranking weights (they must total 100%) and the tie-break order.
@@ -75,7 +75,9 @@ The team cards on the right show each team's count (for example 4/5), bids, hiri
 ### 4.1 Enter the written allocations
 Open **Global Expansion** and choose the team's tab. For each employee on the team's form:
 1. **Record deployment**: city, job role, assignment type, annual salary at the destination (in rupees, or in local currency), planned start month, number of months, time share, relocation package, and whether training, a local partner or an office is provided. Optional notes: responsibility, business unit, permits.
-2. The form refuses an employee hired by another team, and an assignment that overlaps another for the same person.
+   - When you choose the city, the form shows **what it offers**: the continent's benefits and disadvantages on the left, the city's own on the right, and the role bonus the employee would get there.
+   - **One employee per city:** cities the team already uses for another employee are greyed out, headquarters included. A team's five employees always go to five different cities.
+2. The form refuses an employee hired by another team, a second employee in a city the team already uses, and an assignment that overlaps another for the same person.
 3. Tick **Written allocation received** for the team, with the form's reference.
 
 Each saved deployment immediately shows its effective productivity, role suitability, Regional Opportunity Score, revenue, costs and compliance. Click **ⓘ formula** on any figure to see exactly how it was worked out.
@@ -149,6 +151,7 @@ Each report is rebuilt and checked against the stored result before it is produc
 | Two operators edited the same thing | The second save is refused with “Someone else changed this record a moment ago”. The screen refreshes: check it and save again. |
 | A wrong entry in a deployment, compliance record or setting | **Audit Log** → find the entry → **Revert** (Super Administrator, with a reason). If the record has been changed again since, revert the later change first or edit it directly. |
 | A wrong auction result | CV Auction → **Correct this result** (Super Administrator, with a reason). This works before or after the lock. |
+| A team's form puts two employees in the same city | The platform will not record the second one. Ask the team which employee goes elsewhere, as your event rules say, and record that. Only a Super Administrator can switch the rule off (Event Configuration → Rules of play), with a reason. |
 | A rule of play must change during the event | Super Administrator only. The change asks for a reason and is logged as a **scenario change**. Formula and scoring settings must be unlocked first (also with a reason). |
 | “Calculation outdated” | Something changed after the calculation. Run it again. |
 | An export says the official result “could not be reproduced” | The stored data was changed outside the platform. Do not use the figures. Restore the backup taken at finalisation (Settings and Backup → Backups and recovery) and export again. |
@@ -169,6 +172,7 @@ Each report is rebuilt and checked against the stored result before it is produc
 | The round is live: only a Super Administrator may authorise a scenario change | Configuration is frozen for operators once the auction starts. |
 | Round 1 is locked | Auction results can now be changed only through a correction. |
 | Round 2 is finalised | Nothing that affects the result can change until a Super Administrator reopens Round 2. |
+| … already has … in … Each team may place only one employee in a city | That team already has another employee in this city. Choose another city. |
 | The formulas … are locked | Unlock them first (Event Configuration → Visibility and lock), with a reason. |
 | Confirm … | The action is irreversible or important; tick or type the confirmation. |
 | Only a Super Administrator can edit continents and cities | Some regional values are hidden from operators, so operators cannot save region forms. |

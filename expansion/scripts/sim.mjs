@@ -119,46 +119,37 @@ export function strategyPlan(doc, teamId, kind, rand = Math.random) {
   const earnerScore = (e) => Math.max(...ER.map((r) => capabilityFit(e, r).value * r.revenueFactor));
   const sorted = [...emps].sort((a, b) => earnerScore(b) - earnerScore(a));
   const plan = [];
-  const put = (e, cityId, roleId) => plan.push(goodDeployment(ctx, team, e, cityId, roleId));
+  const used = new Set(); // the event rule: one employee of a team per city
+  const put = (e, cityId, roleId) => { used.add(cityId); plan.push(goodDeployment(ctx, team, e, cityId, roleId)); };
+  const free = (list) => list.filter((c) => !used.has(c.id));
+  const bestCity = (e, roleId, list) => free(list).map((x) => ({ x, v: rateOf(ctx, team, e, x.id, roleId) })).sort((a, b) => b.v - a.v)[0].x;
+  const pick = (list) => { const f = free(list); return f[Math.floor(rand() * f.length)]; };
+  const conts = [...new Set(foreign.map((c) => c.continentId))];
+  // the foreign continent where the team's top earners would earn most
+  const bestContinent = () => {
+    const score = (k) => sorted.slice(0, 3).reduce((s, e) => s + Math.max(...foreign.filter((c) => c.continentId === k).map((c) => rateOf(ctx, team, e, c.id, bestRole(e, ER).id))), 0);
+    return [...conts].sort((a, b) => score(b) - score(a))[0];
+  };
   if (kind === 'home') {
-    for (const e of emps) { const r = bestRole(e, ER); const c = home.map((x) => ({ x, v: rateOf(ctx, team, e, x.id, r.id) })).sort((a, b) => b.v - a.v)[0].x; put(e, c.id, r.id); }
+    for (const e of sorted) { const r = bestRole(e, ER); put(e, bestCity(e, r.id, home).id, r.id); }
   } else if (kind === 'scattered') {
-    for (const e of emps) { const c = foreign[Math.floor(rand() * foreign.length)]; put(e, c.id, bestRole(e, ER).id); }
+    for (const e of emps) put(e, pick(foreign).id, bestRole(e, ER).id);
   } else if (kind === 'random') {
     const all = [...ctx.roles.values()];
-    for (const e of emps) { const c = cities[Math.floor(rand() * cities.length)]; put(e, c.id, all[Math.floor(rand() * all.length)].id); }
-  } else {
-    // pick the foreign continent where the team's top earners would earn most
-    const conts = [...new Set(foreign.map((c) => c.continentId))];
-    const score = (k) => sorted.slice(0, 3).reduce((s, e) => s + Math.max(...foreign.filter((c) => c.continentId === k).map((c) => rateOf(ctx, team, e, c.id, bestRole(e, ER).id))), 0);
-    const k = conts.sort((a, b) => score(b) - score(a))[0];
-    const kc = foreign.filter((c) => c.continentId === k);
-    if (kind === 'concentrated') {
-      const c = kc.map((x) => ({ x, v: sorted.slice(0, 3).reduce((s, e) => s + rateOf(ctx, team, e, x.id, bestRole(e, ER).id), 0) })).sort((a, b) => b.v - a.v)[0].x;
-      for (const e of emps) put(e, c.id, bestRole(e, ER).id);
-    } else if (kind === 'earners') {
-      const used = {};
-      for (const e of sorted) {
-        const r = bestRole(e, ER);
-        const c = kc.map((x) => ({ x, v: rateOf(ctx, team, e, x.id, r.id) * ((used[`${x.id}|${r.mechanism}`] || 0) ? 0.6 : 1) })).sort((a, b) => b.v - a.v)[0].x;
-        used[`${c.id}|${r.mechanism}`] = (used[`${c.id}|${r.mechanism}`] || 0) + 1;
-        put(e, c.id, r.id);
-      }
-    } else { // cluster: three earners, two specialists alongside them
-      const used = {};
-      const earners = sorted.slice(0, 3); const helpers = sorted.slice(3);
-      let anchor = null;
-      for (const e of earners) {
-        const r = bestRole(e, ER);
-        const c = kc.map((x) => ({ x, v: rateOf(ctx, team, e, x.id, r.id) * ((used[`${x.id}|${r.mechanism}`] || 0) ? 0.6 : 1) })).sort((a, b) => b.v - a.v)[0].x;
-        used[`${c.id}|${r.mechanism}`] = (used[`${c.id}|${r.mechanism}`] || 0) + 1;
-        anchor ||= c.id;
-        put(e, c.id, r.id);
-      }
-      for (const e of helpers) put(e, anchor, bestFitRole(e, SR).id);
-    }
+    for (const e of emps) put(e, pick(cities).id, all[Math.floor(rand() * all.length)].id);
+  } else if (kind === 'earners') {
+    // everyone in an earning role, each in the best free foreign city, wherever it is
+    for (const e of sorted) { const r = bestRole(e, ER); put(e, bestCity(e, r.id, foreign).id, r.id); }
+  } else if (kind === 'one-continent') {
+    // all five in the five cities of one foreign continent, each in an earning role
+    const kc = foreign.filter((c) => c.continentId === bestContinent());
+    for (const e of sorted) { const r = bestRole(e, ER); put(e, bestCity(e, r.id, kc).id, r.id); }
+  } else { // cluster: three earners and two specialists in one foreign continent, each in their best city
+    const kc = foreign.filter((c) => c.continentId === bestContinent());
+    for (const e of sorted.slice(0, 3)) { const r = bestRole(e, ER); put(e, bestCity(e, r.id, kc).id, r.id); }
+    for (const e of sorted.slice(3)) { const r = bestFitRole(e, SR); put(e, bestCity(e, r.id, kc).id, r.id); }
   }
   return plan;
 }
 
-export const STRATEGIES = ['cluster', 'earners', 'concentrated', 'home', 'scattered', 'random'];
+export const STRATEGIES = ['cluster', 'earners', 'one-continent', 'home', 'scattered', 'random'];

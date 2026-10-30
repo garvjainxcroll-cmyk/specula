@@ -232,13 +232,16 @@ describe('Acceptance tests (brief section 16)', () => {
     }
     // changing one city's adjustment changes deployments there and nowhere else
     const doc2 = practiceDoc();
-    const kin = doc2.cities.find((c) => c.id === 'SOL-KIN');
-    kin.adj = { ...kin.adj, marketDemand: (kin.adj?.marketDemand || 0) + 15 };
+    const nor = doc2.cities.find((c) => c.id === 'SOL-NOR');
+    nor.adj = { ...nor.adj, marketDemand: (nor.adj?.marketDemand || 0) + 15 };
     const r2 = computeAll(doc2);
-    assert.ok(r2.deployments.D002.market.value > res.deployments.D002.market.value); // in Kinshaven
-    assert.ok(r2.deployments.D002.revenueRate > res.deployments.D002.revenueRate);
-    assert.deepEqual(r2.deployments.D012.market, res.deployments.D012.market); // elsewhere in Solmera
-    assert.equal(r2.deployments.D012.revenueRate, res.deployments.D012.revenueRate);
+    const at = (r, emp) => Object.values(r.deployments).find((d) => d.employeeId === emp);
+    assert.equal(at(res, 'E16').cityId, 'SOL-NOR');
+    assert.ok(at(r2, 'E16').market.value > at(res, 'E16').market.value); // in Northbridge
+    assert.ok(at(r2, 'E16').revenueRate > at(res, 'E16').revenueRate);
+    assert.equal(at(res, 'E08').cityId, 'SOL-OAK');
+    assert.deepEqual(at(r2, 'E08').market, at(res, 'E08').market); // elsewhere in Solmera
+    assert.equal(at(r2, 'E08').revenueRate, at(res, 'E08').revenueRate);
   });
 
   test('AT12 mandatory legal requirements are checked before a deployment is approved', async () => {
@@ -423,13 +426,13 @@ describe('Acceptance tests (brief section 16)', () => {
     v = await h.must(tok, id, 'calc.run');
     assert.equal(v.calc.current, true);
     const before = Object.fromEntries(v.results.ranking.rows.map((r) => [r.teamId, r]));
-    // Team B pays its business developer far more
-    const d = depOf(v, 'E01');
+    // Team A (between the lowest and the highest team) pays its sales lead far more
+    const d = depOf(v, 'E16');
     await h.must(tok, id, 'deploy.update', { id: d.id, patch: { salary: { amount: d.salary.amount * 3, currency: 'base' } } });
     v = await h.view(tok, id);
     const after = Object.fromEntries(v.results.ranking.rows.map((r) => [r.teamId, r]));
-    assert.ok(after.B.combined < before.B.combined);
-    assert.ok(after.B.overall < before.B.overall);
+    assert.ok(after.A.combined < before.A.combined);
+    assert.ok(after.A.overall < before.A.overall);
     assert.equal(after.D.combined, before.D.combined);
     // the stored calculation is now outdated and cannot be finalised until it is run again
     assert.equal(v.calc.current, false);

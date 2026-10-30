@@ -17,18 +17,18 @@ const dep = (employeeId, cityId, roleId, assignmentTypeId, salaryL, o = {}) => (
   timeShare: 100, responsibility: o.resp || '', businessUnit: o.unit || 'Retail', contribution: '', permitsObtained: '', notes: '',
 });
 
-// written allocations as the teams might submit them
+// written allocations as the teams might submit them: one employee per city, as the event rule requires
 export const PRACTICE_DEPLOYMENTS = {
   A: [
     dep('E06', 'SOL-KIN', 'supply-chain', 'fixed-term', 38),
-    dep('E16', 'SOL-KIN', 'sales-lead', 'fixed-term', 42),
-    dep('E05', 'SOL-KIN', 'ihrm', 'regional-leadership', 40, { pkg: 'family' }),
+    dep('E16', 'SOL-NOR', 'sales-lead', 'fixed-term', 42),
+    dep('E05', 'SOL-LAR', 'ihrm', 'regional-leadership', 40, { pkg: 'family' }),
     dep('E19', 'AST-CRE', 'finance', 'permanent', 21, { pkg: 'none', office: false }),
     dep('E13', 'SOL-MER', 'customer', 'fixed-term', 12, { training: true }),
   ],
   B: [
     dep('E01', 'AST-AUR', 'bizdev', 'regional-leadership', 72),
-    dep('E03', 'AST-AUR', 'sales-lead', 'fixed-term', 34),
+    dep('E03', 'AST-BEL', 'sales-lead', 'fixed-term', 34),
     dep('E11', 'AST-CRE', 'product-dev', 'fixed-term', 32),
     dep('E09', 'VES-FAI', 'compliance', 'permanent', 44, { pkg: 'none', office: false }),
     dep('E18', 'SOL-KIN', 'supply-chain', 'specialist-project', 12, { months: 9, training: true }),
@@ -37,15 +37,15 @@ export const PRACTICE_DEPLOYMENTS = {
     dep('E15', 'CAL-ROS', 'regional-gm', 'regional-leadership', 72),
     dep('E08', 'SOL-OAK', 'tech-lead', 'permanent', 26, { pkg: 'none' }),
     dep('E12', 'CAL-QUE', 'supply-chain', 'fixed-term', 22, { pkg: 'standard', training: true }),
-    dep('E14', 'CAL-ROS', 'risk-manager', 'fixed-term', 40),
-    dep('E17', 'CAL-ROS', 'bizdev', 'fixed-term', 14, { training: true }),
+    dep('E14', 'CAL-PIN', 'risk-manager', 'fixed-term', 40),
+    dep('E17', 'CAL-THO', 'bizdev', 'fixed-term', 14, { training: true }),
   ],
   D: [
     dep('E10', 'CAL-PIN', 'strategy-director', 'permanent', 78, { pkg: 'none', office: false }),
     dep('E02', 'VES-GLE', 'finance', 'fixed-term', 42),
-    dep('E07', 'VES-GLE', 'operations', 'fixed-term', 34, { pkg: 'family' }),
+    dep('E07', 'VES-HIG', 'operations', 'fixed-term', 34, { pkg: 'family' }),
     dep('E20', 'VES-JUN', 'tech-lead', 'fixed-term', 46, { pkg: 'family', partner: true, office: false }),
-    dep('E04', 'VES-GLE', 'ihrm', 'fixed-term', 19, { start: '2027-02', months: 11 }),
+    dep('E04', 'VES-IRO', 'ihrm', 'fixed-term', 19, { start: '2027-02', months: 11 }),
   ],
 };
 

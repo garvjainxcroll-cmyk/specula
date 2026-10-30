@@ -6,6 +6,7 @@ Round 1 (CV Auction) and Round 2 (Global Business Expansion).
 - **Who uses it:** the Event Control Team only — Super Administrators, Event Operators and Read-only Control Officers. There are no participant or judge accounts. Teams hand in their decisions on paper or forms; an operator types them in exactly as submitted.
 - **What it does:** records the official auction results, the teams' employee deployments and the compliance facts, then calculates revenue, costs, profit, compliance and rankings with one deterministic engine, and produces Excel, PDF and JSON reports.
 - **All sample data is fictional:** 4 continents, 20 cities, 20 CVs, 18 legal rules, 4 company profiles. Review and edit it before the event.
+- **Event rule:** each continent has five cities; a team may place only one employee in any city. Each continent has its own benefits, and each city adds benefits of its own (MODEL.md section 8).
 
 ## Start here
 1. **Put it online:** [DEPLOY.md](DEPLOY.md) (about 20 minutes, no programming).
@@ -40,7 +41,7 @@ Round 1 (CV Auction) and Round 2 (Global Business Expansion).
 The full method, every formula and every range is in [MODEL.md](MODEL.md); how to run the event is in [ADMIN_GUIDE.md](ADMIN_GUIDE.md). In short: each deployment's productivity comes from the employee's capability fit for the role, how much the role matters in that city, and the city's conditions; revenue follows from the city's opportunity, market strength, growth and the months actually worked; costs are counted month by month in clear categories; every total is the sum of rounded lines, so all reports reconcile exactly.
 
 ## Tests
-`npm test` runs 57 automated tests, including the brief's **25 acceptance tests** (`tests/acceptance.test.mjs`, numbered AT01–AT25 as in the brief). The rest cover the calculation engine, sign-in and permissions, confidentiality, simultaneous edits, finalisation, versions, backups and reverting. `npm run e2e` walks a full rehearsal in a real browser.
+`npm test` runs 66 automated tests, including the brief's **25 acceptance tests** (`tests/acceptance.test.mjs`, numbered AT01–AT25 as in the brief). The rest cover the calculation engine, the one-employee-per-city rule and the city benefits (`tests/cities.test.mjs`), sign-in and permissions, confidentiality, simultaneous edits, finalisation, versions, backups and reverting. `npm run e2e` walks a full rehearsal in a real browser.
 
 ## For developers
 - `npm install`, then `npm run dev` (http://localhost:8890), `npm test`, `npm run balance`, `npm run e2e`, `npm run zip` (a downloadable copy of the project).

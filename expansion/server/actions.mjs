@@ -518,6 +518,17 @@ function overlapProblem(doc, dep, excludeId) {
   return null;
 }
 
+// one employee of a team per city (unless Event Control allows more)
+function cityProblem(doc, dep, excludeId) {
+  const dcfg = doc.config.deployment;
+  const others = new Set(doc.deployments.filter((d) => d.teamId === dep.teamId && d.cityId === dep.cityId && d.id !== excludeId && d.employeeId !== dep.employeeId).map((d) => d.employeeId));
+  const cityName = doc.cities.find((c) => c.id === dep.cityId)?.name || dep.cityId;
+  const team = doc.teams.find((t) => t.id === dep.teamId)?.label || dep.teamId;
+  if (!dcfg.allowSameCity && others.size) return `${team} already has ${[...others].map((id) => empName(doc, id)).join(', ')} in ${cityName}. Each team may place only one employee in a city; choose another city.`;
+  if (dcfg.maxPerCity && others.size + 1 > dcfg.maxPerCity) return `${team} already has ${others.size} employee(s) in ${cityName}, the maximum of ${dcfg.maxPerCity} per city.`;
+  return null;
+}
+
 H['deploy.create'] = { perm: 'deploy.record', run(x) {
   const { doc, p } = x;
   r2Guard(doc);
@@ -537,6 +548,8 @@ H['deploy.create'] = { perm: 'deploy.record', run(x) {
   };
   const ov = overlapProblem(doc, dep, null);
   if (ov) refuse('OVERLAP', ov);
+  const cp = cityProblem(doc, dep, null);
+  if (cp) refuse('CITY_TAKEN', cp);
   doc.depSeq = (doc.depSeq || 0) + 1;
   doc.deployments.push(dep);
   return { summary: `Recorded deployment ${dep.id}: ${empName(doc, dep.employeeId)} (${t.label}) to ${doc.cities.find((c) => c.id === dep.cityId)?.name}`, target: { kind: 'deployment', id: dep.id }, changes: diff(null, dep), revert: recordRevert('deployments', dep.id, null, dep) };
@@ -553,6 +566,7 @@ H['deploy.update'] = { perm: 'deploy.record', run(x) {
   Object.assign(d, f);
   const ov = overlapProblem(doc, d, d.id);
   if (ov) refuse('OVERLAP', ov);
+  if (d.cityId !== before.cityId || d.employeeId !== before.employeeId) { const cp = cityProblem(doc, d, d.id); if (cp) refuse('CITY_TAKEN', cp); }
   const material = diff(before, d).some((c) => !['notes', 'responsibility', 'contribution', 'businessUnit', 'permitsObtained'].includes(c.path));
   let reset = false;
   if (material && d.approval?.state !== 'pending') { d.approval = { state: 'pending' }; reset = true; }
@@ -765,6 +779,7 @@ H['audit.revert'] = { perm: 'audit.revert', run(x) {
     if (rv.coll === 'deployments') r2Guard(doc); else configGuard(x, { formula: rv.coll === 'revenueModels' });
     const cur = findIn(doc, rv.coll, rv.id) || null;
     need(same(cur, rv.after), 'CHANGED_SINCE', 'This record has changed since; revert the later change first, or edit it directly.');
+    if (rv.coll === 'deployments' && rv.before) { const cp = cityProblem(doc, rv.before, rv.id); if (cp) refuse('CITY_TAKEN', cp); }
     if (rv.before === null) doc[rv.coll] = doc[rv.coll].filter((y) => y.id !== rv.id);
     else if (cur === null) { doc[rv.coll].push(clone(rv.before)); if (rv.compliance) doc.compliance[rv.id] = clone(rv.compliance); }
     else doc[rv.coll] = doc[rv.coll].map((y) => (y.id === rv.id ? { ...clone(rv.before), rev: (cur.rev || 0) + 1 } : y));

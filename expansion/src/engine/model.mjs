@@ -1,7 +1,7 @@
 // The vocabulary of the Round 4 model: capability keys, regional attributes, statuses,
 // cost categories and the validation checklist. Pure data, shared by engine and server.
 
-export const MODEL_VERSION = '1.0.0';
+export const MODEL_VERSION = '1.1.0';
 
 // ---------------- capabilities (all scored 1–100) ----------------
 export const TECH_KEYS = ['finance', 'sales', 'hr', 'ihrm', 'legal', 'operations', 'supplyChain', 'bizDev', 'data', 'strategy'];
@@ -200,7 +200,7 @@ export const CHECKS = {
   R2_MIN_HOME: { stage: 'round2', fixed: false, severity: 'blocking', title: 'Minimum employees kept in the home continent' },
   R2_SENIOR_HQ: { stage: 'round2', fixed: false, severity: 'blocking', title: 'A senior executive stays at headquarters' },
   R2_FOREIGN_LIMIT: { stage: 'round2', fixed: false, severity: 'blocking', title: 'Number of foreign continents entered' },
-  R2_SAME_CITY: { stage: 'round2', fixed: false, severity: 'blocking', title: 'Several employees in one city' },
+  R2_SAME_CITY: { stage: 'round2', fixed: true, severity: 'blocking', title: 'At most one employee of a team in each city' },
   R2_NO_PRESENCE: { stage: 'round2', fixed: false, severity: 'blocking', title: 'Deployment to a city with no prior presence' },
   R2_NO_SUPPORT: { stage: 'round2', fixed: false, severity: 'blocking', title: 'Deployment with neither local office nor partner' },
   R2_SALARY_MIN: { stage: 'round2', fixed: false, severity: 'blocking', title: 'Salary at or above the employee’s minimum acceptable salary' },

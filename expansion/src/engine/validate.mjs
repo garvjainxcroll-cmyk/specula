@@ -195,7 +195,7 @@ export function round2Issues(ctx, r1res, r2res) {
     const perCity = distinct((d) => d.cityId); const perCont = distinct((d) => d.continentId);
     if (dcfg.maxPerCity) for (const [c, s] of perCity) if (s.size > dcfg.maxPerCity) push('R2_MAX_CITY', `${t.label}: ${s.size} employees in ${ctx.cities.get(c)?.name} (maximum ${dcfg.maxPerCity}).`, tref);
     if (dcfg.maxPerContinent) for (const [k, s] of perCont) if (s.size > dcfg.maxPerContinent) push('R2_MAX_CONTINENT', `${t.label}: ${s.size} employees in ${ctx.continents.get(k)?.name} (maximum ${dcfg.maxPerContinent}).`, tref);
-    if (!dcfg.allowSameCity) for (const [c, s] of perCity) if (s.size > 1) push('R2_SAME_CITY', `${t.label}: ${s.size} employees in ${ctx.cities.get(c)?.name}; only one per city is allowed.`, tref);
+    if (!dcfg.allowSameCity) for (const [c, s] of perCity) if (s.size > 1) push('R2_SAME_CITY', `${t.label}: ${s.size} employees in ${ctx.cities.get(c)?.name} (${[...s].sort().join(', ')}); a team may place only one employee in each city.`, tref);
     const foreign = [...perCont.keys()].filter((k) => k !== t.homeContinentId);
     if (dcfg.maxForeignContinents !== null && dcfg.maxForeignContinents !== undefined && foreign.length > dcfg.maxForeignContinents) push('R2_FOREIGN_LIMIT', `${t.label} enters ${foreign.length} foreign continents (maximum ${dcfg.maxForeignContinents}).`, tref);
     const prof = ctx.profiles[t.id];

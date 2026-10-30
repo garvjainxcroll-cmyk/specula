@@ -138,10 +138,10 @@ function deploymentRules(ctx) {
     { key: 'maxPerCity', label: 'Maximum employees per city', type: 'nullnum', min: 1 }, { key: 'maxPerContinent', label: 'Maximum employees per continent', type: 'nullnum', min: 1 },
     { key: 'minHomeRetained', label: 'Employees that must stay in the home continent (every month)', min: 0, max: 10, step: 1 },
     { key: 'maxForeignContinents', label: 'Maximum foreign continents a team may enter', type: 'nullnum', min: 0, help: 'Empty = a team may enter every foreign continent' },
-    { key: 'seniorAtHQ', label: 'A senior executive must stay at headquarters', type: 'bool' }, { key: 'allowSameCity', label: 'Several employees may work in the same city', type: 'bool' },
+    { key: 'seniorAtHQ', label: 'A senior executive must stay at headquarters', type: 'bool' }, { key: 'allowSameCity', label: 'Several employees of a team may work in the same city', type: 'bool', help: 'Off (the event rule) = each team may place at most one employee in any city, headquarters included, so its five employees go to five different cities. Other teams may use the same city.' },
     { key: 'allowNoPresence', label: 'Employees may go to a city with no prior presence', type: 'bool' }, { key: 'requireOfficeOrPartner', label: 'Every deployment needs a local office or partner', type: 'bool' },
     { key: 'splitAssignments', label: 'Allow split (concurrent) assignments with time shares', type: 'bool' },
-  ], { title: 'Round 2 deployment rules', intro: `No restriction applies unless it is set here. Permitted assignment types: ${v.allowedAssignmentTypes.map((id) => types.find((t) => t.id === id)?.name || id).join(', ')} (change them under Job roles and assignments).` });
+  ], { title: 'Round 2 deployment rules', intro: `Only the restrictions set here apply. Permitted assignment types: ${v.allowedAssignmentTypes.map((id) => types.find((t) => t.id === id)?.name || id).join(', ')} (change them under Job roles and assignments).` });
   return card0;
 }
 

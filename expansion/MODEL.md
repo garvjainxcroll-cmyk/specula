@@ -40,6 +40,8 @@ The auction happens in the room. The platform records each outcome and works out
 
 Each deployment record says: which employee, which team, which city, which job role, which assignment type, the salary, the start month and the number of months, the time share, the relocation package, and whether training, a local partner or an office is provided.
 
+**One employee per city.** A team may place at most one of its employees in any one city. The headquarters city counts too. So a team's five employees go to five different cities, in one continent or several. Other teams may use the same city. The server refuses a second employee of the same team in a city when it is entered. Only a Super Administrator can relax the rule (*Several employees of a team may work in the same city*, Event Configuration → Rules of play); it is a logged scenario change once the event is live.
+
 Definitions used below:
 
 - **International**: the destination continent is not the employee's own (origin) continent.
@@ -86,7 +88,7 @@ For each active month *m*:
 | Compliance reduction | the revenue impact of unresolved, non-blocking mandatory requirements (capped at 100%) |
 | Growth(m) | 1 + annual growth rate × (m − 0.5) ÷ 12 |
 | Ramp-up(m) | for the k-th month of the assignment: 0 during the onboarding months *O*; then (k − O) ÷ (R + 1) during the ramp-up months *R*; then 1 |
-| Shared credit(m) | earners of the same kind of revenue share customers. Ranked by their monthly rate: in the **same city** the 1st, 2nd, 3rd… earner get 1, 0.6, 0.4, 0.25, 0.15 of their revenue; in the **same continent** they also get 1, 0.9, 0.8, 0.7, 0.6. The two are multiplied. |
+| Shared credit(m) | earners of the same kind of revenue in the **same continent** share customers. Ranked by their monthly rate, the 1st, 2nd, 3rd… earner get 1, 0.9, 0.8, 0.7, 0.6 of their revenue. (If Event Control allows several employees per city, earners in the same city also share: 1, 0.6, 0.4, 0.25, 0.15, multiplied in.) |
 
 A deployment **blocked** by a mandatory legal requirement earns no revenue at all.
 
@@ -102,7 +104,7 @@ Support roles earn no direct revenue; they change the team's figures through **e
 | Cost saving | removes strength × an eligible cost in scope (operating costs, logistics, currency conversion, compliance, tax) | all savings on one cost together at most 50% |
 | Risk mitigation | recovers part of the revenue lost to the risk discount in scope | at most the whole discount |
 
-Enabled revenue is credited to the specialist who enables it, so each employee's contribution is counted once. The sample roles: Customer Relations (+6% city), Marketing (+30% city, with a campaign budget), Product Development (+10% city), Regional General Manager (+15% continent), Corporate Strategy Director (+8% team), Operations Manager (+15% city, saves 15% of operating costs), Supply Chain Lead (saves 50% of logistics, +12% continent), Finance Controller (saves 20% of operating costs, 60% of currency costs and 40% of tax in its continent), IHRM Manager (+20% for international colleagues, saves 25% of compliance costs), Legal and Compliance Officer (saves 60% of compliance costs, +10%), Risk Manager (recovers up to 80% of the risk discount).
+Enabled revenue is credited to the specialist who enables it, so each employee's contribution is counted once. Because a team has only one employee in each city, every sample effect reaches colleagues in the other cities of the same continent (or the whole team). The sample roles: Customer Relations (+5% continent), Marketing (+15% continent, with a campaign budget), Product Development (+8% continent), Regional General Manager (+15% continent), Corporate Strategy Director (+8% team), Operations Manager (+10% continent, saves 15% of operating costs in the continent), Supply Chain Lead (saves 50% of logistics, +12% continent), Finance Controller (saves 20% of operating costs, 60% of currency costs and 40% of tax in its continent), IHRM Manager (+20% for international colleagues, saves 25% of compliance costs), Legal and Compliance Officer (saves 60% of compliance costs, +10%), Risk Manager (recovers up to 80% of the risk discount).
 
 ---
 
@@ -145,7 +147,7 @@ Costs are counted month by month and fall into three groups.
 | Non-compliance penalties | the rule's penalty for each confirmed violation |
 | Blocker penalty | a fixed amount per blocked deployment, if one is configured (0 by default) |
 | Interruptions | ₹3 L when a disclosed CV risk cuts an assignment short |
-| Duplicated expenditure | 10% of salary for a second holder of the same role in the same city |
+| Duplicated expenditure | 10% of salary for a second holder of the same role in the same city (possible only if Event Control allows several employees per city) |
 
 ---
 
@@ -209,7 +211,46 @@ City figures come from the continent, adjusted by the city: **scores** and **rat
 
 ---
 
-## 8. Ranking
+## 8. Continent benefits and city benefits
+
+Every continent has benefits and disadvantages that apply in all five of its cities. Every city then adds benefits of its **own**, so no two cities of a continent are the same:
+
+- **The city's adjustments** change the continent's figures for that city only (demand, purchasing power, growth, costs, tax, logistics, talent, risk and so on), as described in section 7.
+- **The city's role bonus**: within each continent, the five cities favour five different job areas. The bonus is **added** to the continent's bonus for the same job area, and the total is capped at ±20%. It raises the productivity of an employee whose job role is in that area (section 3.1).
+- **Special scenario modifiers** (a grant, a trade fair) apply to that city only.
+
+Because a team has only one employee per city, choosing which employee goes to which city is the key decision: the right person in the city that favours their job area.
+
+The sample figures (fictional):
+
+| Continent (benefits in every city) | City | City role bonus | The city's other benefits | The city's disadvantages |
+|---|---|---|---|---|
+| **Asteria**: finance +10%, technology and data +5% | Aurum City | Finance +10% (+20% in total) | Highest purchasing power (+8) | Most expensive city (operating costs +15%, labour +10%) |
+| | Bellhaven | Supply chain +15% | Lower shipping costs (−1 point), logistics +10 | Smaller market (demand −4) |
+| | Crestford | Technology and data +10% (+15% in total) | Skilled labour (talent +12) | Crowded market (competition +5) |
+| | Dunmere | Operations +15% | Low costs (operating −15%, labour −10%) | Lower purchasing power (−10) |
+| | Everwick | Business development +10% | Tax incentive zone (−8 points), little competition (−20) | Small market (demand −10), thin talent pool (−10) |
+| **Vespera**: sales +10%, business development +10% | Fairmont | Legal and compliance +15% | Wealthiest customers (purchasing power +12) | Local partner required (VES-02), operating costs +15% |
+| | Glenhaven | Finance +10% | Tax −10 points, grant (local costs −10%), simpler regulation (−15) | — |
+| | Highcrest | Operations +15% | — | Market volatility (risk +10), weaker infrastructure |
+| | Ironvale | Supply chain +10% | Lowest costs (operating −15%, labour −15%) | Long shipment times (logistics −12) |
+| | Juniper Bay | Sales +10% (+20% in total) | High demand and growth (+12, +3 points) | Local partner required (VES-02) |
+| **Solmera**: supply chain +15%, operations +10% | Kingsport | Supply chain +5% (+20% in total) | Logistics +6, shipping −1 point | Intense competition (+12), operating costs +10% |
+| | Larkspur | Operations +10% (+20% in total) | Low costs (operating −15%, labour −10%) | Lower purchasing power (−8), weaker infrastructure (−10) |
+| | Meridian | Business development +15% | Trade fair (revenue +5%), business opportunity +15 | — |
+| | Northbridge | Strategy and management +10% | Strong distribution (logistics +4, infrastructure +6) | — |
+| | Oakridge | Technology and data +15% | Skilled labour (talent +18) | Smaller market (demand −6) |
+| **Caldris**: legal and compliance +10%, strategy and management +10%, sales −5% | Pinehurst | Legal and compliance +10% (+20% in total) | Best infrastructure (+15), lower risk (−10) | — |
+| | Queenshaven | Supply chain +15% | Shipping −2.5 points, logistics +20 | — |
+| | Rosemont | Sales +15% (+10% in total) | High demand (+10), growth +2 points | — |
+| | Silverton | Finance +15% | Purchasing power +22 | Very high costs (operating +35%, labour +25%, relocation +20%); local hiring rule (CAL-04) |
+| | Thornfield | Operations +15% | Grant (local costs −15%), almost no competition (−20) | Weak infrastructure (−15), logistics −12; local hiring rule (CAL-04) |
+
+Every figure is editable in Team and Continent Setup. The Global Expansion screen shows the continent's and the city's benefits side by side as an operator enters a deployment, with the role bonus that applies.
+
+---
+
+## 9. Ranking
 
 **Weighted mode** (default): four components, each on 0–100:
 
@@ -226,7 +267,7 @@ The weights must total 100%. **Financial mode** ranks on the money figure alone.
 
 ---
 
-## 9. Checks before locking and finalising
+## 10. Checks before locking and finalising
 
 A check that **blocks** must be cleared before Round 1 can be locked or Round 2 finalised. A Super Administrator can change the severity of an *adjustable* check; *fixed* checks cannot be changed.
 
@@ -266,7 +307,7 @@ A check that **blocks** must be cleared before Round 1 can be locked or Round 2 
 | Round 2 | Minimum employees kept in the home continent | Blocks | Adjustable |
 | Round 2 | A senior executive stays at headquarters | Blocks | Adjustable |
 | Round 2 | Number of foreign continents entered | Blocks | Adjustable |
-| Round 2 | Several employees in one city | Blocks | Adjustable |
+| Round 2 | At most one employee of a team in each city | Blocks | Fixed |
 | Round 2 | Deployment to a city with no prior presence | Blocks | Adjustable |
 | Round 2 | Deployment with neither local office nor partner | Blocks | Adjustable |
 | Round 2 | Salary at or above the employee’s minimum acceptable salary | Blocks | Adjustable |
@@ -287,15 +328,15 @@ A check that **blocks** must be cleared before Round 1 can be locked or Round 2 
 | Round 2 | Team totals reconcile with employee and city records | Blocks | Fixed |
 | Round 2 | A current calculation has been run | Blocks | Fixed |
 
-The deployment rules that some of these checks enforce (maximum per city, minimum kept at home, and so on) are all switched off in the sample configuration.
+Of the deployment rules these checks enforce, only *one employee of a team per city* is switched on in the sample configuration; the others (maximum per continent, minimum kept at home, and so on) are off until Event Control sets them.
 
 ---
 
-## 10. Drafts, official results and versions
+## 11. Drafts, official results and versions
 
 - **Run calculation** stores a *draft*: a summary, a fingerprint of the full result and a fingerprint of every input that matters. Change any figure afterwards and the draft is marked **outdated** on every screen; finalising is refused until it is run again. Notes and timestamps do not count as inputs.
 - **Finalise Round 2** (Super Administrator, every blocking check cleared) stores **official result version 1**, with a copy of every input. A backup is taken automatically.
 - **Reopening** for correction needs a reason. The earlier version stays on file, marked as reopened; finalising again stores version 2, and so on.
 - **Exports** rebuild the figures from the stored inputs and compare them with the stored fingerprint. If they do not match exactly (for example, because the stored data was altered behind the system's back), the export is refused rather than producing figures that disagree with the record.
 
-The model version is shown on the Financial Calculation Engine screen and in every report (currently 1.0.0). Record any change to a formula or default in `CHANGELOG.md`.
+The model version is shown on the Financial Calculation Engine screen and in every report (currently 1.1.0). Record any change to a formula or default in `CHANGELOG.md`.

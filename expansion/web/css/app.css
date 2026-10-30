@@ -235,3 +235,13 @@ details.tableview > summary { cursor: pointer; font-size: 12px; color: var(--inf
   body { background: #fff; }
   .card { border: 0; padding: 0; }
 }
+
+/* what a destination offers: continent and city side by side */
+.place { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin: 2px 0 12px; }
+.place > div { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 9px 12px; }
+.place h4 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+.place ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; }
+.place li { margin: 2px 0; }
+.place li.minus::marker { color: var(--bad); }
+.place .bonus { grid-column: 1 / -1; background: var(--gold-wash); border-color: transparent; }
+@media (max-width: 760px) { .place { grid-template-columns: 1fr; } }
