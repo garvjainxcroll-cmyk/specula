@@ -2,6 +2,12 @@
 
 The printed guide is a promise to players. Where the guide gives a number or a rule, the code follows it exactly (`tests/guide.test.mjs` pins every one). Where the guide is silent or needed interpreting, the decision is recorded here. **Items marked ⚑ are interpretations you may want to confirm before the event.**
 
+## 2.1.1 — fix “Netlify Blobs has generated an internal error (401)” (31 October 2026)
+
+- **Cause.** The server function opened its Netlify Blobs store once and kept it for every later request. Netlify gives each request its own short-lived storage token, so a few minutes after the first visitor the kept token expired and every read and write failed with *“Netlify Blobs has generated an internal error (401 status code)”*.
+- **Fix.** The store is now opened afresh for every request (`netlify/functions/store.mjs`); this costs nothing (no network). Reads that hit a brief Netlify hiccup (a 5xx or a dropped connection) are tried twice more; writes are not retried there, because the game's read-check-write loop already handles them safely.
+- **Proof.** `tests/netlify-token.test.mjs` stands in for Netlify with a small Blobs server that gives every request a new token and refuses old ones. It fails on the old code with exactly this error and passes now. No game rule or number changed.
+
 ## 2.1.0 — capital, loans and compulsory trading notes (17 October 2026)
 
 **Requested by the Event Head.** Nothing printed in the guide changes; these are additions (the guide should mention them when it is reprinted).
